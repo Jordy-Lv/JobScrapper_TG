@@ -99,7 +99,17 @@ def test_payload_sin_url_y_con_ids_cortos(config, estado):
     [item] = ia.lotes[0]
     assert item["id"] == 0
     assert "url" not in item
-    assert {"titulo", "empresa", "ubicacion", "modalidad", "palabra_clave"} <= set(item)
+    assert {"titulo", "empresa", "ubicacion", "modalidad", "salario", "palabra_clave"} <= set(item)
+    assert item["nivel_filtrado_por_fuente"] is False
+
+
+def test_payload_indica_filtro_de_nivel_de_la_fuente(config, estado):
+    ia = IAFalsa(aceptar_todas())
+    clasificador = Clasificador(
+        config.clasificador, ia, estado, Filtros(config.filtros), frozenset({"linkedin"})
+    )
+    clasificador.clasificar([dudosa("Frontend Developer"), dudosa("Developer", "magneto")], AHORA)
+    assert [v["nivel_filtrado_por_fuente"] for v in ia.lotes[0]] == [True, False]
 
 
 def test_sin_dudosas_no_llama(config, estado):

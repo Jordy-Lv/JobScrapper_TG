@@ -55,11 +55,13 @@ class Clasificador:
         ia: ClienteIA | None,
         estado: Estado,
         filtros: Filtros,
+        fuentes_con_filtro_nivel: frozenset[str] = frozenset(),
     ) -> None:
         self.config = config
         self.ia = ia
         self.estado = estado
         self.filtros = filtros
+        self.fuentes_con_filtro_nivel = fuentes_con_filtro_nivel
 
     # --- persistencia -----------------------------------------------------------------------
 
@@ -181,7 +183,9 @@ class Clasificador:
                     "empresa": d.vacante.empresa,
                     "ubicacion": d.vacante.ubicacion,
                     "modalidad": d.vacante.modalidad,
+                    "salario": d.vacante.salario,
                     "palabra_clave": d.vacante.keyword,
+                    "nivel_filtrado_por_fuente": d.vacante.fuente in self.fuentes_con_filtro_nivel,
                     "descripcion": d.vacante.descripcion,
                 }
                 for indice, d in enumerate(lote)

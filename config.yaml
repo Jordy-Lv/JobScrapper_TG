@@ -122,6 +122,7 @@ fuentes:
     activa: true
     presupuesto: 3
     reservado_nucleo: 1
+    filtra_nivel: true   # f_E=1,2: solo prácticas y nivel de entrada
     opciones:
       location: Colombia
       f_E: "1,2"        # Prácticas y nivel de entrada
@@ -144,6 +145,7 @@ fuentes:
     activa: true
     presupuesto: 5
     reservado_nucleo: 1
+    filtra_nivel: true   # solo seniorities sin experiencia y junior
     opciones:
       por_pagina: 50
       # Filtro de nivel nativo (la API no filtra en el servidor: se aplica al parsear)
@@ -759,6 +761,12 @@ clasificador:
       etapa productiva.
     - Para nivel junior/entrada: "desarrollo", "infraestructura" (incluye DevOps, cloud y
       redes), "bases_datos", "soporte", "datos", "qa", "ciberseguridad" u "otros_ti".
+
+    Nivel: si el título no indica el nivel (por ejemplo "Frontend Developer" o "Ingeniero de
+    Infraestructura"), acéptala solo si hay evidencia de que es práctica, junior o de entrada:
+    "nivel_filtrado_por_fuente" es true, la descripción lo dice o el salario es de entrada
+    (en Colombia, más de unos 4,5 millones de pesos al mes suele indicar un cargo no junior).
+    Sin evidencia, recházala.
 
     Recibes un JSON con una lista "vacantes"; cada una tiene un "id". Responde SOLO con un
     JSON con esta forma, con una entrada por cada id recibido:

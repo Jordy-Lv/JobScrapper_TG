@@ -32,7 +32,7 @@
 
 - [x] 5.1 Implementar `filtros.py` con el veredicto en el orden de la spec, el alcance geográfico y la categoría por área. Verificar con tests parametrizados con todos los escenarios de `filtrado-vacantes`, incluidos DBA, datos, soporte, redes, QA, ciberseguridad, "Junior sin área", "Practicante Contable" y remoto restringido.
 - [x] 5.2 Implementar `ia_cliente.py` (chat JSON, saldo cacheado, presupuesto por propósito, `ia_uso` y sanitización). Verificar con tests usando respx: saldo bajo, 402, timeout, JSON inválido, tope diario, y que el payload no contiene token, clave ni chat id.
-- [ ] 5.3 Implementar `clasificador.py` (lote, ids cortos, validación pydantic, caché por huella, pendientes con vencimiento de 24 h y política sin IA). Verificar con tests de cada escenario de "Clasificación IA", "Caché" y "Respaldo", y probar con un fixture de 20 títulos dudosos reales contra DeepSeek, revisando los veredictos a mano.
+- [x] 5.3 Implementar `clasificador.py` (lote, ids cortos, validación pydantic, caché por huella, pendientes con vencimiento de 24 h y política sin IA). Verificar con tests de cada escenario de "Clasificación IA", "Caché" y "Respaldo", y probar con un fixture de 20 títulos dudosos reales contra DeepSeek, revisando los veredictos a mano.
 - [x] 5.4 Agregar las métricas de descarte por regla y del clasificador a la tabla `corridas` y al log. Verificar con un test de una corrida simulada que comprueba los conteos.
 
 ## 6. Publicación en Telegram

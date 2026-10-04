@@ -267,7 +267,10 @@ class Corrida:
         self.estado.marcar_inicializada(ahora)
 
     def _clasificar(self, resumen: ResumenCorrida) -> list[Vacante]:
-        clasificador = Clasificador(self.config.clasificador, self.ia, self.estado, self.filtros)
+        con_filtro = frozenset(n for n, f in self.config.fuentes.items() if f.filtra_nivel)
+        clasificador = Clasificador(
+            self.config.clasificador, self.ia, self.estado, self.filtros, con_filtro
+        )
         nuevas = [Dudosa(v, huella(v.titulo, v.empresa, v.clave)) for v in resumen.dudosas]
         resultado = clasificador.clasificar(nuevas, self.reloj())
         resumen.ia_aceptadas = len(resultado.aceptadas)

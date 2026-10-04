@@ -80,7 +80,7 @@ El sistema SHALL aceptar vacantes ubicadas en cualquier ciudad de Colombia y vac
 - **THEN** se rechaza por ubicación
 
 ### Requirement: Clasificación IA de vacantes dudosas
-El sistema SHALL enviar a la IA todas las vacantes dudosas de una corrida en una sola llamada por lote, hasta el máximo de vacantes por llamada configurado. Por cada vacante envía título, empresa, ubicación, modalidad, palabra clave y fragmento de descripción si existe. La IA MUST responder por cada vacante si se acepta, su categoría y un motivo breve. La IA MUST NOT recibir tokens, claves, cookies, ids de chat ni otros datos sensibles. La IA solo clasifica: no scrapea, no envía mensajes ni modifica configuración.
+El sistema SHALL enviar a la IA todas las vacantes dudosas de una corrida en una sola llamada por lote, hasta el máximo de vacantes por llamada configurado. Por cada vacante envía título, empresa, ubicación, modalidad, salario, palabra clave, fragmento de descripción si existe e indicación de si la fuente ya filtró por nivel de experiencia (como LinkedIn con prácticas y nivel de entrada). Si el título no indica el nivel, la IA MUST aceptarla solo cuando haya evidencia de que es práctica o junior (filtro de nivel de la fuente, descripción o salario). La IA MUST responder por cada vacante si se acepta, su categoría y un motivo breve. La IA MUST NOT recibir tokens, claves, cookies, ids de chat ni otros datos sensibles. La IA solo clasifica: no scrapea, no envía mensajes ni modifica configuración.
 
 #### Scenario: Dudosas clasificadas
 - **WHEN** una corrida produce 5 vacantes dudosas

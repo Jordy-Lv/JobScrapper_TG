@@ -67,6 +67,7 @@ class Fuente(Modelo):
     activa: bool = True
     presupuesto: int = Field(ge=0)
     reservado_nucleo: int = Field(1, ge=0)
+    filtra_nivel: bool = False  # la fuente ya filtra por nivel de experiencia
     nota: str | None = None
     opciones: dict[str, Any] = Field(default_factory=dict)
 
