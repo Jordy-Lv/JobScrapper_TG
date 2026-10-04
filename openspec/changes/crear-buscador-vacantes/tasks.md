@@ -68,12 +68,12 @@
 
 - [x] 10.1 Crear `deploy/buscador.service`, `deploy/buscador.timer`, `deploy/buscador-resumen.service` y `deploy/buscador-resumen.timer` según design D9. Verificar con `systemd-analyze --user verify` en Fedora.
 - [x] 10.2 Escribir `deploy/INSTALAR.md`: uv, clonar en `~/buscador-vacantes`, `.env` con chmod 600, `migrar`, `--seed`, copiar las unidades, `loginctl enable-linger`, desactivar la suspensión, crear el check en healthchecks.io y comandos de diagnóstico y rollback. Verificar siguiendo la guía en el PC Fedora.
-- [ ] 10.3 Instalar en Fedora apuntando al chat de prueba, correr la migración y el seed, y activar los timers. Verificar con `systemctl --user list-timers` y con que healthchecks está en verde.
+- [x] 10.3 Instalar en Fedora apuntando al chat de prueba, correr la migración y el seed, y activar los timers. Verificar con `systemctl --user list-timers` y con que healthchecks está en verde.
 
 ## 11. Verificación integral y paso a producción
 
 - [ ] 11.1 Reiniciar el PC sin iniciar sesión y comprobar que la corrida se ejecuta (linger y `Persistent=true`). Verificar con `journalctl --user -u buscador` y healthchecks.
 - [ ] 11.2 Desconectar la red durante una corrida y comprobar que solo aparece `red:sin_conexion`, sin cooldowns. Detener el timer 90 min y comprobar que healthchecks avisa.
 - [ ] 11.3 Correr 24 h en paralelo con Hermes (buscador → chat de prueba) y entregar al usuario una comparación de cantidad, duplicados y relevancia.
-- [ ] 11.4 Con aprobación explícita del usuario, apuntar `.env` al canal real y pausar (no borrar) el cronjob de Hermes `d6381ce58395` y `send_encabezado.py`. Verificar que el primer envío real llega al canal y que Hermes figura pausado.
+- [x] 11.4 Con aprobación explícita del usuario, apuntar `.env` al canal real y pausar (no borrar) el cronjob de Hermes `d6381ce58395` y `send_encabezado.py`. Verificar que el primer envío real llega al canal y que Hermes figura pausado.
 - [ ] 11.5 Revisar los logs y el resumen diario tras 24 h en producción y ajustar presupuestos, palabras clave o filtros en `config.yaml`. Verificar que el ajuste queda registrado en la configuración.
