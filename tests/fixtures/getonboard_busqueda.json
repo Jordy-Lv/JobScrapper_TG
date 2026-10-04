@@ -1,0 +1,597 @@
+{
+ "data": [
+  {
+   "id": "practicante-agentes-ia-agendapro-santiago",
+   "type": "job",
+   "attributes": {
+    "title": "Practicante Agentes IA",
+    "description": "<ul><li>Estudiante de Ingeniería Civil Industrial, Computación / Informática, Ejecución en Informática, Matemática o afines, que necesite hacer su práctica profesional.</li><li>Capacidad analítica: sabes ordenar datos, encontrar patrones y llegar a la causa de un problema.</li><li>Buena comunicación escrita: redactas claro y directo.</li><li>Curiosidad por la IA y ganas de aprender rápido.</li><li>Autonomía y ownership: te haces cargo de tu proyecto.</li></ul>",
+    "remote": false,
+    "remote_modality": "no_remote",
+    "remote_zone": null,
+    "countries": [
+     "Chile"
+    ],
+    "lang": "es",
+    "category_name": "Product, Innovation & Agile",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1790983117,
+    "seniority": {
+     "data": {
+      "id": "1",
+      "type": "seniority",
+      "attributes": {
+       "name": "Sin experiencia",
+       "locale_key": "no_experience"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "agendapro",
+      "type": "company",
+      "attributes": {
+       "name": "AgendaPro",
+       "country": "US"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/practicante-agentes-ia-agendapro-santiago"
+   }
+  },
+  {
+   "id": "ingeniero-trainee-industrial-agrosuper-rancagua-1685",
+   "type": "job",
+   "attributes": {
+    "title": "Ingeniero Trainee Industrial",
+    "description": "<p>1. Título Profesional de Ingeniería civil industrial, bioquímica, civil química o carrera afín<br>2. Hasta dos años de experiencia laboral.<br>3. Inglés y Excel nivel intermedio<br>4. Conocimiento en análisis de datos.</p>",
+    "remote": false,
+    "remote_modality": "no_remote",
+    "remote_zone": null,
+    "countries": [
+     "Chile"
+    ],
+    "lang": "en",
+    "category_name": "Operations / Admin",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1790874147,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "agrosuper",
+      "type": "company",
+      "attributes": {
+       "name": "Agrosuper",
+       "country": "CL"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/ingeniero-trainee-industrial-agrosuper-rancagua-1685"
+   }
+  },
+  {
+   "id": "ejecutivo-de-operaciones-sendu-remote",
+   "type": "job",
+   "attributes": {
+    "title": "Ejecutivo de Operaciones",
+    "description": "<ul><li>Excel intermedio/avanzado: tablas dinámicas, cruce de datos (BUSCARV / CONTAR.SI), etc.</li><li>Tener equipo para trabajar en tu casa (PC/Internet estable)</li><li>Orientación al cliente y <strong>disposición</strong> a resolver sus problemas </li><li>Orden, responsabilidad y capacidad de seguimiento</li><li>Buena predisposición y ganas de trabajar</li></ul>",
+    "remote": true,
+    "remote_modality": "remote_local",
+    "remote_zone": null,
+    "countries": [
+     "Remote"
+    ],
+    "lang": "lang_not_specified",
+    "category_name": "Operations / Admin",
+    "min_salary": 650,
+    "max_salary": 700,
+    "published_at": 1790695235,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "sendu",
+      "type": "company",
+      "attributes": {
+       "name": "Sendu",
+       "country": "CL"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/ejecutivo-de-operaciones-sendu-remote"
+   }
+  },
+  {
+   "id": "developer-full-stack-tribu-producto-bice-vida-santiago",
+   "type": "job",
+   "attributes": {
+    "title": "Developer Full-Stack Tribu Producto",
+    "description": "<h2><strong>¿A quién buscamos? 👀</strong></h2><ul><li>Ingeniería Civil, Ingeniería en Ejecución en Informática o carrera afín.</li><li>Al menos 3 años de experiencia en cargos similares.</li><li>Experiencia en desarrollo Full Stack y servicios web.</li><li>Conocimientos en: <ul><li>NET.</li><li>Angular.</li><li>Construcción de Servicios REST.</li><li>Base de datos SQL Server.</li><li>Integraciones y APIs.</li><li>Metodologías ágiles.</li></ul></li></ul><p><strong>Tecnologías deseables ⭐<br></strong></p><ul><li>AWS.</li><li>Hasura.</li><li>MuleSoft.</li><li>Docker.</li></ul>",
+    "remote": false,
+    "remote_modality": "no_remote",
+    "remote_zone": null,
+    "countries": [
+     "Chile"
+    ],
+    "lang": "lang_not_specified",
+    "category_name": "Programming",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1790353214,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "bice-vida",
+      "type": "company",
+      "attributes": {
+       "name": "BICE VIDA",
+       "country": "CL"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/developer-full-stack-tribu-producto-bice-vida-santiago"
+   }
+  },
+  {
+   "id": "electrical-engineer-junior-tcit-santiago",
+   "type": "job",
+   "attributes": {
+    "title": "Ingeniero/a de Hardware e IoT / Telemetría — Junior",
+    "description": "<p><strong>Formación:</strong> Titulado o egresado de Ingeniería Civil Electrónica, Ingeniería Civil en Telecomunicaciones o Ingeniería (de Ejecución) Electrónica o Eléctrica con foco electrónico.</p><p><strong>Experiencia:</strong> Entre 0 y 2 años. Se exige al menos un proyecto real de electrónica, embebidos o IoT efectivamente construido y funcionando — memoria de título, práctica profesional, proyecto universitario o proyecto personal.</p>",
+    "remote": false,
+    "remote_modality": "no_remote",
+    "remote_zone": null,
+    "countries": [
+     "Chile"
+    ],
+    "lang": "lang_not_specified",
+    "category_name": "Hardware / Electronics",
+    "min_salary": 1300,
+    "max_salary": 1900,
+    "published_at": 1790169189,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "tcit",
+      "type": "company",
+      "attributes": {
+       "name": "TCIT",
+       "country": "CL"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/electrical-engineer-junior-tcit-santiago"
+   }
+  },
+  {
+   "id": "practicante-area-pos-agendapro-santiago",
+   "type": "job",
+   "attributes": {
+    "title": "Practicante área POS",
+    "description": "<div>Estudiante en práctica de cualquier carrera (Administración, Ingeniería Comercial, Ingeniería Industrial, Ingeniería en Informática u otras afines son un plus, pero no excluyente). Orden y capacidad de síntesis: te gusta ordenar información, simplificar procesos y dejar las cosas documentadas de forma clara. Buena comunicación escrita: sabes redactar de forma clara y directa; escribir procedimientos y guías te resulta natural (o te motiva aprender a hacerlo bien). Herramientas: manejo básico de herramientas de oficina (Excel/Sheets, documentos, presentaciones); no se requiere experiencia previa con dashboards o CRM, pero sí ganas de aprender a usarlos. Proactividad y autonomía: te mueves bien conversando con distintos interlocutores (ejecutivos de onboarding, clientes, otras áreas) y ",
+    "remote": false,
+    "remote_modality": "hybrid",
+    "remote_zone": null,
+    "countries": [
+     "Chile"
+    ],
+    "lang": "lang_not_specified",
+    "category_name": "Customer Support",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1790077944,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "agendapro",
+      "type": "company",
+      "attributes": {
+       "name": "AgendaPro",
+       "country": "US"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/practicante-area-pos-agendapro-santiago"
+   }
+  },
+  {
+   "id": "front-end-angular-flutter-grupo-mariposa-remote-5d9d",
+   "type": "job",
+   "attributes": {
+    "title": "Front-end (Angular Flutter)",
+    "description": "<ol><li>Hasta 1 año de experiencia en desarrollo frontend y/o móvil (se valoran prácticas, proyectos personales, académicos o freelance).</li><li><strong>Flutter / Dart:</strong><ul><li>Conocimientos de Dart y del sistema de widgets de Flutter.</li><li>Bases en manejo de estado con <strong>Riverpod</strong>.</li><li>Consumo de APIs REST con Dio o http.</li><li>Navegación entre pantallas (go_router o Navigator).</li><li>Construcción de interfaces responsive.</li></ul></li><li><strong>Angular:</strong><ul><li>Conocimientos básicos de componentes, servicios, routing y formularios.</li><li>Nociones de <strong>Signals</strong> y standalone components.</li><li>Bases de TypeScript.</li></ul></li><li>Conocimientos de HTML y CSS.</li><li>Manejo básico de Git (commits, ramas, pull requests).</li><li",
+    "remote": true,
+    "remote_modality": "remote_local",
+    "remote_zone": null,
+    "countries": [
+     "Remote"
+    ],
+    "lang": "es",
+    "category_name": "Mobile Development",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1790811351,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "grupo-mariposa",
+      "type": "company",
+      "attributes": {
+       "name": "Grupo Mariposa",
+       "country": "GT"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/front-end-angular-flutter-grupo-mariposa-remote-5d9d"
+   }
+  },
+  {
+   "id": "desarrollador-net-framework-web-forms-latam-qulane-remote-1993",
+   "type": "job",
+   "attributes": {
+    "title": "Desarrollador .NET Web Forms + SQL Server (Part Time, LATAM)",
+    "description": "<div>• Dominio solido y demostrable de .NET Framework 4.x en proyectos reales <br>• SQL Server avanzado: SPs complejos, optimizacion y debugging<br>• Experiencia con JavaScript, jQuery, HTML y CSS <br>• Responsable, comprometido con los plazos y con atencion al detalle <br>• Buena comunicacion en espanol e internet estable </div>",
+    "remote": true,
+    "remote_modality": "fully_remote",
+    "remote_zone": null,
+    "countries": [
+     "Remote"
+    ],
+    "lang": "es",
+    "category_name": "Programming",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1787852061,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "qulane",
+      "type": "company",
+      "attributes": {
+       "name": "Qulane",
+       "country": "CA"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/desarrollador-net-framework-web-forms-latam-qulane-remote-1993"
+   }
+  },
+  {
+   "id": "desarrollador-a-backend-junior-inversiones-vertice-limitada-santiago",
+   "type": "job",
+   "attributes": {
+    "title": "Desarrollador/a Back-end Junior",
+    "description": "<p>Buscamos un perfil <strong>nivel junior </strong> con <strong>1 a 3 años</strong> de experiencia profesional, orientado a construir integraciones, automatizar flujos y aportar desarrollo con foco en APIs y productos.</p><div><strong>Requisitos técnicos</strong></div><ul><li><strong>Python</strong> para backend, con <strong>FastAPI</strong> o un framework equivalente.</li><li>Diseño y consumo de <strong>APIs REST</strong>, incluida integración con servicios de terceros.</li><li>Comunicación con <strong>modelos de lenguaje</strong>: consumo de APIs de <strong>LLMs</strong>, manejo de prompts y contexto.</li><li>Configuración y consumo de servidores mediante <strong>Docker</strong>.</li><li><strong>PostgreSQL</strong> y trabajo con datos persistentes.</li><li><strong>Git</strong> y colabor",
+    "remote": false,
+    "remote_modality": "no_remote",
+    "remote_zone": null,
+    "countries": [
+     "Chile"
+    ],
+    "lang": "en",
+    "category_name": "Programming",
+    "min_salary": 1200,
+    "max_salary": 1600,
+    "published_at": 1786475424,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "inversiones-vertice-limitada",
+      "type": "company",
+      "attributes": {
+       "name": "Inversiones Vertice Limitada",
+       "country": "ES"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/desarrollador-a-backend-junior-inversiones-vertice-limitada-santiago"
+   }
+  },
+  {
+   "id": "junior-client-success-manager-remote-guidepost-marketing-remote",
+   "type": "job",
+   "attributes": {
+    "title": "Junior Client Success Manager",
+    "description": "<ul><li><strong>Fluent written and spoken English.</strong> Our clients are US doctors. You will write to them and speak with them every day.</li><li><strong>You own outcomes.</strong> You have handled client relationships and can tell us what you kept, what you lost and why. Haven't owned a client book yet? tell us honestly.</li><li><strong>You bring bad news early, with a plan.</strong> You do not wait to be asked.</li><li><strong>You write clearly and fast.</strong> If your writing needs a second pass to be understood, this is the wrong seat.</li><li><strong>You can hold a doctor's respect.</strong> Calm, direct, prepared, unbothered by pushback.</li><li><strong>You live in AI tools. </strong>You use<strong></strong>Claude or similar every day, can show us how, and pick up new tools fas",
+    "remote": true,
+    "remote_modality": "remote_local",
+    "remote_zone": null,
+    "countries": [
+     "Remote"
+    ],
+    "lang": "en",
+    "category_name": "Customer Support",
+    "min_salary": 1500,
+    "max_salary": 1500,
+    "published_at": 1790348351,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "guidepost-marketing",
+      "type": "company",
+      "attributes": {
+       "name": "Guidepost Marketing",
+       "country": "US"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/junior-client-success-manager-remote-guidepost-marketing-remote"
+   }
+  },
+  {
+   "id": "operador-de-monitoreo-mediastream-bogota-9f68",
+   "type": "job",
+   "attributes": {
+    "title": "Operador de Monitoreo",
+    "description": "<div>El rol de Operador de Monitoreo tiene como misión garantizar la disponibilidad y correcto funcionamiento del frontend OTT en múltiples dispositivos. Será responsable del monitoreo continuo de la plataforma, validación de playback en Live y VOD, detección temprana de incidentes, gestión y priorización de tickets, y coordinación con equipos internos para asegurar el cumplimiento de los SLA definidos con el cliente. </div><div>Requisitos: Formación en Ingeniería de Sistemas, Telecomunicaciones o carreras afines (también se considerarán técnicos o tecnólogos con experiencia). Experiencia mínima de 1 año. </div>",
+    "remote": false,
+    "remote_modality": "no_remote",
+    "remote_zone": null,
+    "countries": [
+     "Colombia"
+    ],
+    "lang": "lang_not_specified",
+    "category_name": "SysAdmin / DevOps / QA",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1790700770,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "mediastream--2",
+      "type": "company",
+      "attributes": {
+       "name": "Mediastream",
+       "country": "CL"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/operador-de-monitoreo-mediastream-bogota-9f68"
+   }
+  },
+  {
+   "id": "ejecutivo-de-onboarding-junior-agendapro-ciudad-de-mexico",
+   "type": "job",
+   "attributes": {
+    "title": "Ejecutivo de Onboarding Junior",
+    "description": "<p>• Licenciatura concluida.<br>• Excelente comunicación verbal y escrita.<br>• Facilidad para explicar conceptos tecnológicos de manera simple.<br>• Organización para administrar múltiples clientes en simultáneo.<br>• Pensamiento analítico y orientación a resultados.<br>• Empatía y gusto por trabajar con emprendedores y dueños de negocio.<br>• Proactividad para identificar oportunidades de mejora y resolver problemas.<br>• Escucha activa. </p><p>Suma puntos: <br>• Experiencia en empresas SaaS.<br>• Experiencia en Customer Success, Implementación, Capacitación, Consultoría o Atención a Clientes.<br>• Conocimiento en CRM, sistemas de gestión o plataformas tecnológicas.<br>• Experiencia impartiendo capacitaciones virtuales.<br>• Manejo de herramientas como Google Workspace, HubSpot, Notion o",
+    "remote": false,
+    "remote_modality": "no_remote",
+    "remote_zone": null,
+    "countries": [
+     "Mexico"
+    ],
+    "lang": "es",
+    "category_name": "Customer Support",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1789909961,
+    "seniority": {
+     "data": {
+      "id": "2",
+      "type": "seniority",
+      "attributes": {
+       "name": "Junior",
+       "locale_key": "junior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "agendapro",
+      "type": "company",
+      "attributes": {
+       "name": "AgendaPro",
+       "country": "US"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/ejecutivo-de-onboarding-junior-agendapro-ciudad-de-mexico"
+   }
+  },
+  {
+   "id": "actuario-senior-bnp-paribas-cardif-santiago-d762",
+   "type": "job",
+   "attributes": {
+    "title": "Actuario Senior",
+    "description": "<p> ¿Tienes título profesional universitario en <strong>Ingeniería Civil Industrial, Actuariado, Estadística, Matemática o carreras afines</strong>?</p><p>Buscamos a alguien con experiencia previa en áreas de <strong>Actuariado,</strong> idealmente en <strong>tarificación, modelación estadística del riesgo, monitoreo del riesgo o similares.</strong></p><p>Años de Experiencia: <strong>3-4 años experiencia en Pricing o Actuariado </strong>(excluyente)</p>",
+    "remote": false,
+    "remote_modality": "hybrid",
+    "remote_zone": null,
+    "countries": [
+     "Chile"
+    ],
+    "lang": "lang_not_specified",
+    "category_name": "Data Science / Analytics",
+    "min_salary": null,
+    "max_salary": null,
+    "published_at": 1790859841,
+    "seniority": {
+     "data": {
+      "id": "4",
+      "type": "seniority",
+      "attributes": {
+       "name": "Senior",
+       "locale_key": "senior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "bnp-paribas-cardif",
+      "type": "company",
+      "attributes": {
+       "name": "BNP Paribas Cardif",
+       "country": "CL"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/actuario-senior-bnp-paribas-cardif-santiago-d762"
+   }
+  },
+  {
+   "id": "product-manager-fintech-factoring-financia-capital-santiago",
+   "type": "job",
+   "attributes": {
+    "title": "Product Manager — FinTech / Factoring",
+    "description": "<ul><li>Entre 2 y 4 años de experiencia como Product Manager o Product Owner en productos digitales.</li><li>Experiencia gestionando productos con múltiples stakeholders, idealmente en entornos B2B.</li><li>Experiencia definiendo métricas, eventos y embudos de producto. SQL básico para consultar datos por tu cuenta.</li><li>Capacidad de negociar prioridades con gerencia y áreas de negocio, y de sostener un \"no\" con argumentos.</li><li>Base técnica suficiente para conversar con desarrolladores sobre alcance y dependencias (no necesitas programar).</li><li>Comunicación clara, oral y escrita.</li><li>Autonomía y ownership sobre el producto y el impacto de tus decisiones.</li></ul>",
+    "remote": false,
+    "remote_modality": "no_remote",
+    "remote_zone": null,
+    "countries": [
+     "Chile"
+    ],
+    "lang": "lang_not_specified",
+    "category_name": "Product, Innovation & Agile",
+    "min_salary": 1800,
+    "max_salary": 2200,
+    "published_at": 1790088949,
+    "seniority": {
+     "data": {
+      "id": "3",
+      "type": "seniority",
+      "attributes": {
+       "name": "Semi Senior",
+       "locale_key": "semi_senior"
+      }
+     }
+    },
+    "company": {
+     "data": {
+      "id": "financia-capital-cl",
+      "type": "company",
+      "attributes": {
+       "name": "Financia Capital",
+       "country": "CL"
+      }
+     }
+    }
+   },
+   "links": {
+    "public_url": "https://www.getonbrd.com/jobs/product-manager-fintech-factoring-financia-capital-santiago"
+   }
+  }
+ ],
+ "meta": {
+  "page": 1,
+  "per_page": 50,
+  "total_pages": 1
+ }
+}

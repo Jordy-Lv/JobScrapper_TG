@@ -1,0 +1,808 @@
+# Configuración funcional del buscador de vacantes.
+# Los secretos (token, claves, ids de chat, URL de healthchecks) van en .env, nunca aquí.
+# Los términos se comparan en minúsculas, sin tildes y con límites de palabra,
+# así que pueden escribirse con tildes y mayúsculas.
+
+zona_horaria: America/Bogota
+
+rutas:
+  base_datos: data/vacantes.db
+  logs: logs
+  lock: data/buscador.lock
+
+registro:
+  retencion_dias: 14
+
+red:
+  timeout_s: 20
+  pausa_min_s: 4
+  pausa_max_s: 10
+  user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+  accept_language: "es-CO,es;q=0.9,en;q=0.6"
+  # Escalones de cooldown ante 429/999/403 o desafío anti-bot (1.º, 2.º y 3.º en adelante)
+  cooldown_horas: [2, 6, 24]
+  marcadores_desafio:
+    - captcha
+    - cf-chl
+    - challenge
+    - are you a robot
+    - unusual traffic
+
+palabras_clave:
+  # Consultas amplias: se repiten en cada ciclo corto (reservado_nucleo por fuente)
+  nucleo:
+    - practicante sistemas
+    - practicante TI
+    - aprendiz SENA
+    - aprendiz sistemas
+    - pasante tecnología
+    - trainee tecnología
+    - junior TI
+    - desarrollador junior
+  # Consultas específicas por rol: se recorren en rotación con el resto del presupuesto
+  cola_larga:
+    desarrollo:
+      - programador junior
+      - desarrollador backend junior
+      - desarrollador frontend junior
+      - desarrollador fullstack junior
+      - desarrollador Java junior
+      - desarrollador Python junior
+      - desarrollador .NET junior
+      - desarrollador web junior
+      - desarrollador móvil junior
+      - practicante desarrollo
+      - aprendiz desarrollo de software
+      - tecnólogo desarrollo de software
+    infraestructura:
+      - DevOps junior
+      - cloud junior
+      - AWS junior
+      - Azure junior
+      - SysOps
+      - CloudOps
+      - infraestructura junior
+      - administrador de sistemas junior
+      - Linux junior
+      - aprendiz infraestructura
+    redes:
+      - redes junior
+      - técnico de redes
+      - telecomunicaciones junior
+      - NOC junior
+      - aprendiz redes
+    bases_datos:
+      - DBA junior
+      - administrador de bases de datos junior
+      - SQL junior
+      - aprendiz bases de datos
+    soporte:
+      - soporte técnico junior
+      - soporte IT
+      - mesa de ayuda
+      - helpdesk
+      - auxiliar de sistemas
+      - auxiliar TI
+      - técnico de sistemas
+      - aprendiz soporte
+    datos:
+      - analista de datos junior
+      - data analyst junior
+      - BI junior
+      - Power BI
+      - ingeniero de datos junior
+      - practicante análisis de datos
+      - aprendiz análisis de datos
+    qa:
+      - QA junior
+      - tester junior
+      - analista de pruebas junior
+      - automatización de pruebas junior
+    ciberseguridad:
+      - ciberseguridad junior
+      - analista SOC junior
+      - seguridad informática junior
+    general:
+      - analista de sistemas junior
+      - analista TI junior
+      - ingeniero de sistemas recién egresado
+      - estudiante ingeniería de sistemas
+      - semillero
+      - programa de talento
+      - contrato de aprendizaje
+      - etapa productiva
+      - internship
+      - intern
+      - entry level developer
+
+# Presupuesto = requests máximos por corrida. reservado_nucleo = parte del presupuesto
+# para el grupo núcleo; el resto avanza la cola larga.
+fuentes:
+  linkedin:
+    activa: true
+    presupuesto: 3
+    reservado_nucleo: 1
+    opciones:
+      location: Colombia
+      f_E: "1,2"        # Prácticas y nivel de entrada
+      f_TPR: r86400     # Últimas 24 h
+  computrabajo:
+    activa: true
+    presupuesto: 4
+    reservado_nucleo: 1
+  elempleo:
+    activa: true
+    presupuesto: 3
+    reservado_nucleo: 1
+  magneto:
+    activa: true
+    presupuesto: 3
+    reservado_nucleo: 1
+  getonboard:
+    activa: true
+    presupuesto: 5
+    reservado_nucleo: 1
+    opciones:
+      por_pagina: 50
+      # Filtro de nivel nativo (la API no filtra en el servidor: se aplica al parsear)
+      seniorities: [no_experience, junior]
+      # Las remotas en inglés quedan fuera del alcance (remoto LATAM en español)
+      excluir_remoto_en_ingles: true
+  torre:
+    activa: true
+    presupuesto: 5
+    reservado_nucleo: 1
+  sena:
+    activa: false
+    presupuesto: 3
+    reservado_nucleo: 1
+    nota: Pendiente de evaluar si exige login o captcha (tarea 8.6).
+
+filtros:
+  max_dias_publicada: 15
+  # Regla 1: rechazar por seniority
+  exclusion_seniority:
+    - senior
+    - sr
+    - semi senior
+    - semisenior
+    - ssr
+    - lead
+    - líder
+    - gerente
+    - manager
+    - director
+    - jefe
+    - arquitecto
+    - architect
+    - head
+    - coordinador
+    - especialista
+  # Regla 1: rechazar si pide N o más años de experiencia
+  anios_experiencia_excluidos_desde: 3
+  # Frases que se ignoran antes de evaluar (evitan falsos positivos como
+  # "redes sociales", "sistemas de gestión" o "para ti")
+  frases_ignoradas:
+    - redes sociales
+    - sistemas de gestión
+    - sistema de gestión
+    - sistemas integrados
+    - sistema integrado
+    - desarrollo organizacional
+    - desarrollo humano
+    - desarrollo de negocios
+    - desarrollo comercial
+    - seguridad y salud
+    - seguridad industrial
+    - seguridad física
+    - tecnología de alimentos
+    - tecnología en alimentos
+    - buenas prácticas
+    - para ti
+    - a ti
+    - de ti
+    - en ti
+  nivel:
+    # Nivel práctica/aprendiz → categoría "Prácticas y Aprendizaje"
+    practica:
+      - practicante
+      - práctica
+      - prácticas
+      - práctica profesional
+      - prácticas profesionales
+      - pasante
+      - pasantía
+      - aprendiz
+      - aprendices
+      - sena
+      - trainee
+      - etapa productiva
+      - etapa práctica
+      - contrato de aprendizaje
+      - intern
+      - internship
+      - becario
+      - estudiante
+      - semillero
+      - programa de talento
+    # Nivel junior/entrada → categoría por área
+    junior:
+      - junior
+      - jr
+      - entry level
+      - entry-level
+      - sin experiencia
+      - recién egresado
+      - recién graduado
+      - nivel de entrada
+      - primer empleo
+      - auxiliar
+  # Áreas de TI en orden de prioridad: si coinciden varias, gana la primera
+  areas:
+    - categoria: qa
+      terminos:
+        - qa
+        - tester
+        - testing
+        - pruebas de software
+        - analista de pruebas
+        - automatización de pruebas
+        - pruebas automatizadas
+        - quality assurance
+        - test automation
+        - calidad de software
+    - categoria: ciberseguridad
+      terminos:
+        - ciberseguridad
+        - cybersecurity
+        - seguridad informática
+        - seguridad de la información
+        - seguridad ti
+        - seguridad it
+        - soc
+        - pentest
+        - pentester
+        - pentesting
+        - ethical hacking
+        - infosec
+        - blue team
+    - categoria: datos
+      terminos:
+        - analista de datos
+        - análisis de datos
+        - analítica de datos
+        - analítica
+        - analytics
+        - data analyst
+        - data analytics
+        - business intelligence
+        - inteligencia de negocios
+        - bi
+        - power bi
+        - tableau
+        - ciencia de datos
+        - científico de datos
+        - data science
+        - data scientist
+        - ingeniero de datos
+        - ingeniería de datos
+        - data engineer
+        - big data
+        - etl
+        - machine learning
+        - inteligencia artificial
+    - categoria: bases_datos
+      terminos:
+        - dba
+        - base de datos
+        - bases de datos
+        - database
+        - administrador de bases de datos
+        - sql
+        - sql server
+        - oracle
+        - postgresql
+        - mysql
+        - mongodb
+    - categoria: desarrollo
+      terminos:
+        - desarrollador
+        - desarrolladora
+        - desarrollo de software
+        - desarrollo web
+        - desarrollo de aplicaciones
+        - programador
+        - programadora
+        - programación
+        - developer
+        - software
+        - backend
+        - back-end
+        - back end
+        - frontend
+        - front-end
+        - front end
+        - fullstack
+        - full stack
+        - full-stack
+        - web
+        - java
+        - python
+        - javascript
+        - typescript
+        - .net
+        - c#
+        - c++
+        - php
+        - node
+        - nodejs
+        - react
+        - angular
+        - vue
+        - flutter
+        - android
+        - ios
+        - móvil
+        - mobile
+        - kotlin
+        - golang
+        - ruby
+        - rpa
+    - categoria: infraestructura
+      terminos:
+        - devops
+        - cloud
+        - nube
+        - aws
+        - azure
+        - gcp
+        - google cloud
+        - sysops
+        - cloudops
+        - sysadmin
+        - sre
+        - administrador de sistemas
+        - infraestructura ti
+        - infraestructura it
+        - infraestructura tecnológica
+        - analista de infraestructura
+        - linux
+        - windows server
+        - servidores
+        - virtualización
+        - kubernetes
+        - docker
+        - terraform
+        - networking
+        - redes de datos
+        - redes y telecomunicaciones
+        - telecomunicaciones
+        - técnico de redes
+        - técnico en redes
+        - analista de redes
+        - ingeniero de redes
+        - administrador de redes
+        - soporte de redes
+        - cableado estructurado
+        - noc
+        - cisco
+    - categoria: soporte
+      terminos:
+        - soporte técnico
+        - soporte ti
+        - soporte it
+        - soporte de ti
+        - soporte informático
+        - soporte de sistemas
+        - soporte a usuarios
+        - soporte nivel 1
+        - mesa de ayuda
+        - help desk
+        - helpdesk
+        - service desk
+        - it support
+        - technical support
+        - auxiliar de sistemas
+        - auxiliar ti
+        - auxiliar de ti
+        - técnico de sistemas
+        - técnico en sistemas
+        - técnico de soporte
+        - cómputo
+        - equipos de cómputo
+        - mantenimiento de computadores
+        - mantenimiento de equipos
+        - computadores
+        - hardware
+  # Términos de TI sin área concreta → categoría "Otros TI" en nivel junior
+  ti_generico:
+    - sistemas
+    - ingeniería de sistemas
+    - ingeniero de sistemas
+    - ti
+    - it
+    - tic
+    - tics
+    - tecnología
+    - tecnologías de la información
+    - informática
+    - computación
+    - ciencias de la computación
+    - computer science
+    - telemática
+    - automatización
+  # Términos que vuelven dudosa una vacante sin área TI clara
+  disparadores_dudosa:
+    - practicante
+    - aprendiz
+    - pasante
+    - trainee
+    - junior
+    - jr
+    - analista
+    - auxiliar
+    - técnico
+    - tecnólogo
+    - ingeniero
+    - estudiante
+    - intern
+    - internship
+    - práctica
+    - pasantía
+    - becario
+    - semillero
+    - programa de talento
+  # Áreas que no son TI: si aparecen, los disparadores de dudosa no aplican
+  # (p. ej. "Practicante Contable" se rechaza en lugar de quedar dudosa)
+  areas_no_ti:
+    - contable
+    - contabilidad
+    - contador
+    - financiero
+    - financiera
+    - finanzas
+    - tesorería
+    - auditoría
+    - administrativo
+    - administrativa
+    - administración de empresas
+    - recursos humanos
+    - talento humano
+    - gestión humana
+    - nómina
+    - mercadeo
+    - marketing
+    - ventas
+    - sales
+    - comercial
+    - servicio al cliente
+    - atención al cliente
+    - call center
+    - cajero
+    - cocina
+    - chef
+    - mesero
+    - logística
+    - bodega
+    - compras
+    - producción
+    - calidad
+    - mantenimiento
+    - mecánico
+    - civil
+    - ambiental
+    - industrial
+    - enfermería
+    - salud ocupacional
+    - sst
+    - hseq
+    - jurídico
+    - jurídica
+    - derecho
+    - abogado
+    - psicología
+    - comunicación social
+    - periodismo
+    - diseño gráfico
+    - docente
+    - profesor
+    - conductor
+    - agronomía
+    - veterinaria
+    - operario
+    - vigilante
+    - recepcionista
+    - secretario
+    - secretaria
+    - mensajero
+    - domiciliario
+    - médico
+    - odontólogo
+    - esteticista
+    - nutrición
+    - alimentos
+  ubicacion:
+    colombia:
+      - colombia
+      - bogotá
+      - medellín
+      - cali
+      - barranquilla
+      - cartagena
+      - bucaramanga
+      - pereira
+      - manizales
+      - armenia
+      - cúcuta
+      - ibagué
+      - santa marta
+      - villavicencio
+      - pasto
+      - montería
+      - neiva
+      - valledupar
+      - popayán
+      - tunja
+      - sincelejo
+      - riohacha
+      - florencia
+      - quibdó
+      - yopal
+      - envigado
+      - itagüí
+      - bello
+      - sabaneta
+      - rionegro
+      - soacha
+      - chía
+      - zipaquirá
+      - funza
+      - mosquera
+      - palmira
+      - soledad
+      - floridablanca
+      - girón
+      - dosquebradas
+      - antioquia
+      - atlántico
+      - bolívar
+      - boyacá
+      - caldas
+      - caquetá
+      - casanare
+      - cauca
+      - cesar
+      - chocó
+      - córdoba
+      - cundinamarca
+      - guaviare
+      - huila
+      - la guajira
+      - magdalena
+      - meta
+      - nariño
+      - norte de santander
+      - putumayo
+      - quindío
+      - risaralda
+      - san andrés
+      - santander
+      - sucre
+      - tolima
+      - valle del cauca
+      - arauca
+      - amazonas
+      - vaupés
+      - vichada
+      - guainía
+    remoto:
+      - remoto
+      - remota
+      - remote
+      - teletrabajo
+      - home office
+      - trabajo en casa
+      - desde casa
+      - 100% remoto
+    latam:
+      - latam
+      - latinoamérica
+      - latino américa
+      - américa latina
+      - latin america
+      - sudamérica
+      - suramérica
+      - south america
+      - cualquier país
+      - anywhere
+      - worldwide
+    # Países y ciudades fuera de Colombia (presencial/híbrido → rechazar;
+    # remoto restringido a ellos → rechazar)
+    exterior:
+      - méxico
+      - mexico city
+      - ciudad de méxico
+      - cdmx
+      - monterrey
+      - guadalajara
+      - perú
+      - lima
+      - argentina
+      - buenos aires
+      - chile
+      - ecuador
+      - quito
+      - guayaquil
+      - venezuela
+      - caracas
+      - españa
+      - spain
+      - madrid
+      - barcelona
+      - estados unidos
+      - united states
+      - usa
+      - canadá
+      - canada
+      - brasil
+      - brazil
+      - são paulo
+      - uruguay
+      - montevideo
+      - paraguay
+      - bolivia
+      - panamá
+      - costa rica
+      - guatemala
+      - el salvador
+      - honduras
+      - nicaragua
+      - república dominicana
+      - puerto rico
+      - cuba
+      - europa
+      - europe
+      - reino unido
+      - united kingdom
+      - london
+      - londres
+      - alemania
+      - germany
+      - francia
+      - france
+      - portugal
+      - italia
+      - italy
+      - india
+    # Portales que solo publican vacantes de Colombia: su "Remoto" implica Colombia
+    fuentes_colombianas: [linkedin, computrabajo, elempleo, magneto, sena]
+    patrones_restriccion:
+      - solo residentes en
+      - solo para residentes
+      - únicamente residentes
+      - residentes en
+      - residir en
+      - only residents
+      - must reside in
+      - must be located in
+      - based in
+
+telegram:
+  # bot_api: Bot API directa con el token del bot de Hermes (preferido)
+  # hermes_cli: respaldo con `hermes send`
+  modo: bot_api
+  # Si TELEGRAM_BOT_TOKEN no está en .env, se lee de aquí en cada corrida.
+  # Ruta por confirmar en la tarea 1.3.
+  token_hermes:
+    archivo: ~/.hermes/.env
+    variable: TELEGRAM_BOT_TOKEN
+  hermes_comando: hermes
+  max_caracteres: 4096
+  timeout_s: 20
+
+banner:
+  modo: diario   # diario | nunca | siempre
+  imagen: assets/encabezado_vacantes.jpg
+
+ia:
+  base_url: https://api.deepseek.com
+  modelo: deepseek-chat
+  timeout_s: 60
+  saldo_minimo_usd: 1.0
+  saldo_cache_min: 10
+  presupuesto_dia:
+    clasificador: 60
+    reportero: 8
+    resumen: 1
+
+clasificador:
+  activo: true
+  max_vacantes_por_llamada: 30
+  politica_sin_ia: descartar   # descartar | aceptar
+  horas_vencimiento_pendiente: 24
+  temperatura: 0
+  prompt_sistema: |
+    Eres el clasificador de un canal de Telegram de vacantes de prácticas, aprendizaje y
+    nivel junior en tecnología (TI) para Colombia.
+
+    Alcance que SÍ se acepta:
+    - Roles de TI: desarrollo de software (backend, frontend, fullstack, móvil),
+      infraestructura, DevOps, cloud y sysadmin, redes y telecomunicaciones, bases de datos,
+      soporte IT y mesa de ayuda, análisis de datos, BI e ingeniería de datos, QA y testing,
+      ciberseguridad, y análisis de sistemas o de TI.
+    - Nivel: práctica, pasantía, aprendiz (incluido SENA), trainee, junior o entrada
+      (sin experiencia o con hasta 2 años).
+    - Ubicación: cualquier ciudad de Colombia, o remoto abierto a Colombia o a LATAM
+      publicado en español.
+
+    Se rechaza: roles que no son de TI (contables, administrativos, comerciales, de
+    marketing, logística, etc.), cargos senior, de liderazgo o con 3 o más años de
+    experiencia, y vacantes presenciales fuera de Colombia o remotas restringidas a otro país.
+
+    Categorías válidas:
+    - "practicas": cualquier rol de TI con nivel práctica, pasantía, aprendiz, trainee o
+      etapa productiva.
+    - Para nivel junior/entrada: "desarrollo", "infraestructura" (incluye DevOps, cloud y
+      redes), "bases_datos", "soporte", "datos", "qa", "ciberseguridad" u "otros_ti".
+
+    Recibes un JSON con una lista "vacantes"; cada una tiene un "id". Responde SOLO con un
+    JSON con esta forma, con una entrada por cada id recibido:
+    {"vacantes": [{"id": 0, "aceptar": true, "categoria": "desarrollo", "motivo": "frase breve"}]}
+    Si rechazas, usa "categoria": null. No inventes datos que no estén en la vacante.
+
+reportero:
+  activo: true
+  temperatura: 0.2
+  max_tokens: 700
+  max_muestra_cuerpo: 3000
+  prompt_sistema: |
+    Eres un analista de incidentes de un scraper de vacantes de empleo.
+    Recibes evidencia técnica de una o varias fuentes que fallaron, en una lista "incidentes".
+    Responde SOLO con un JSON con una entrada por incidente, en el mismo orden:
+    {"diagnosticos": [{
+      "fuente": "nombre de la fuente",
+      "tipo": "tipo de incidente",
+      "severidad": "baja | media | alta",
+      "causa_probable": "1-2 frases",
+      "evidencia_clave": "qué dato del payload lo demuestra",
+      "accion_recomendada": "qué debe hacer el administrador, concreto",
+      "requiere_intervencion": true,
+      "sugerencia_tecnica": "si es cambio de HTML, propone selectores nuevos basados en body_muestra; si no aplica, null"
+    }]}
+    Reglas: no inventes datos que no estén en el payload. Si la evidencia no alcanza
+    para concluir, dilo en causa_probable. Nunca recomiendes evadir captchas,
+    rotar proxies para esquivar bloqueos ni violar los términos del sitio;
+    para bloqueos recomienda reducir frecuencia, presupuesto o desactivar la fuente.
+    Escribe en español.
+
+resumen:
+  activo: true
+  hora: "08:00"
+  temperatura: 0.3
+  max_tokens: 900
+  prompt_sistema: |
+    Eres el analista de operación de un buscador de vacantes que publica en Telegram.
+    Recibes SOLO métricas agregadas de las últimas 24 h (y algunos datos de 7 días).
+    Responde SOLO con un JSON con esta forma:
+    {"titular": "una frase con el balance del día",
+     "recomendaciones": ["entre 1 y 3 recomendaciones concretas"]}
+    Cada recomendación debe citar el dato que la justifica (por ejemplo, una palabra clave
+    sin resultados en 7 días o un filtro que descarta una proporción inusual).
+    No inventes datos que no estén en las métricas. Escribe en español.
+
+incidentes:
+  corridas_bloqueo: 2
+  corridas_error_servidor: 3
+  umbral_caida_volumen: 0.30
+  horas_recordatorio: 24
+
+estado:
+  dias_vistas: 90
+  dias_intentos: 30
+
+salud:
+  activo: true
+  timeout_s: 10
+
+operacion:
+  timeout_corrida_min: 25

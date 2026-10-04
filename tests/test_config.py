@@ -1,0 +1,162 @@
+from pathlib import Path
+
+import pytest
+import yaml
+
+from config import RAIZ, ErrorConfiguracion, cargar_configuracion, cargar_secretos
+from modelo import Categoria
+
+VARIABLES = (
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "TELEGRAM_CHAT_PRUEBA",
+    "DEEPSEEK_API_KEY",
+    "HEALTHCHECK_URL",
+)
+
+
+@pytest.fixture(autouse=True)
+def entorno_limpio(monkeypatch):
+    for nombre in VARIABLES:
+        monkeypatch.delenv(nombre, raising=False)
+
+
+@pytest.fixture
+def config():
+    return cargar_configuracion()
+
+
+def escribir_config(tmp_path: Path, cambio) -> Path:
+    datos = yaml.safe_load((RAIZ / "config.yaml").read_text(encoding="utf-8"))
+    cambio(datos)
+    ruta = tmp_path / "config.yaml"
+    ruta.write_text(yaml.safe_dump(datos, allow_unicode=True), encoding="utf-8")
+    return ruta
+
+
+def escribir_env(tmp_path: Path, **valores) -> Path:
+    ruta = tmp_path / ".env"
+    ruta.write_text("".join(f"{k}={v}\n" for k, v in valores.items()), encoding="utf-8")
+    return ruta
+
+
+ENV_COMPLETO = {
+    "TELEGRAM_BOT_TOKEN": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
+    "TELEGRAM_CHAT_ID": "-1004429829042",
+    "DEEPSEEK_API_KEY": "sk-prueba",
+    "HEALTHCHECK_URL": "https://hc-ping.com/uuid",
+}
+
+
+def test_config_inicial_carga(config):
+    assert config.zona_horaria == "America/Bogota"
+    assert config.fuentes["linkedin"].presupuesto == 3
+    assert config.fuentes["computrabajo"].presupuesto == 4
+    assert config.fuentes["getonboard"].presupuesto == 5
+    assert config.fuentes["sena"].activa is False
+    assert config.banner.modo == "diario"
+    assert config.ia.presupuesto_dia.reportero == 8
+    assert config.clasificador.politica_sin_ia == "descartar"
+
+
+def test_palabras_clave_cubren_roles(config):
+    assert "aprendiz SENA" in config.palabras_clave.nucleo
+    roles = set(config.palabras_clave.cola_larga)
+    assert {
+        "desarrollo",
+        "infraestructura",
+        "redes",
+        "bases_datos",
+        "soporte",
+        "datos",
+        "qa",
+        "ciberseguridad",
+    } <= roles
+    plana = config.palabras_clave.cola_larga_plana
+    assert len(plana) == len(set(plana))
+    assert "DBA junior" in plana
+
+
+def test_areas_cubren_categorias(config):
+    categorias = {area.categoria for area in config.filtros.areas}
+    esperadas = set(Categoria) - {Categoria.PRACTICAS, Categoria.OTROS_TI}
+    assert categorias == esperadas
+
+
+def test_campo_invalido_indica_el_campo(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["fuentes"]["linkedin"].update(presupuesto="tres"))
+    with pytest.raises(ErrorConfiguracion) as error:
+        cargar_configuracion(ruta)
+    assert "fuentes.linkedin.presupuesto" in str(error.value)
+
+
+def test_campo_desconocido_es_error(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["banner"].update(mdo="diario"))
+    with pytest.raises(ErrorConfiguracion) as error:
+        cargar_configuracion(ruta)
+    assert "banner.mdo" in str(error.value)
+
+
+def test_modo_banner_invalido(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["banner"].update(modo="semanal"))
+    with pytest.raises(ErrorConfiguracion, match="banner.modo"):
+        cargar_configuracion(ruta)
+
+
+def test_reserva_mayor_que_presupuesto(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["fuentes"]["linkedin"].update(reservado_nucleo=9))
+    with pytest.raises(ErrorConfiguracion, match="reservado_nucleo"):
+        cargar_configuracion(ruta)
+
+
+def test_archivo_inexistente(tmp_path):
+    with pytest.raises(ErrorConfiguracion, match="No existe"):
+        cargar_configuracion(tmp_path / "nada.yaml")
+
+
+def test_secretos_completos(tmp_path, config):
+    secretos = cargar_secretos(config, escribir_env(tmp_path, **ENV_COMPLETO))
+    assert secretos.telegram_chat_id == "-1004429829042"
+    assert secretos.deepseek_api_key == "sk-prueba"
+    assert "sk-prueba" in secretos.valores()
+
+
+def test_secreto_faltante(tmp_path, config):
+    valores = dict(ENV_COMPLETO)
+    del valores["DEEPSEEK_API_KEY"]
+    with pytest.raises(ErrorConfiguracion) as error:
+        cargar_secretos(config, escribir_env(tmp_path, **valores))
+    assert "DEEPSEEK_API_KEY" in str(error.value)
+    assert "TELEGRAM_CHAT_ID" not in str(error.value)
+
+
+def test_dry_run_no_exige_secretos(tmp_path, config):
+    secretos = cargar_secretos(config, tmp_path / "no-existe.env", exigir_envio=False)
+    assert secretos.telegram_bot_token is None
+
+
+def test_chat_prueba_exigido(tmp_path, config):
+    with pytest.raises(ErrorConfiguracion, match="TELEGRAM_CHAT_PRUEBA"):
+        cargar_secretos(config, escribir_env(tmp_path, **ENV_COMPLETO), exigir_chat_prueba=True)
+
+
+def test_token_desde_configuracion_de_hermes(tmp_path):
+    env_hermes = tmp_path / "hermes.env"
+    env_hermes.write_text("OTRA=1\nTELEGRAM_BOT_TOKEN=999:token-de-hermes\n", encoding="utf-8")
+    ruta = escribir_config(
+        tmp_path,
+        lambda d: d["telegram"].update(
+            token_hermes={"archivo": str(env_hermes), "variable": "TELEGRAM_BOT_TOKEN"}
+        ),
+    )
+    config = cargar_configuracion(ruta)
+    valores = dict(ENV_COMPLETO)
+    del valores["TELEGRAM_BOT_TOKEN"]
+    secretos = cargar_secretos(config, escribir_env(tmp_path, **valores))
+    assert secretos.telegram_bot_token == "999:token-de-hermes"
+
+
+def test_variable_de_entorno_tiene_prioridad(tmp_path, config, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100999")
+    secretos = cargar_secretos(config, escribir_env(tmp_path, **ENV_COMPLETO))
+    assert secretos.telegram_chat_id == "-100999"

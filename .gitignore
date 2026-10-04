@@ -1,0 +1,16 @@
+# Secretos
+.env
+
+# Estado y logs de ejecución
+data/
+logs/
+
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Sistema
+.DS_Store

@@ -1,0 +1,50 @@
+schema: spec-driven
+
+context: |
+  Language: es
+  All artifacts must be written in es.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Proyecto: buscador de vacantes de prácticas/aprendiz/junior TI (Colombia + remoto
+  LATAM en español) que publica en el canal de Telegram "JOBS - PRACTICAS/APRENDIZ".
+  Reemplaza al cronjob de Hermes + DeepSeek y debe ser igual o mejor que él.
+  Especificación de origen: buscador-vacantes-spec.md (raíz del repo).
+
+  Entorno: corre 24/7 en un PC Linux Fedora (SELinux activo) mediante systemd
+  user timers. Se desarrolla en macOS; lo específico de Fedora se entrega en deploy/.
+
+  Stack: Python 3.12+, uv (pyproject + uv.lock), httpx, BeautifulSoup + lxml,
+  PyYAML + pydantic, python-dotenv, SQLite (stdlib, WAL), pytest + respx, ruff.
+  Telegram vía Bot API directa; DeepSeek vía API directa (sin agente ni tools).
+
+  Restricciones: el LLM nunca scrapea ni envía vacantes; solo clasifica dudosas,
+  diagnostica incidentes y redacta el resumen diario. Nada de evadir captchas,
+  proxies ni protecciones anti-bot. Todo lo configurable va en config.yaml.
+  Código, identificadores y mensajes en español. Zona horaria America/Bogota.
+
+  REGLA ESTRICTA (no negociable): ningún commit, PR, rama, tag ni descripción
+  puede mencionar a la IA. Prohibido "Co-Authored-By: Claude", "Generated with
+  Claude Code" o cualquier atribución a Claude, Anthropic u otro asistente.
+  Ver CLAUDE.md.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
