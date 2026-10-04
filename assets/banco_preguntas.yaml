@@ -1,0 +1,69 @@
+# Banco sembrado de preguntas frecuentes de los formularios de postulación.
+# Cada pregunta apunta a un campo del catálogo (buscador_vacantes/asistente/campos.py).
+# Guarda solo qué dato pide la pregunta: la respuesta sale siempre de los datos del usuario.
+# Las preguntas nuevas que clasifica la IA se agregan a la base, no a este archivo.
+
+- {pregunta: "Nombre completo", campo: nombre}
+- {pregunta: "Nombres y apellidos", campo: nombre}
+- {pregunta: "Correo electrónico", campo: correo}
+- {pregunta: "Email", campo: correo}
+- {pregunta: "Teléfono", campo: telefono}
+- {pregunta: "Celular", campo: telefono}
+- {pregunta: "Número de contacto", campo: telefono}
+- {pregunta: "Número de documento", campo: documento}
+- {pregunta: "Cédula", campo: documento}
+- {pregunta: "¿Cuál es tu aspiración salarial?", campo: salario}
+- {pregunta: "Aspiración salarial", campo: salario}
+- {pregunta: "Pretensión salarial", campo: salario}
+- {pregunta: "¿Cuál es tu expectativa salarial?", campo: salario}
+- {pregunta: "Salario esperado", campo: salario}
+- {pregunta: "¿Cuánto esperas ganar?", campo: salario}
+- {pregunta: "¿Cuál es tu disponibilidad para iniciar?", campo: disponibilidad_inicio}
+- {pregunta: "¿Cuándo podrías empezar?", campo: disponibilidad_inicio}
+- {pregunta: "Disponibilidad de inicio", campo: disponibilidad_inicio}
+- {pregunta: "¿Tienes disponibilidad inmediata?", campo: disponibilidad_inicio}
+- {pregunta: "¿Cuál es tu disponibilidad horaria?", campo: horario}
+- {pregunta: "¿Tienes disponibilidad de tiempo completo?", campo: horario}
+- {pregunta: "Disponibilidad de horario", campo: horario}
+- {pregunta: "¿Puedes trabajar de forma presencial?", campo: modalidades}
+- {pregunta: "¿Qué modalidad de trabajo prefieres?", campo: modalidades}
+- {pregunta: "¿Aceptas trabajo híbrido?", campo: modalidades}
+- {pregunta: "¿En qué ciudad vives?", campo: ciudad}
+- {pregunta: "Ciudad de residencia", campo: ciudad}
+- {pregunta: "¿Vives en la ciudad de la vacante?", campo: ciudad}
+- {pregunta: "¿Tienes disponibilidad para viajar?", campo: traslado}
+- {pregunta: "¿Tienes disponibilidad para trasladarte?", campo: traslado}
+- {pregunta: "¿Estás dispuesto a cambiar de ciudad?", campo: traslado}
+- {pregunta: "¿Estudias actualmente?", campo: estudia_actualmente}
+- {pregunta: "¿Eres estudiante activo?", campo: estudia_actualmente}
+- {pregunta: "¿Te encuentras estudiando?", campo: estudia_actualmente}
+- {pregunta: "Institución educativa", campo: institucion}
+- {pregunta: "¿En qué universidad estudias?", campo: institucion}
+- {pregunta: "¿Qué estudias?", campo: programa}
+- {pregunta: "Carrera o programa", campo: programa}
+- {pregunta: "¿Qué semestre cursas?", campo: semestre}
+- {pregunta: "Semestre actual", campo: semestre}
+- {pregunta: "¿En qué semestre estás?", campo: semestre}
+- {pregunta: "¿Qué tipo de práctica buscas?", campo: tipo_practica}
+- {pregunta: "¿Tu institución te exige contrato de aprendizaje?", campo: tipo_practica}
+- {pregunta: "¿Estás en etapa productiva?", campo: tipo_practica}
+- {pregunta: "¿Cuál es tu nivel de inglés?", campo: ingles_nivel}
+- {pregunta: "Nivel de inglés", campo: ingles_nivel}
+- {pregunta: "¿Hablas inglés?", campo: ingles_nivel}
+- {pregunta: "¿Cuentas con computador propio?", campo: equipo_propio}
+- {pregunta: "¿Tienes equipo de cómputo y conexión a internet?", campo: equipo_propio}
+- {pregunta: "¿Tienes computador?", campo: equipo_propio}
+- {pregunta: "¿Cuántos años de experiencia tienes?", campo: experiencia_meses}
+- {pregunta: "¿Cuánta experiencia tienes?", campo: experiencia_meses}
+- {pregunta: "Años de experiencia", campo: experiencia_meses}
+- {pregunta: "Enlace a tu GitHub", campo: enlace_portafolio}
+- {pregunta: "Portafolio", campo: enlace_portafolio}
+- {pregunta: "Perfil de LinkedIn", campo: enlace_portafolio}
+- {pregunta: "¿Tienes conocimientos en Excel?", campo: conoce, parametro: Excel}
+- {pregunta: "¿Manejas Excel avanzado?", campo: conoce, parametro: Excel}
+- {pregunta: "¿Tienes conocimientos en SQL?", campo: conoce, parametro: SQL}
+- {pregunta: "¿Sabes programar en Python?", campo: conoce, parametro: Python}
+- {pregunta: "¿Tienes conocimientos en Java?", campo: conoce, parametro: Java}
+- {pregunta: "¿Manejas Power BI?", campo: conoce, parametro: Power BI}
+- {pregunta: "¿Tienes conocimientos en redes?", campo: conoce, parametro: Redes}
+- {pregunta: "¿Tienes conocimientos en soporte técnico?", campo: conoce, parametro: Soporte técnico}
