@@ -172,8 +172,10 @@ def test_adaptar_con_ia_valida_la_salida(cliente):
         return_value=gemini({"resumen": "Orientada a datos con Kubernetes.",
                              "habilidades_primero": ["SQL", "Python"]})
     )  # fmt: skip
-    cv = asyncio.run(adaptar(DatosUsuario(PERFIL), Requisitos(obligatorios=["SQL"]),
-                             "Analista de datos", cliente=cliente, clave="k", usuario_id=1))  # fmt: skip
+    cv = asyncio.run(
+        adaptar(DatosUsuario(PERFIL), Requisitos(obligatorios=["SQL"]), "Analista de datos",
+                cliente=cliente, clave="k", usuario_id=1)
+    )  # fmt: skip
     assert cv.resumen == PERFIL.resumen  # el resumen traía una tecnología ajena
     assert cv.habilidades[:2] == ["SQL", "Python"]
 
@@ -181,8 +183,10 @@ def test_adaptar_con_ia_valida_la_salida(cliente):
 @respx.mock
 def test_carta_con_tecnologia_ajena_usa_la_basica(cliente):
     respx.post(URL).mock(return_value=gemini({"carta": "Tengo 3 años con Kubernetes y AWS."}))
-    carta = asyncio.run(redactar_carta(DatosUsuario(PERFIL), cv_base(PERFIL), "Practicante",
-                                       "oferta", 1000, cliente=cliente, clave="k", usuario_id=1))  # fmt: skip
+    carta = asyncio.run(
+        redactar_carta(DatosUsuario(PERFIL), cv_base(PERFIL), "Practicante", "oferta", 1000,
+                       cliente=cliente, clave="k", usuario_id=1)
+    )  # fmt: skip
     assert carta == carta_basica(PERFIL, "Practicante", PERFIL.habilidades_tecnicas, 1000)
     assert "Kubernetes" not in carta
 
@@ -191,6 +195,8 @@ def test_carta_con_tecnologia_ajena_usa_la_basica(cliente):
 def test_carta_valida_de_la_ia(cliente):
     texto = "Me interesa la práctica porque he desarrollado una API con Django y Python."
     respx.post(URL).mock(return_value=gemini({"carta": texto}))
-    carta = asyncio.run(redactar_carta(DatosUsuario(PERFIL), cv_base(PERFIL), "Practicante",
-                                       "oferta", 1000, cliente=cliente, clave="k", usuario_id=1))  # fmt: skip
+    carta = asyncio.run(
+        redactar_carta(DatosUsuario(PERFIL), cv_base(PERFIL), "Practicante", "oferta", 1000,
+                       cliente=cliente, clave="k", usuario_id=1)
+    )  # fmt: skip
     assert carta == texto
