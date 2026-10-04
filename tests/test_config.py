@@ -58,7 +58,9 @@ def test_config_inicial_carga(config):
     assert config.fuentes["getonboard"].presupuesto == 5
     assert config.fuentes["sena"].activa is False
     assert config.banner.modo == "diario"
-    assert config.ia.presupuesto_dia.reportero == 8
+    assert config.ia.presupuesto_dia.clasificador == 300
+    assert config.ia.presupuesto_dia.reportero == 20
+    assert config.ia.presupuesto_dia.resumen == 3
     assert config.clasificador.politica_sin_ia == "descartar"
 
 
@@ -101,6 +103,12 @@ def test_fuente_spe(config):
     assert spe.presupuesto == 2
     assert "symplicity.com" in spe.opciones["dominios_con_login"]
     assert "spe" in config.filtros.ubicacion.fuentes_colombianas
+
+
+def test_prompt_decide_practicas_de_otra_area(config):
+    prompt = config.clasificador.prompt_sistema
+    assert "Práctica de otra área" in prompt
+    assert "funciones principales son de TI" in prompt
 
 
 def test_areas_cubren_categorias(config):

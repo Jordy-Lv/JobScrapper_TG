@@ -26,7 +26,7 @@ SECRETOS = Secretos(telegram_bot_token="1:x", telegram_chat_id="-100REAL",
 OFERTAS = [
     {"id": "1", "titulo": "Aprendiz SENA Desarrollo de Software", "empresa": "Redeban"},
     {"id": "2", "titulo": "Desarrollador Java Senior", "empresa": "Globant"},
-    {"id": "3", "titulo": "Practicante Contable", "empresa": "Éxito"},
+    {"id": "3", "titulo": "Auxiliar Contable", "empresa": "Éxito"},
     {"id": "4", "titulo": "Analista Junior", "empresa": "Bancolombia"},  # dudosa
     {"id": "5", "titulo": "QA Junior", "empresa": "Lima Tech", "ubicacion": "Lima, Perú"},
     {"id": "6", "titulo": "Soporte IT Junior", "empresa": "Viejo", "dias": 20},

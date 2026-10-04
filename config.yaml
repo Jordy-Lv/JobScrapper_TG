@@ -759,10 +759,12 @@ ia:
   timeout_s: 60
   saldo_minimo_usd: 1.0
   saldo_cache_min: 10
+  # Topes de llamadas diarias: amplios a propósito (la IA decide todas las dudosas y las
+  # prácticas de otras áreas). La protección económica es saldo_minimo_usd
   presupuesto_dia:
-    clasificador: 60
-    reportero: 8
-    resumen: 1
+    clasificador: 300
+    reportero: 20
+    resumen: 3      # un resumen al día; el margen cubre reintentos y pruebas
 
 clasificador:
   activo: true
@@ -808,6 +810,13 @@ clasificador:
     operativas, logística, etc. Esta excepción es solo para aprendices SENA o de contrato de
     aprendizaje: un "Practicante" o "Estudiante en práctica" sin área sigue la regla general
     (se acepta solo si hay evidencia de TI).
+
+    Práctica de otra área: también recibes prácticas, pasantías y aprendices cuyo título
+    nombra un área que no es de TI ("Practicante administrativo", "Aprendiz de logística").
+    Acéptala con categoría "practicas" solo si sus funciones principales son de TI
+    (desarrollo, datos/BI, soporte técnico, redes, sistemas de información, automatización).
+    Si lo de TI es secundario (manejo de Excel u Office, digitar en un ERP, "manejo de
+    sistemas", redes sociales), recházala.
 
     Recibes un JSON con una lista "vacantes"; cada una tiene un "id". Responde SOLO con un
     JSON con esta forma, con una entrada por cada id recibido:

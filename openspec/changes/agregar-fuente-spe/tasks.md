@@ -23,5 +23,5 @@
 
 ## 4. Despliegue
 
-- [ ] 4.1 Commit y push (sin atribución a IA), `git pull` en el servidor y `uv run buscador.py --dry-run --fuente spe` en el servidor. Verificar que el request responde 200 con verificación TLS y revisar cuántas plazas pasan los filtros.
-- [ ] 4.2 Verificar en el log de la siguiente corrida normal que `spe` aparece con 2 requests 200 y que sus vacantes enviadas no repiten claves ya enviadas por elempleo o Magneto.
+- [x] 4.1 Commit y push (sin atribución a IA), `git pull` en el servidor y `uv run buscador.py --dry-run --fuente spe` en el servidor. Verificar que el request responde 200 con verificación TLS y revisar cuántas plazas pasan los filtros.
+- [x] 4.2 Verificar en el log de la siguiente corrida normal que `spe` aparece con 2 requests 200 y que sus vacantes enviadas no repiten claves ya enviadas por elempleo o Magneto.

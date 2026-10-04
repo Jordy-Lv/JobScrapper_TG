@@ -5,7 +5,10 @@ Busca vacantes de **prácticas, aprendiz (incluido SENA) y junior en todos los r
 ciberseguridad) en Colombia y remoto LATAM, y publica solo las nuevas en el canal de Telegram
 "JOBS - PRACTICAS/APRENDIZ". Reemplaza al cronjob de Hermes + DeepSeek.
 
-- Las reglas deciden los casos claros; DeepSeek solo clasifica las vacantes **dudosas**.
+- Las reglas deciden los casos claros; DeepSeek clasifica las vacantes **dudosas**, incluidas
+  todas las prácticas y aprendices de áreas que no son TI (acepta solo las que tienen funciones
+  principales de TI). Topes diarios amplios (clasificador 300, reportero 20, resumen 3); la
+  protección económica es el saldo mínimo de DeepSeek.
 - Nunca se publica dos veces la misma vacante, aunque aparezca en varias fuentes.
 - Corre cada 30 minutos en el PC Fedora con systemd de usuario: guía completa de instalación,
   fase de prueba, paso a producción, operación y rollback en `deploy/INSTALAR.md`.

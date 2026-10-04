@@ -203,9 +203,11 @@ class Filtros:
                 Veredicto.ACEPTAR, Motivo.ACEPTADA, categoria=self.categoria_por_terminos(vacante)
             )
 
-        # 5. Rechazar si no hay nada de TI ni disparadores (un área no TI anula los disparadores)
+        # 5. Rechazar si no hay nada de TI ni disparadores (un área no TI anula los disparadores).
+        # Excepción: las prácticas ("Practicante administrativo") nunca se rechazan aquí; la IA
+        # decide según sus funciones, porque la prioridad del canal son las prácticas
         disparadores = [] if no_ti_titulo else coincidencias(self._disparadores, titulo)
-        if not ti and not disparadores:
+        if not ti and not disparadores and not coincidencias(self._practica, titulo):
             return Evaluacion(
                 Veredicto.RECHAZAR,
                 Motivo.NO_TI,

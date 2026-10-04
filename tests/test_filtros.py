@@ -30,7 +30,8 @@ def vac(titulo, ubicacion="Bogotá, Colombia", modalidad=None, descripcion=None,
         # Escenarios de la spec filtrado-vacantes
         ("Desarrollador Java Senior", R, Motivo.SENIORITY, None),
         ("Aprendiz SENA Desarrollo de Software", A, Motivo.ACEPTADA, Categoria.PRACTICAS),
-        ("Practicante Contable", R, Motivo.NO_TI, None),
+        ("Practicante Contable", D, Motivo.DUDOSA, None),  # la decide la IA
+        ("Auxiliar Contable", R, Motivo.NO_TI, None),
         ("Practicante", D, Motivo.DUDOSA, None),
         ("Analista de Procesos", D, Motivo.DUDOSA, None),
         ("Practicante de Sistemas en Srta. Group", A, Motivo.ACEPTADA, Categoria.PRACTICAS),
@@ -56,16 +57,16 @@ def vac(titulo, ubicacion="Bogotá, Colombia", modalidad=None, descripcion=None,
         ("Líder Técnico de Desarrollo", R, Motivo.SENIORITY, None),
         ("Desarrollador Sr. Python", R, Motivo.SENIORITY, None),
         ("Desarrollador con 3 años de experiencia", R, Motivo.SENIORITY, None),
-        ("Aprendiz de Cocina", R, Motivo.NO_TI, None),
+        ("Aprendiz de Cocina", D, Motivo.DUDOSA, None),  # práctica: la decide la IA
         ("Asesor Comercial", R, Motivo.NO_TI, None),
         ("Practicante Redes Sociales", D, Motivo.DUDOSA, None),
-        ("Practicante Sistemas de Gestión de Calidad", R, Motivo.NO_TI, None),
+        ("Practicante Sistemas de Gestión de Calidad", D, Motivo.DUDOSA, None),
         # Sin nivel → dudosa
         ("Desarrollador Java", D, Motivo.DUDOSA, None),
         # TI junto a un área no TI en el título → dudosa
         ("Programador de Mantenimiento Junior", D, Motivo.DUDOSA, None),
         ("Docente programador por horas junior", D, Motivo.DUDOSA, None),
-        ("Practicante Seguridad Salud en el trabajo", R, Motivo.NO_TI, None),
+        ("Practicante Seguridad Salud en el trabajo", D, Motivo.DUDOSA, None),
     ],
 )  # fmt: skip
 def test_veredicto_por_titulo(filtros, titulo, veredicto, motivo, categoria):
@@ -193,3 +194,24 @@ def test_remoto_en_portal_colombiano_implica_colombia(filtros):
 def test_reino_unido_es_exterior(filtros):
     vacante = vac("Desarrollador Junior", "London Area, United Kingdom", "Remoto")
     assert filtros.evaluar(vacante, AHORA).motivo == Motivo.UBICACION
+
+
+@pytest.mark.parametrize(
+    ("vacante", "motivo"),
+    [
+        (vac("Practicante Contable Senior"), Motivo.SENIORITY),
+        (vac("Practicante administrativo", dias=20), Motivo.ANTIGUEDAD),
+        (vac("Practicante administrativo", "Lima, Perú (Presencial)"), Motivo.UBICACION),
+    ],
+)
+def test_practicas_de_otra_area_siguen_los_demas_rechazos(filtros, vacante, motivo):
+    evaluacion = filtros.evaluar(vacante, AHORA)
+    assert (evaluacion.veredicto, evaluacion.motivo) == (R, motivo)
+
+
+def test_practica_de_otra_area_con_funciones_de_ti_llega_a_la_ia(filtros):
+    vacante = vac(
+        "Practicante administrativo",
+        descripcion="Construir tableros en Power BI y consultas SQL para el área.",
+    )
+    assert filtros.evaluar(vacante, AHORA).veredicto == D
