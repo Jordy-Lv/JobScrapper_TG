@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import uvicorn
+from telegram import Update
 
 from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.api import crear_app
@@ -159,7 +160,11 @@ class Servicio:
         servidor.install_signal_handlers = lambda: None
         async with aplicacion:
             await aplicacion.start()
-            await aplicacion.updater.start_polling(drop_pending_updates=False)
+            # Se piden todos los tipos de update: Telegram recuerda el último filtro usado y sin
+            # esto el bot podría dejar de recibir los toques de botones (callback_query)
+            await aplicacion.updater.start_polling(
+                drop_pending_updates=False, allowed_updates=Update.ALL_TYPES
+            )
             self._crear_conversacion(aplicacion.bot)
             log.info("Asistente en marcha: bot @%s y API en %s:%s", self.config.bot_usuario,
                      self.config.api.host, self.config.api.puerto)  # fmt: skip
