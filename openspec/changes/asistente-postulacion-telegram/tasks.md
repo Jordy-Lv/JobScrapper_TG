@@ -139,7 +139,7 @@
   - dos `tomar` simultáneos dan uno solo;
   - el enlace del CV no sirve dos veces;
   - el HTML de evidencia se guarda sin valores de campos.
-- [ ] 6.2 Crear `asistente/cola.py` con:
+- [x] 6.2 Crear `asistente/cola.py` con:
   - estados y transiciones del design 6;
   - `esperando_navegador` por latido ausente y respaldo a las 24 h;
   - `esperando_sesion` según los portales del latido;
