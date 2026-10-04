@@ -61,6 +61,7 @@ def publicar(
     prueba: bool = False,
     raiz: Path = Path("."),
     dormir: Callable[[float], None] = time.sleep,
+    bot_asistente: str | None = None,
 ) -> ResultadoPublicacion:
     """Envía las vacantes (con su huella). Cada vacante se marca solo si su mensaje se confirma.
 
@@ -83,7 +84,7 @@ def publicar(
             log.warning("No se pudo enviar el banner: %s", envio.error)
             resultado.error_banner = envio.error
 
-    mensajes = componer([v for v, _ in candidatas], ahora)
+    mensajes = componer([v for v, _ in candidatas], ahora, bot_asistente=bot_asistente)
     for numero, mensaje in enumerate(mensajes):
         if numero or resultado.banner_enviado:
             dormir(PAUSA_ENTRE_MENSAJES_S)

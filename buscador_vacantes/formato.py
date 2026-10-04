@@ -6,6 +6,7 @@ import html
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from buscador_vacantes.asistente.enlaces import enlace
 from buscador_vacantes.fechas import fecha_relativa
 from buscador_vacantes.modelo import Categoria, Vacante
 from buscador_vacantes.normalizar import normalizar_texto
@@ -72,7 +73,7 @@ def _lugar(vacante: Vacante) -> str:
     return escapar(ubicacion or modalidad)
 
 
-def ficha(vacante: Vacante, ahora: datetime) -> str:
+def ficha(vacante: Vacante, ahora: datetime, bot_asistente: str | None = None) -> str:
     url = html.escape(vacante.url, quote=True)
     lineas = [f'<b><a href="{url}">{escapar(vacante.titulo)}</a></b>']
     datos = []
@@ -88,6 +89,9 @@ def ficha(vacante: Vacante, ahora: datetime) -> str:
     if cuando := fecha_relativa(vacante.publicada, ahora):
         origen += f" · 🕒 {cuando}"
     lineas.append(origen)
+    if bot_asistente:
+        destino = html.escape(enlace(bot_asistente, vacante.clave), quote=True)
+        lineas.append(f'⚡ <a href="{destino}">Postularme</a>')
     return "\n".join(lineas)
 
 
@@ -104,9 +108,16 @@ def _ordenar(vacantes: list[Vacante]) -> list[Vacante]:
 
 
 def componer(
-    vacantes: list[Vacante], ahora: datetime, limite: int = LIMITE_TELEGRAM
+    vacantes: list[Vacante],
+    ahora: datetime,
+    limite: int = LIMITE_TELEGRAM,
+    *,
+    bot_asistente: str | None = None,
 ) -> list[Mensaje]:
-    """Arma los mensajes sin cortar fichas, repitiendo el título de categoría al continuar."""
+    """Arma los mensajes sin cortar fichas, repitiendo el título de categoría al continuar.
+
+    Con ``bot_asistente`` cada ficha termina con su enlace ⚡ Postularme hacia ese bot.
+    """
     if not vacantes:
         return []
     mensajes: list[Mensaje] = []
@@ -118,7 +129,7 @@ def componer(
 
     for vacante in _ordenar(vacantes):
         categoria = vacante.categoria or Categoria.OTROS_TI
-        bloque = ficha(vacante, ahora)
+        bloque = ficha(vacante, ahora, bot_asistente)
         if categoria != categoria_actual:
             bloque_con_titulo = titulo_categoria(categoria) + SEPARADOR + bloque
         else:

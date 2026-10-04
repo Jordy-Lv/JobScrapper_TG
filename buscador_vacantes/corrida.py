@@ -27,6 +27,7 @@ from pathlib import Path
 from buscador_vacantes import config as cfg
 from buscador_vacantes import registro, rotacion
 from buscador_vacantes.asistente import cli as asistente_cli
+from buscador_vacantes.asistente.enlaces import bot_para_enlaces
 from buscador_vacantes.clasificador import Clasificador, Dudosa
 from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto, ahora_utc
 from buscador_vacantes.fechas import ZONA
@@ -342,6 +343,7 @@ class Corrida:
         resumen.publicacion = publicar(
             candidatas, self.notificador, self.estado, self.config.banner, chat, self.reloj(),
             prueba=self.modo.chat_prueba, raiz=self.raiz, dormir=self.dormir,
+            bot_asistente=bot_para_enlaces(self.config),
         )  # fmt: skip
 
     def _chat_destino(self) -> str | None:

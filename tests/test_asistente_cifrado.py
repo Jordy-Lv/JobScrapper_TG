@@ -1,9 +1,11 @@
 import pytest
 
-from buscador_vacantes.asistente import cifrado
-from buscador_vacantes.asistente.cifrado import Cifrador, ClaveInvalida
-from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.corrida import main
+pytest.importorskip("cryptography", reason="requiere uv sync --group asistente")
+
+from buscador_vacantes.asistente import cifrado  # noqa: E402
+from buscador_vacantes.asistente.cifrado import Cifrador, ClaveInvalida  # noqa: E402
+from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
+from buscador_vacantes.corrida import main  # noqa: E402
 
 AHORA = "2026-10-04T15:00:00+00:00"
 

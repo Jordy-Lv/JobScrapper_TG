@@ -904,9 +904,47 @@ asistente:
     cache_min: 10
   politica:
     version: 1
-    # Texto definitivo en la tarea 2.2, aprobado por el administrador
+    # Borrador de la tarea 2.2: el administrador debe revisarlo y aprobarlo antes del piloto.
+    # Cambiar el texto exige subir la versión: todos los usuarios lo aceptan de nuevo.
     texto: |-
-      PENDIENTE: texto de autorización y política de tratamiento de datos.
+      AUTORIZACIÓN DE TRATAMIENTO DE DATOS PERSONALES
+      Asistente de postulación del grupo JOBS - PRÁCTICAS/APRENDIZ
+
+      Responsable: el administrador del grupo, quien opera este asistente en su propio
+      servidor sin ánimo de lucro (Ley 1581 de 2012 y Decreto 1377 de 2013).
+
+      1. Qué datos guardamos: tu id y nombre de Telegram; tu hoja de vida y el perfil que
+      se arma con ella (formación, experiencia, proyectos, habilidades, idiomas); tus datos
+      de contacto (correo, teléfono y, si lo das, tu documento); tus respuestas al
+      cuestionario; el correo de tus cuentas de Computrabajo y Magneto; tu clave de Gemini
+      (cifrada); y el historial de tus postulaciones con las respuestas enviadas.
+
+      2. Para qué: solo para preparar y enviar las postulaciones que tú pidas tocando
+      "Postularme" (o las de tu modo automático, si lo activas), adaptar levemente tu hoja
+      de vida a cada vacante y mostrarte el resultado. No vendemos ni compartimos tus datos.
+
+      3. Inteligencia artificial: usamos Gemini de Google con TU propia clave. En su plan
+      gratuito, Google puede usar el contenido enviado para mejorar sus modelos. Por eso
+      nunca enviamos tu documento, teléfono, correo ni dirección; solo tu formación,
+      experiencia, habilidades y la vacante. Si tu hoja de vida es escaneada, te pediremos
+      permiso antes de enviarla completa.
+
+      4. Postulación desde tu navegador: la extensión postula desde tu computador, con tu
+      sesión y tu conexión. Nunca recibimos tus contraseñas ni tus sesiones. Si lo
+      autorizas, actualizará la hoja de vida de tus perfiles en los portales con la versión
+      adaptada a cada vacante; una empresa a la que te postulaste antes podría ver la
+      versión más reciente.
+
+      5. Riesgo: los portales de empleo pueden restringir el uso automatizado de las
+      cuentas. Para reducirlo postulamos con pausas, con un tope diario y nos detenemos ante
+      cualquier verificación, pero no podemos garantizar que el portal no tome medidas.
+
+      6. Tus derechos: conocer, actualizar, rectificar y suprimir tus datos y revocar esta
+      autorización. Puedes ver y editar tu perfil con /perfil y borrar todo con /borrarme.
+      Si dejas el grupo, tu acceso se suspende; si no usas el asistente en 12 meses, te
+      avisaremos y luego borraremos tus datos.
+
+      Al pulsar "Acepto" autorizas este tratamiento.
   cv:
     max_mb: 5
     max_paginas: 10

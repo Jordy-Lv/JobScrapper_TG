@@ -16,7 +16,7 @@
 
 ## 2. Enlaces del canal y usuarios
 
-- [ ] 2.1 Crear `asistente/enlaces.py` (`id_corto`, `enlace`) y hacer que `formato.ficha` agregue `⚡ Postularme` solo con `activo` y `enlace_canal` habilitados, contando la longitud en `empaquetar`. Verificar con `tests/test_formato.py` que:
+- [x] 2.1 Crear `asistente/enlaces.py` (`id_corto`, `enlace`) y hacer que `formato.ficha` agregue `⚡ Postularme` solo con `activo` y `enlace_canal` habilitados, contando la longitud en `empaquetar`. Verificar con `tests/test_formato.py` que:
   - el id es estable y de 12 caracteres;
   - con el enlace deshabilitado, las fichas quedan idénticas a las actuales;
   - con el enlace habilitado se respetan los 4096 caracteres.
@@ -29,7 +29,7 @@
   - derechos y borrado.
 
   El mismo texto sirve de política de privacidad para la tienda de Edge. Verificar que el dueño lo aprueba antes de 9.3.
-- [ ] 2.3 Crear `asistente/usuarios.py`:
+- [x] 2.3 Crear `asistente/usuarios.py`:
   - alta con `paso_alta` persistente;
   - aceptación versionada;
   - comprobación de membresía en el grupo con `getChatMember` (alta, cada ⚡ con caché de 10 min y tarea diaria), con suspensión al salir y reactivación al volver;
