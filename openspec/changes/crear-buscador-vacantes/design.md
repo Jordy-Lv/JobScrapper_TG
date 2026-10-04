@@ -110,6 +110,7 @@ Los términos están en `config.yaml` y se compilan a expresiones regulares con 
 - `buscador.timer`: `OnCalendar=*:00,30`, `Persistent=true`, `RandomizedDelaySec=120`. Con `Persistent=true` systemd recupera una sola corrida perdida, y como el servicio es oneshot no hay solapamiento.
 - `buscador-resumen.service` y `.timer`: `OnCalendar=*-*-* 08:00 America/Bogota`, `Persistent=true`.
 - `loginctl enable-linger $USER` para correr sin sesión, y desactivar la suspensión de GNOME (`gsettings … sleep-inactive-ac-type 'nothing'`). Todo vive bajo `$HOME`, así que no hace falta tocar contextos SELinux.
+- Secretos: manda el `.env` del proyecto; una variable de entorno solo se usa si el `.env` no la trae. En el PC el `~/.bashrc` exporta la `DEEPSEEK_API_KEY` de Hermes, y una corrida manual por SSH no debe tomarla en lugar de la propia.
 - Para el heartbeat, un check en healthchecks.io con periodo de 30 min y gracia de 45 min; se hace ping a `/start`, a la URL base al terminar bien y a `/fail` ante un error interno.
 - Fase de prueba: drop-ins `deploy/prueba/*.conf` en `~/.config/systemd/user/<unidad>.d/` cambian `ExecStart` para añadir `--chat-prueba`. Al pasar a producción se borran y `buscador.py promover-prueba` marca como enviadas al canal las vacantes que ya salieron en el chat de prueba, para no reenviar ese atraso. Las unidades de usuario no dependen de `network-online.target` (no existe en el gestor de usuario); la falta de red la maneja el incidente `red:sin_conexion`.
 

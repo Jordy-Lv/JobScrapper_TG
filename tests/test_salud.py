@@ -43,7 +43,10 @@ def test_sin_url_o_desactivado_no_hace_requests():
     assert not ruta.called
 
 
-@pytest.mark.skipif(not os.environ.get("HEALTHCHECK_URL"), reason="requiere HEALTHCHECK_URL")
+@pytest.mark.skipif(
+    not (os.environ.get("PRUEBA_REAL") and os.environ.get("HEALTHCHECK_URL")),
+    reason="prueba real: requiere PRUEBA_REAL=1 y HEALTHCHECK_URL",
+)
 def test_ping_real():
     salud = Salud(os.environ["HEALTHCHECK_URL"])
     assert salud.inicio() and salud.exito("prueba manual del buscador")

@@ -273,7 +273,10 @@ def cargar_secretos(
     exigir_chat_prueba: bool = False,
     exigir_salud: bool | None = None,
 ) -> Secretos:
-    """Lee los secretos del .env (las variables de entorno tienen prioridad).
+    """Lee los secretos del .env; una variable de entorno solo se usa si el .env no la trae.
+
+    El .env del proyecto manda porque en el PC el shell exporta claves de otros programas
+    (p. ej. la `DEEPSEEK_API_KEY` de Hermes).
 
     Con ``exigir_envio=False`` (dry-run) no se exigen el token ni los ids de chat.
     El token se lee en cada corrida, primero del .env y si no de la configuración de Hermes.
@@ -282,7 +285,7 @@ def cargar_secretos(
     archivo = dotenv_values(ruta_env) if ruta_env.is_file() else {}
 
     def leer(nombre: str) -> str | None:
-        valor = os.environ.get(nombre) or archivo.get(nombre)
+        valor = archivo.get(nombre) or os.environ.get(nombre)
         return valor.strip() if valor and valor.strip() else None
 
     secretos = Secretos(

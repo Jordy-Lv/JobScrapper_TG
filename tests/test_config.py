@@ -130,7 +130,12 @@ def test_secreto_faltante(tmp_path, config):
     assert "TELEGRAM_CHAT_ID" not in str(error.value)
 
 
-def test_dry_run_no_exige_secretos(tmp_path, config):
+def test_dry_run_no_exige_secretos(tmp_path):
+    # Sin token de Hermes: en el PC real ~/.hermes/.env sí existe
+    sin_hermes = {"archivo": str(tmp_path / "no-hermes.env"), "variable": "TELEGRAM_BOT_TOKEN"}
+    config = cargar_configuracion(
+        escribir_config(tmp_path, lambda d: d["telegram"].update(token_hermes=sin_hermes))
+    )
     secretos = cargar_secretos(config, tmp_path / "no-existe.env", exigir_envio=False)
     assert secretos.telegram_bot_token is None
 
@@ -156,9 +161,18 @@ def test_token_desde_configuracion_de_hermes(tmp_path):
     assert secretos.telegram_bot_token == "999:token-de-hermes"
 
 
-def test_variable_de_entorno_tiene_prioridad(tmp_path, config, monkeypatch):
-    monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100999")
+def test_env_del_proyecto_tiene_prioridad(tmp_path, config, monkeypatch):
+    # En el PC el shell exporta la DEEPSEEK_API_KEY de Hermes: no debe pisar la del .env
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-de-otro-programa")
     secretos = cargar_secretos(config, escribir_env(tmp_path, **ENV_COMPLETO))
+    assert secretos.deepseek_api_key == ENV_COMPLETO["DEEPSEEK_API_KEY"]
+
+
+def test_variable_de_entorno_si_el_env_no_la_trae(tmp_path, config, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100999")
+    valores = dict(ENV_COMPLETO)
+    del valores["TELEGRAM_CHAT_ID"]
+    secretos = cargar_secretos(config, escribir_env(tmp_path, **valores))
     assert secretos.telegram_chat_id == "-100999"
 
 

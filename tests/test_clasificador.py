@@ -197,7 +197,8 @@ def test_clasificador_desactivado(config, estado, politica, aceptadas):
 
 
 @pytest.mark.skipif(
-    not os.environ.get("DEEPSEEK_API_KEY"), reason="prueba real: requiere DEEPSEEK_API_KEY"
+    not (os.environ.get("PRUEBA_REAL") and os.environ.get("DEEPSEEK_API_KEY")),
+    reason="prueba real: requiere PRUEBA_REAL=1 y DEEPSEEK_API_KEY",
 )
 def test_real_20_dudosas_contra_deepseek(config, estado):
     ia = ClienteIA(config.ia, os.environ["DEEPSEEK_API_KEY"], estado)

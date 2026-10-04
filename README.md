@@ -22,6 +22,7 @@ uv sync                      # crea .venv con las dependencias
 cp .env.example .env         # completar los secretos
 chmod 600 .env
 uv run pytest                # pruebas (sin red)
+PRUEBA_REAL=1 uv run pytest  # incluye DeepSeek y healthchecks reales (usa la red)
 ```
 
 ## Modos de ejecución
