@@ -301,6 +301,8 @@ class Asistente(Modelo):
     dueno_telegram_id: int = Field(0, ge=0)
     base_datos: Path = Path("data/asistente.db")
     archivos: Path = Path("data/asistente")
+    # vacantes.db del buscador (solo lectura); vacío: rutas.base_datos
+    vacantes_db: Path | None = None
     api: AsistenteApi = Field(default_factory=AsistenteApi)
     extension: AsistenteExtension = Field(default_factory=AsistenteExtension)
     grupo: AsistenteGrupo = Field(default_factory=AsistenteGrupo)

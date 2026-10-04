@@ -889,6 +889,7 @@ asistente:
   dueno_telegram_id: 0       # id de Telegram del administrador
   base_datos: data/asistente.db
   archivos: data/asistente   # CV, PDF generados y evidencia (permisos 700)
+  vacantes_db: null          # vacantes.db del buscador (solo lectura); null: rutas.base_datos
   api:
     host: 127.0.0.1
     puerto: 8787

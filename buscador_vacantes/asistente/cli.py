@@ -7,10 +7,12 @@ buscador funcione sin ellas.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
 from buscador_vacantes import config as cfg
+from buscador_vacantes import registro
 
 INSTALAR = "Faltan las dependencias del asistente. Instálalas con:\n  uv sync --group asistente"
 
@@ -18,6 +20,7 @@ INSTALAR = "Faltan las dependencias del asistente. Instálalas con:\n  uv sync -
 def agregar_subcomandos(sub: argparse._SubParsersAction) -> None:
     asistente = sub.add_parser("asistente", help="asistente de postulación (ver README)")
     acciones = asistente.add_subparsers(dest="accion", required=True)
+    acciones.add_parser("servicio", help="bot, API y tareas periódicas (lo ejecuta systemd)")
     acciones.add_parser(
         "generar-clave", help="genera una clave maestra para ASISTENTE_CLAVE_CIFRADO"
     )
@@ -26,6 +29,10 @@ def agregar_subcomandos(sub: argparse._SubParsersAction) -> None:
         help="vuelve a cifrar los datos con una clave nueva (generada antes con generar-clave)",
     )
     rotar.add_argument("--nueva", required=True, help="la clave maestra nueva")
+    enlace = acciones.add_parser("enlace", help="muestra el enlace ⚡ de una vacante (pruebas)")
+    enlace.add_argument("clave", help="clave de la vacante, p. ej. computrabajo:ABC123")
+    selectores = acciones.add_parser("selectores", help="selectores de los portales")
+    selectores.add_argument("operacion", choices=["recargar"])
 
 
 def ejecutar(args: argparse.Namespace) -> int:
@@ -50,6 +57,13 @@ def ejecutar(args: argparse.Namespace) -> int:
         secretos = cfg.cargar_secretos(config, args.env, exigir_envio=False)
         if config.asistente is None:
             raise cfg.ErrorConfiguracion("config.yaml no tiene la sección asistente")
+        if args.accion == "enlace":
+            from buscador_vacantes.asistente.enlaces import enlace
+
+            print(enlace(config.asistente.bot_usuario or "<bot>", args.clave))
+            return 0
+        if args.accion == "servicio":
+            return _servicio(config, secretos)
         base = BaseAsistente.abrir(_ruta(config.asistente.base_datos))
         try:
             if args.accion == "rotar-clave":
@@ -59,12 +73,39 @@ def ejecutar(args: argparse.Namespace) -> int:
                     "clave nueva y reinicia el servicio del asistente."
                 )
                 return 0
+            if args.accion == "selectores":
+                from buscador_vacantes.asistente.servicio import construir_nucleo
+
+                nucleo = construir_nucleo(config, secretos)
+                print(f"Selectores cargados: {nucleo.cargar_selectores()}")
+                return 0
         finally:
             base.cerrar()
     except cfg.ErrorConfiguracion as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
     return 2
+
+
+def _servicio(config: cfg.Configuracion, secretos: cfg.Secretos) -> int:
+    asistente = config.asistente
+    if not asistente.activo:
+        print("El asistente está desactivado (asistente.activo: false).")
+        return 0
+    if not secretos.asistente_bot_token:
+        raise cfg.ErrorConfiguracion("Falta ASISTENTE_BOT_TOKEN en .env")
+    try:
+        from buscador_vacantes.asistente.servicio import Servicio
+    except ImportError:
+        print(INSTALAR, file=sys.stderr)
+        return 2
+    registro.configurar(
+        _ruta(config.rutas.logs) / "asistente", config.registro.retencion_dias,
+        secretos.valores(), config.zona_horaria,
+    )  # fmt: skip
+    servicio = Servicio(config, secretos)
+    asyncio.run(servicio.ejecutar())
+    return 0
 
 
 def _ruta(ruta: Path) -> Path:

@@ -225,7 +225,7 @@
 
 ## 8. Bot asistente
 
-- [ ] 8.1 Crear `asistente/bot.py`:
+- [x] 8.1 Crear `asistente/bot.py`:
   - `/start` con `v_` e `i_`;
   - comprobación de membresía antes de todo;
   - alta guiada (política → clave con borrado del mensaje → CV → secciones → enfoque → cuestionario con botones y reanudable → instalar y vincular la extensión con guía → estado de cada portal: crear cuenta, completar perfil o listo);
@@ -239,7 +239,7 @@
   - el mensaje con la clave se borra;
   - el cuestionario se retoma;
   - el grupo solo recibe "escríbeme en privado".
-- [ ] 8.2 Flujo del toque ⚡:
+- [x] 8.2 Flujo del toque ⚡:
   - decisión entre automática y respaldo;
   - mensaje de progreso editado en el lugar ("En cola", "Se enviará cuando abras tu navegador", "Postulando…", resultado);
   - resultado con las preguntas, las respuestas y su origen;
@@ -253,7 +253,7 @@
   - LinkedIn → respaldo;
   - dato faltante → pregunta → enviada;
   - tres usuarios simultáneos sin mezclarse.
-- [ ] 8.3 Comandos:
+- [x] 8.3 Comandos:
   - de usuario: `/perfil`, `/cuestionario`, `/clave`, `/cv`, `/navegadores`, `/vincular`, `/automatico [umbral]`, `/historial`, `/detalle <n>`, `/estado`, `/pausa` y `/borrarme`;
   - botones de seguimiento y el recordatorio único;
   - del dueño: `/usuarios`, `/suspender`, `/reactivar`, `/stats` y `/plataformas`, con auditoría, más los avisos de `formulario_desconocido` con evidencia;
