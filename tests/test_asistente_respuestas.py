@@ -34,7 +34,7 @@ from buscador_vacantes.config import cargar_configuracion  # noqa: E402
 
 AHORA = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
-URL_LITE = BASE_URL + "gemini-2.5-flash-lite:generateContent"
+URL_LITE = BASE_URL + "gemini-flash-lite-latest:generateContent"
 
 PERFIL = PerfilExtraido(
     es_cv=True,

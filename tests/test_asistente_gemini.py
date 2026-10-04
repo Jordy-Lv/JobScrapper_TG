@@ -22,7 +22,7 @@ from buscador_vacantes.asistente.gemini import (
 from buscador_vacantes.config import cargar_configuracion
 
 BASE = "https://generativelanguage.googleapis.com/v1beta/"
-URL = BASE + "models/gemini-2.5-flash:generateContent"
+URL = BASE + "models/gemini-flash-latest:generateContent"
 CLAVE = "AIzaSyClaveDePrueba1234567890"
 AHORA = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 
@@ -208,3 +208,46 @@ def test_validar_clave(entorno):
     )
     assert asyncio.run(cliente.validar_clave(CLAVE)) is True
     assert asyncio.run(cliente.validar_clave("mala")) is False
+
+
+@respx.mock
+def test_pensamiento_bajo_y_partes_de_pensamiento_ignoradas(entorno):
+    cliente, _ = entorno
+    ruta = respx.post(URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": "Voy a pensar...", "thought": True},
+                                {"text": json.dumps({"respuesta": "ok", "suficiente": True})},
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
+    )
+    assert generar(cliente).respuesta == "ok"
+    cuerpo = json.loads(ruta.calls.last.request.content)
+    assert cuerpo["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "low"}
+
+
+@respx.mock
+def test_modelo_saturado_reintenta_una_vez(entorno):
+    cliente, esperas = entorno
+    respx.post(URL).mock(
+        side_effect=[httpx.Response(503, json={}), ok({"respuesta": "x", "suficiente": True})]
+    )
+    assert generar(cliente).respuesta == "x"
+    assert esperas == [5]
+
+
+@respx.mock
+def test_modelo_saturado_dos_veces_falla(entorno):
+    cliente, _ = entorno
+    respx.post(URL).mock(return_value=httpx.Response(503, json={}))
+    with pytest.raises(ErrorIA, match="saturado"):
+        generar(cliente)

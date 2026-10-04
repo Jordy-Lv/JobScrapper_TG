@@ -20,9 +20,7 @@ from buscador_vacantes.asistente.gemini import ClienteGemini  # noqa: E402
 from buscador_vacantes.asistente.tecnologias import diccionario  # noqa: E402
 from buscador_vacantes.config import cargar_configuracion  # noqa: E402
 
-URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"
-)
+URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
 
 PERFIL = PerfilExtraido(
     es_cv=True,

@@ -277,6 +277,8 @@ class TareaIA(Modelo):
     modelo: str = Field(min_length=1)
     temperatura: float = Field(0.3, ge=0, le=2)
     max_tokens: int = Field(800, gt=0)
+    # Nivel de razonamiento de los modelos que "piensan" (thinkingLevel); None: el del modelo
+    pensamiento: Literal["low", "medium", "high"] | None = "low"
 
 
 class AsistenteGemini(Modelo):

@@ -20,7 +20,7 @@ from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
 from buscador_vacantes.asistente.gemini import ClienteGemini  # noqa: E402
 from buscador_vacantes.config import cargar_configuracion  # noqa: E402
 
-URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
 CONFIG = cargar_configuracion().asistente
 
 CV_TEXTO = """Ana María Pérez
