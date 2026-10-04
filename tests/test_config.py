@@ -297,3 +297,18 @@ def test_secretos_del_asistente(tmp_path, config):
     secretos = cargar_secretos(config, env, exigir_envio=False)
     assert secretos.asistente_bot_token == "123:abc"
     assert "123:abc" in secretos.valores()
+
+
+def test_config_local_reemplaza_solo_lo_que_trae(tmp_path, monkeypatch):
+    ruta = escribir_config(tmp_path, lambda d: None)
+    (tmp_path / "config.local.yaml").write_text(
+        "asistente:\n  bot_usuario: MiBot\n  api:\n    url_publica: https://x.ts.net\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("BUSCADOR_SIN_CONFIG_LOCAL", raising=False)
+    config = cargar_configuracion(ruta)
+    assert config.asistente.bot_usuario == "MiBot"
+    assert config.asistente.api.url_publica == "https://x.ts.net"
+    assert config.asistente.api.puerto == 8787  # lo demás sigue igual
+    monkeypatch.setenv("BUSCADOR_SIN_CONFIG_LOCAL", "1")
+    assert cargar_configuracion(ruta).asistente.bot_usuario == ""

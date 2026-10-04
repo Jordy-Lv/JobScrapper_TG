@@ -379,8 +379,18 @@ def _formatear_errores(error: ValidationError) -> str:
     return "\n".join(lineas)
 
 
-def cargar_configuracion(ruta: Path | str = RAIZ / "config.yaml") -> Configuracion:
-    ruta = Path(ruta)
+def _combinar(base: dict, extra: dict) -> dict:
+    """Mezcla recursiva: los valores de ``extra`` reemplazan a los de ``base``."""
+    resultado = dict(base)
+    for clave, valor in extra.items():
+        if isinstance(valor, dict) and isinstance(resultado.get(clave), dict):
+            resultado[clave] = _combinar(resultado[clave], valor)
+        else:
+            resultado[clave] = valor
+    return resultado
+
+
+def _leer_yaml(ruta: Path) -> dict:
     try:
         datos = yaml.safe_load(ruta.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -389,6 +399,20 @@ def cargar_configuracion(ruta: Path | str = RAIZ / "config.yaml") -> Configuraci
         raise ErrorConfiguracion(f"{ruta} no es YAML válido: {exc}") from exc
     if not isinstance(datos, dict):
         raise ErrorConfiguracion(f"{ruta} debe contener un diccionario en la raíz")
+    return datos
+
+
+def cargar_configuracion(ruta: Path | str = RAIZ / "config.yaml") -> Configuracion:
+    """Lee config.yaml y, si existe a su lado, config.local.yaml (fuera de git), que reemplaza
+    solo los valores que trae: lo propio de cada PC, como el bot o la URL pública.
+
+    BUSCADOR_SIN_CONFIG_LOCAL=1 lo ignora (las pruebas usan solo config.yaml).
+    """
+    ruta = Path(ruta)
+    datos = _leer_yaml(ruta)
+    local = ruta.with_name("config.local.yaml")
+    if local.is_file() and not os.environ.get("BUSCADOR_SIN_CONFIG_LOCAL"):
+        datos = _combinar(datos, _leer_yaml(local))
     try:
         return Configuracion.model_validate(datos)
     except ValidationError as exc:
