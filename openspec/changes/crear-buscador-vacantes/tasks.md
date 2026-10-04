@@ -44,7 +44,7 @@
 ## 7. Orquestación y CLI
 
 - [x] 7.1 Implementar `buscador.py` con el flujo de design D3 y los modos `--dry-run`, `--fuente`, `--seed` y `--chat-prueba`, más los subcomandos `migrar` y `resumen`. Verificar con un test de extremo a extremo con fuentes mockeadas: vacantes nuevas → mensaje; sin novedades → nada; seed → nada enviado y todo visto.
-- [ ] 7.2 Implementar `salud.py` (healthchecks start, éxito y fail, sin romper la corrida si falla). Verificar con tests usando respx y con un ping real al check de prueba.
+- [x] 7.2 Implementar `salud.py` (healthchecks start, éxito y fail, sin romper la corrida si falla). Verificar con tests usando respx y con un ping real al check de prueba.
 - [x] 7.3 Documentar en `README.md` la instalación local, los modos de ejecución y la configuración. Verificar ejecutando cada comando documentado.
 
 ## 8. Fuentes restantes
@@ -67,7 +67,7 @@
 ## 10. Despliegue en Fedora
 
 - [x] 10.1 Crear `deploy/buscador.service`, `deploy/buscador.timer`, `deploy/buscador-resumen.service` y `deploy/buscador-resumen.timer` según design D9. Verificar con `systemd-analyze --user verify` en Fedora.
-- [ ] 10.2 Escribir `deploy/INSTALAR.md`: uv, clonar en `~/buscador-vacantes`, `.env` con chmod 600, `migrar`, `--seed`, copiar las unidades, `loginctl enable-linger`, desactivar la suspensión, crear el check en healthchecks.io y comandos de diagnóstico y rollback. Verificar siguiendo la guía en el PC Fedora.
+- [x] 10.2 Escribir `deploy/INSTALAR.md`: uv, clonar en `~/buscador-vacantes`, `.env` con chmod 600, `migrar`, `--seed`, copiar las unidades, `loginctl enable-linger`, desactivar la suspensión, crear el check en healthchecks.io y comandos de diagnóstico y rollback. Verificar siguiendo la guía en el PC Fedora.
 - [ ] 10.3 Instalar en Fedora apuntando al chat de prueba, correr la migración y el seed, y activar los timers. Verificar con `systemctl --user list-timers` y con que healthchecks está en verde.
 
 ## 11. Verificación integral y paso a producción
