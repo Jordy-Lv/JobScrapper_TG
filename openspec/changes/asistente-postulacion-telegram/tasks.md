@@ -2,7 +2,7 @@
 
 ## 1. Base: dependencias, configuración, datos y cifrado
 
-- [ ] 1.1 Agregar a `pyproject.toml` el grupo `asistente` (`python-telegram-bot>=21`, `fastapi`, `uvicorn`, `cryptography`, `pypdf`, `fpdf2`) y `playwright` al grupo `dev`, y actualizar `uv.lock`. Verificar:
+- [x] 1.1 Agregar a `pyproject.toml` el grupo `asistente` (`python-telegram-bot>=21`, `fastapi`, `uvicorn`, `cryptography`, `pypdf`, `fpdf2`) y `playwright` al grupo `dev`, y actualizar `uv.lock`. Verificar:
   - `uv sync` sin el grupo deja `uv run pytest` en verde;
   - `uv sync --group asistente` instala sin error.
 - [x] 1.2 Crear la sección `asistente` en `config.py` (pydantic) y en `config.yaml` (valores del design 17, desactivada y con `enlace_canal: false`), y agregar `ASISTENTE_BOT_TOKEN` y `ASISTENTE_CLAVE_CIFRADO` a `Secretos` y `.env.example`. Verificar con `tests/test_config.py` que:
