@@ -316,3 +316,68 @@ def test_excepcion_del_reportero_no_afecta_las_vacantes(config, estado, monkeypa
     assert "Error en el detector o el reportero" in caplog.text
     fila = estado.cx.execute("SELECT enviadas, error FROM corridas").fetchone()
     assert fila["enviadas"] == 2 and fila["error"] is None
+
+
+# --- Regresiones de la revisión de código ---------------------------------------------------
+
+
+class FuenteColgada(FuenteFalsa):
+    nombre = "colgada"
+
+    def ejecutar(self, lote):
+        raise buscador._TiempoAgotado("La corrida superó 25 minutos")
+
+
+def test_limite_de_tiempo_no_lo_traga_ninguna_fuente(config, estado):
+    estado.marcar_inicializada()
+    config = config.model_copy(update={"fuentes": {
+        "colgada": ConfFuente(presupuesto=1, reservado_nucleo=1),
+        "falsa": ConfFuente(presupuesto=1, reservado_nucleo=1)}})  # fmt: skip
+    with pytest.raises(buscador._TiempoAgotado):
+        corrida(config, estado, fuentes={"colgada": FuenteColgada, "falsa": FuenteFalsa}).ejecutar()
+    fila = estado.cx.execute("SELECT fin, error FROM corridas").fetchone()
+    assert fila["fin"] is not None and "_TiempoAgotado" in fila["error"]
+
+
+@respx.mock
+def test_dry_run_no_avanza_la_rotacion(config, estado):
+    mock_ofertas()
+    corrida(config, estado, Modo(dry_run=True)).ejecutar()
+    assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0
+
+
+@respx.mock
+def test_sembrar_una_fuente_no_inicializa_la_base(config, estado):
+    mock_ofertas()
+    resumen = corrida(config, estado, Modo(seed=True, fuente="falsa")).ejecutar()
+    assert resumen.sembradas > 0
+    assert not estado.inicializada()
+
+
+def test_deduplicar_por_clave_y_huella():
+    a = Vacante(fuente="linkedin", id_fuente="1", titulo="Practicante TI", empresa="Redeban",
+                url="u", keyword="k")  # fmt: skip
+    b = Vacante(fuente="computrabajo", id_fuente="X", titulo="Practicante TI",
+                empresa="Redeban S.A.S.", url="u", keyword="k")  # fmt: skip
+    c = Vacante(fuente="linkedin", id_fuente="1", titulo="Otro", empresa="Otra", url="u",
+                keyword="k")  # fmt: skip
+    d = Vacante(fuente="magneto", id_fuente="7", titulo="QA Junior", empresa="Z", url="u",
+                keyword="k")  # fmt: skip
+    assert buscador.deduplicar([a, b, c, d]) == [a, d]
+
+
+def test_subcomando_con_lock_ocupado_falla_visible(tmp_path, capsys, monkeypatch):
+    from lock import Lock
+
+    texto = (buscador.cfg.RAIZ / "config.yaml").read_text(encoding="utf-8")
+    texto = texto.replace("base_datos: data/vacantes.db", f"base_datos: {tmp_path}/v.db")
+    texto = texto.replace("lock: data/buscador.lock", f"lock: {tmp_path}/b.lock")
+    texto = texto.replace("logs: logs", f"logs: {tmp_path}/logs")
+    ruta = tmp_path / "config.yaml"
+    ruta.write_text(texto, encoding="utf-8")
+    monkeypatch.setattr(buscador, "ESPERA_LOCK_RESUMEN_S", 0.2)
+    with Lock(tmp_path / "b.lock"):
+        codigo = buscador.main(["--config", str(ruta), "promover-prueba"])
+    assert codigo == 1
+    assert "No se ejecutó 'promover-prueba'" in capsys.readouterr().err
+    assert buscador.main(["--config", str(ruta), "promover-prueba"]) == 0

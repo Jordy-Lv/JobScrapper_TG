@@ -35,6 +35,7 @@ class ResultadoPublicacion:
     no_enviadas: list[str] = field(default_factory=list)
     rechazos: list[Rechazo] = field(default_factory=list)
     banner_enviado: bool = False
+    error_banner: str | None = None
 
 
 def _clave_banner(prueba: bool) -> str:
@@ -78,9 +79,9 @@ def publicar(
             resultado.banner_enviado = True
             estado.kv_guardar(_clave_banner(prueba), hoy)
         else:
-            # El banner es decorativo: su fallo no impide publicar las vacantes
+            # El banner es decorativo: su fallo no impide publicar ni abre fallo_envio
             log.warning("No se pudo enviar el banner: %s", envio.error)
-            resultado.rechazos.append(Rechazo(f"banner: {envio.error}", envio.codigo, []))
+            resultado.error_banner = envio.error
 
     mensajes = componer([v for v, _ in candidatas], ahora)
     for numero, mensaje in enumerate(mensajes):

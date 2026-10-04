@@ -106,7 +106,7 @@ Los términos están en `config.yaml` y se compilan a expresiones regulares con 
 `ia_cliente.py` concentra la URL base, la clave, el timeout (60 s), la ausencia de reintentos, la consulta de saldo (cacheada 10 min), el presupuesto por propósito (reportero 8/día, clasificador 60/día, resumen 1/día), el registro en `ia_uso` y la sanitización. Esta última aplica una lista blanca de cabeceras y elimina con regex cualquier cosa que parezca un token (`\d+:[A-Za-z0-9_-]{30,}`, `sk-…`) en el payload antes de enviarlo.
 
 ### D9. Operación en Fedora (systemd de usuario)
-- `buscador.service` (Type=oneshot, `WorkingDirectory=%h/buscador-vacantes`, `ExecStart=%h/.local/bin/uv run buscador.py`, `TimeoutStartSec=25min`, `Nice=10`).
+- `buscador.service` (Type=oneshot, `WorkingDirectory=%h/buscador-vacantes`, `ExecStart=%h/.local/bin/uv run buscador.py`, `TimeoutStartSec=28min`, unos minutos por encima del límite interno de 25 min para que este registre el error y avise a healthchecks, `Nice=10`).
 - `buscador.timer`: `OnCalendar=*:00,30`, `Persistent=true`, `RandomizedDelaySec=120`. Con `Persistent=true` systemd recupera una sola corrida perdida, y como el servicio es oneshot no hay solapamiento.
 - `buscador-resumen.service` y `.timer`: `OnCalendar=*-*-* 08:00 America/Bogota`, `Persistent=true`.
 - `loginctl enable-linger $USER` para correr sin sesión, y desactivar la suspensión de GNOME (`gsettings … sleep-inactive-ac-type 'nothing'`). Todo vive bajo `$HOME`, así que no hace falta tocar contextos SELinux.

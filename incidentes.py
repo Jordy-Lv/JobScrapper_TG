@@ -119,17 +119,17 @@ class Detector:
     def _corridas_de_fuente(self, fuente: str, cantidad: int) -> list[list]:
         """Intentos agrupados de las últimas corridas en que se consultó la fuente.
 
-        Las corridas sin red no cuentan para las reglas de "corridas seguidas".
+        Las corridas sin red y los dry-run no cuentan para las reglas de "corridas seguidas".
         """
         filas = self.estado.cx.execute(
             """
             SELECT i.corrida_id, i.status, i.tipo_error
             FROM intentos i JOIN corridas c ON c.id = i.corrida_id
-            WHERE i.fuente = ? AND c.sin_red = 0
+            WHERE i.fuente = ? AND c.sin_red = 0 AND c.modo != 'dry-run'
               AND i.corrida_id IN (
                 SELECT DISTINCT i2.corrida_id FROM intentos i2
                 JOIN corridas c2 ON c2.id = i2.corrida_id
-                WHERE i2.fuente = ? AND c2.sin_red = 0
+                WHERE i2.fuente = ? AND c2.sin_red = 0 AND c2.modo != 'dry-run'
                 ORDER BY i2.corrida_id DESC LIMIT ?)
             ORDER BY i.corrida_id DESC
             """,
@@ -141,11 +141,17 @@ class Detector:
         return list(por_corrida.values())
 
     def _items(self, fuente: str, desde: datetime, hasta: datetime) -> tuple[int, int]:
-        """(vacantes crudas, intentos con respuesta) de una fuente en [desde, hasta]."""
+        """(vacantes crudas, respuestas 2xx) de una fuente en [desde, hasta], sin dry-run.
+
+        Solo una respuesta 2xx cuenta como "la fuente respondió": un bloqueo o un 5xx no es
+        "0 resultados" y ya tiene su propio incidente.
+        """
         fila = self.estado.cx.execute(
-            "SELECT COALESCE(SUM(items), 0) AS items, "
-            "COUNT(CASE WHEN status IS NOT NULL THEN 1 END) AS respuestas "
-            "FROM intentos WHERE fuente = ? AND ts >= ? AND ts <= ?",
+            "SELECT COALESCE(SUM(i.items), 0) AS items, "
+            "COUNT(CASE WHEN i.status BETWEEN 200 AND 299 THEN 1 END) AS respuestas "
+            "FROM intentos i LEFT JOIN corridas c ON c.id = i.corrida_id "
+            "WHERE i.fuente = ? AND i.ts >= ? AND i.ts <= ? "
+            "AND COALESCE(c.modo, '') != 'dry-run'",
             (fuente, a_texto(desde), a_texto(hasta)),
         ).fetchone()
         return fila["items"], fila["respuestas"]

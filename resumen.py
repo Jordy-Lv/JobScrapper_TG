@@ -95,14 +95,24 @@ class Metricas:
         }
 
 
-def calcular_metricas(estado: Estado, ahora: datetime) -> Metricas:
+def calcular_metricas(estado: Estado, ahora: datetime, *, prueba: bool = False) -> Metricas:
+    """Métricas de 24 h. Con ``prueba`` cuenta los envíos al chat de prueba.
+
+    En el canal real no cuentan las vacantes promovidas desde la fase de prueba (``enviada_en``
+    copiado de ``prueba_en`` por ``promover-prueba``): nunca se publicaron en el canal.
+    """
     desde = ahora - timedelta(hours=24)
     m = Metricas(desde, ahora)
     rango = (a_texto(desde), a_texto(ahora))
 
-    for f in estado.cx.execute(
-        "SELECT fuente, categoria FROM vistas WHERE enviada_en >= ? AND enviada_en <= ?", rango
-    ):
+    if prueba:
+        consulta = "SELECT fuente, categoria FROM vistas WHERE prueba_en >= ? AND prueba_en <= ?"
+    else:
+        consulta = (
+            "SELECT fuente, categoria FROM vistas WHERE enviada_en >= ? AND enviada_en <= ? "
+            "AND (prueba_en IS NULL OR prueba_en != enviada_en)"
+        )
+    for f in estado.cx.execute(consulta, rango):
         m.enviadas_por_fuente[f["fuente"]] += 1
         m.enviadas_por_categoria[f["categoria"] or Categoria.OTROS_TI.value] += 1
 
@@ -279,7 +289,7 @@ class Resumen:
         if registrar and self.estado.kv_obtener(self._clave) == hoy:
             log.info("El resumen de hoy ya se envió")
             return False
-        metricas = calcular_metricas(self.estado, ahora)
+        metricas = calcular_metricas(self.estado, ahora, prueba=self.prueba)
         titular, recomendaciones, motivo = self._recomendaciones(metricas)
         if motivo:
             log.warning("Resumen sin recomendaciones IA: %s", motivo)

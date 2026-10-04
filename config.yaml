@@ -714,7 +714,6 @@ telegram:
     archivo: ~/.hermes/.env
     variable: TELEGRAM_BOT_TOKEN
   hermes_comando: hermes
-  max_caracteres: 4096
   timeout_s: 20
 
 banner:
@@ -800,7 +799,7 @@ reportero:
 
 resumen:
   activo: true
-  hora: "08:00"
+  # La hora (08:00 Colombia) se define en deploy/buscador-resumen.timer
   temperatura: 0.3
   max_tokens: 900
   prompt_sistema: |

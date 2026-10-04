@@ -183,3 +183,26 @@ def test_recordatorio_cada_24h(estado, detector):
     detector.marcar_reportado(resultado.recordatorios[0], T0 + timedelta(hours=24))
     c = corrida(estado, T0 + timedelta(hours=25), [("computrabajo", 200, "cambio_html", 0)])
     assert detector.evaluar(c, T0 + timedelta(hours=25), ["computrabajo"]).recordatorios == []
+
+
+def test_bloqueo_no_es_sin_resultados(estado, detector):
+    corrida(estado, T0 - timedelta(days=3), [("linkedin", 200, None, 25)])
+    corrida(estado, T0 - timedelta(hours=10), [("linkedin", 429, "bloqueo", 0)])
+    c = corrida(estado, T0, [("linkedin", 429, "bloqueo", 0)])
+    nuevos = claves(detector.evaluar(c, T0, ["linkedin"]).nuevos)
+    assert "linkedin:sin_resultados" not in nuevos
+    assert "linkedin:bloqueo" in nuevos
+
+
+def test_dry_run_no_cuenta_para_las_rachas(estado, detector):
+    with estado.transaccion() as cx:
+        corrida_id = cx.execute(
+            "INSERT INTO corridas(inicio, modo) VALUES (?, 'dry-run')", (a_texto(T0),)
+        ).lastrowid
+        cx.execute(
+            "INSERT INTO intentos(ts, corrida_id, fuente, status, tipo_error, items) "
+            "VALUES (?, ?, 'linkedin', 429, 'bloqueo', 0)",
+            (a_texto(T0), corrida_id),
+        )
+    c = corrida(estado, T0 + timedelta(hours=2), [("linkedin", 429, "bloqueo", 0)])
+    assert detector.evaluar(c, T0 + timedelta(hours=2), ["linkedin"]).nuevos == []

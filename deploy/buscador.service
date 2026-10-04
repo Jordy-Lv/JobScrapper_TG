@@ -5,8 +5,9 @@ Description=Buscador de vacantes TI → Telegram (una corrida)
 Type=oneshot
 WorkingDirectory=%h/buscador-vacantes
 ExecStart=%h/.local/bin/uv run --frozen buscador.py
-# Respaldo del límite interno de la corrida (operacion.timeout_corrida_min)
-TimeoutStartSec=25min
+# Respaldo del límite interno de 25 min (operacion.timeout_corrida_min): unos minutos más,
+# para que salte primero el límite interno, que registra el error y avisa a healthchecks
+TimeoutStartSec=28min
 Nice=10
 Environment=PYTHONUNBUFFERED=1
 SyslogIdentifier=buscador

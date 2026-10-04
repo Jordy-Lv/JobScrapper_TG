@@ -177,3 +177,15 @@ def test_chat_de_prueba_no_bloquea_el_resumen_real(config, estado):
     crear(config, estado, IAFalsa(RECOMENDACIONES), NotificadorFalso(), prueba=True).enviar()
     notificador = NotificadorFalso()
     assert crear(config, estado, IAFalsa(RECOMENDACIONES), notificador).enviar()
+
+
+def test_resumen_de_prueba_cuenta_los_envios_de_prueba(config, estado):
+    with estado.transaccion() as cx:
+        cx.execute("INSERT INTO vistas(clave, huella, fuente, categoria, primera_vez, prueba_en) "
+                   "VALUES ('magneto:5', 'h5', 'magneto', 'qa', ?, ?)",
+                   (a_texto(AHORA - timedelta(hours=1)),) * 2)  # fmt: skip
+    assert calcular_metricas(estado, AHORA, prueba=True).enviadas == 1
+    assert calcular_metricas(estado, AHORA).enviadas == 3
+    # Tras promover-prueba, lo de la fase de prueba no cuenta como enviado al canal
+    estado.promover_prueba()
+    assert calcular_metricas(estado, AHORA).enviadas == 3

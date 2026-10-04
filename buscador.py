@@ -150,6 +150,20 @@ def es_sin_red(intentos: list[Intento]) -> bool:
     )
 
 
+def deduplicar(vacantes: list[Vacante]) -> list[Vacante]:
+    """Quita del lote las repetidas por clave o huella (p. ej. una pendiente de la IA de una
+    fuente y la copia aceptada por reglas de otra), conservando la primera."""
+    vistas: set[str] = set()
+    unicas = []
+    for vacante in vacantes:
+        h = huella(vacante.titulo, vacante.empresa, vacante.clave)
+        if vacante.clave in vistas or h in vistas:
+            continue
+        vistas.update((vacante.clave, h))
+        unicas.append(vacante)
+    return unicas
+
+
 def html_a_consola(texto: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", texto))
 
@@ -221,9 +235,10 @@ class Corrida:
                     self.estado, nombre, nucleo, cola, conf.presupuesto, conf.reservado_nucleo
                 )
                 resultado = fuente.ejecutar(lote)
-                rotacion.avanzar_lote(
-                    self.estado, nombre, resultado.ejecutadas, len(nucleo), len(cola)
-                )
+                if not self.modo.dry_run:  # el dry-run no mueve la rotación de producción
+                    rotacion.avanzar_lote(
+                        self.estado, nombre, resultado.ejecutadas, len(nucleo), len(cola)
+                    )
                 resumen.resultados.append(resultado)
                 vacantes.extend(resultado.vacantes)
             except Exception:  # noqa: BLE001 - una fuente rota no detiene a las demás
@@ -279,7 +294,11 @@ class Corrida:
             h = huella(vacante.titulo, vacante.empresa, vacante.clave)
             self.estado.registrar_vista(vacante, h, momento=ahora)
             resumen.sembradas += 1
-        self.estado.marcar_inicializada(ahora)
+        if self.modo.fuente:
+            # Sembrar una fuente (p. ej. al activarla) no inicializa la base para todas
+            log.info("Siembra de %s: la base no se marca como inicializada", self.modo.fuente)
+        else:
+            self.estado.marcar_inicializada(ahora)
 
     def _clasificar(self, resumen: ResumenCorrida) -> list[Vacante]:
         con_filtro = frozenset(n for n, f in self.config.fuentes.items() if f.filtra_nivel)
@@ -424,14 +443,14 @@ class Corrida:
                 except Exception:  # noqa: BLE001
                     log.exception("Error en el clasificador; se envían las aceptadas por reglas")
                 aceptadas += self._cola_de_envio({v.clave for v in aceptadas})
-                resumen.a_publicar = aceptadas
+                resumen.a_publicar = deduplicar(aceptadas)
                 self._publicar(resumen)
                 # El reportero va aislado: sus errores nunca afectan a las vacantes ya enviadas
                 try:
                     self._incidentes(resumen)
                 except Exception:  # noqa: BLE001
                     log.exception("Error en el detector o el reportero de incidentes")
-        except Exception as exc:
+        except BaseException as exc:  # también el límite de tiempo: queda registrado
             error = repr(exc)
             raise
         finally:
@@ -484,8 +503,8 @@ def _ruta(raiz: Path, ruta: Path) -> Path:
     return ruta if ruta.is_absolute() else raiz / ruta
 
 
-class _TiempoAgotado(Exception):
-    pass
+class _TiempoAgotado(BaseException):  # noqa: N818
+    """Hereda de BaseException para que ningún `except Exception` intermedio lo detenga."""
 
 
 def _limitar_tiempo(minutos: float) -> None:
@@ -527,8 +546,8 @@ def main(argv: list[str] | None = None) -> int:
         config.zona_horaria,
     )  # fmt: skip
     try:
-        # El resumen espera a que termine una corrida en curso en lugar de perderse
-        espera = ESPERA_LOCK_RESUMEN_S if args.comando == "resumen" else 0
+        # Los subcomandos esperan a que termine una corrida en curso en lugar de perderse
+        espera = ESPERA_LOCK_RESUMEN_S if args.comando else 0
         with Lock(_ruta(raiz, config.rutas.lock), esperar_s=espera):
             estado = Estado.abrir(_ruta(raiz, config.rutas.base_datos))
             try:
@@ -546,6 +565,9 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 estado.cerrar()
     except CorridaActiva as exc:
+        if args.comando:
+            print(f"No se ejecutó '{args.comando}': {exc}. Intenta de nuevo.", file=sys.stderr)
+            return 1
         log.warning("%s; esta ejecución termina sin hacer requests", exc)
         return 0
 
@@ -634,7 +656,7 @@ def _correr(
         log.error("%s", exc)
         salud.fallo(str(exc))
         return 1
-    except Exception as exc:  # noqa: BLE001 - incluye _TiempoAgotado
+    except (Exception, _TiempoAgotado) as exc:  # noqa: BLE001
         log.exception("La corrida terminó con error")
         salud.fallo(repr(exc))
         return 1

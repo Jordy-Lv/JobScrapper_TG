@@ -127,7 +127,6 @@ class Telegram(Modelo):
     modo: Literal["bot_api", "hermes_cli"] = "bot_api"
     token_hermes: TokenHermes | None = None
     hermes_comando: str = "hermes"
-    max_caracteres: int = Field(4096, gt=0, le=4096)
     timeout_s: float = Field(20, gt=0)
 
 
@@ -170,7 +169,6 @@ class Reportero(Modelo):
 
 class Resumen(Modelo):
     activo: bool = True
-    hora: str = Field("08:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     temperatura: float = Field(0.3, ge=0, le=2)
     max_tokens: int = Field(900, gt=0)
     prompt_sistema: str

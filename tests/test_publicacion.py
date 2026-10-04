@@ -115,6 +115,8 @@ def test_fallo_del_banner_no_impide_vacantes(estado, banner):
     assert resultado.mensajes_enviados == 1
     assert estado.kv_obtener("ultimo_banner") is None
     assert len(resultado.enviadas) == 2
+    # Un banner fallido no es un rechazo de vacantes (no abre fallo_envio)
+    assert resultado.rechazos == [] and resultado.error_banner == "foto"
 
 
 def test_rechazo_parcial_de_telegram(estado, banner):

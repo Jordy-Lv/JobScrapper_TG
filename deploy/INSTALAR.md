@@ -151,21 +151,30 @@ entre el chat de prueba y el canal.
 
 ## 9. Paso a producción (solo con aprobación explícita)
 
+El orden importa: si una corrida apuntara al canal antes de `promover-prueba`, reenviaría
+todo lo que ya salió en el chat de prueba.
+
 ```bash
 cd ~/buscador-vacantes
-# 1. Quitar los drop-ins de prueba: las corridas vuelven a enviar al canal real
+# 1. Detener el timer (si hay una corrida en curso, esperar a que termine)
+systemctl --user stop buscador.timer
+systemctl --user is-active buscador.service   # debe decir "inactive"
+
+# 2. Lo que ya salió en el chat de prueba no se reenvía al canal. Si falla (código 1),
+#    hay una corrida activa: esperar y repetir. No seguir hasta que funcione.
+~/.local/bin/uv run buscador.py promover-prueba
+
+# 3. Quitar los drop-ins de prueba y reactivar el timer apuntando al canal real
 rm ~/.config/systemd/user/buscador.service.d/prueba.conf \
    ~/.config/systemd/user/buscador-resumen.service.d/prueba.conf
 systemctl --user daemon-reload
-
-# 2. Lo que ya salió en el chat de prueba no se reenvía al canal
-~/.local/bin/uv run buscador.py promover-prueba
+systemctl --user start buscador.timer
 ```
 
-3. **Pausar (no borrar)** en Hermes el cronjob `d6381ce58395` ("Buscador Empleo Carlos
+4. **Pausar (no borrar)** en Hermes el cronjob `d6381ce58395` ("Buscador Empleo Carlos
    Mario") y su pre-run `send_encabezado.py`, con el comando de pausa de Hermes
    (`hermes cron --help` muestra cómo). Comprobar que figura pausado.
-4. Verificar que el siguiente envío real llega al canal:
+5. Verificar que el siguiente envío real llega al canal:
    `journalctl --user -u buscador -f`.
 
 ## 10. Operación
