@@ -93,7 +93,7 @@
   - una sola consulta por día;
   - sin request durante el cooldown;
   - un id desconocido reindexa una vez.
-- [ ] 5.2 Crear `assets/tecnologias.yaml` (unas 200 tecnologías con sinónimos), la tarea `requisitos` con caché compartida y `afinidad.py` determinista con su respaldo sin IA. Verificar con pruebas de porcentaje esperado, sinónimos y respaldo sin IA.
+- [x] 5.2 Crear `assets/tecnologias.yaml` (unas 200 tecnologías con sinónimos), la tarea `requisitos` con caché compartida y `afinidad.py` determinista con su respaldo sin IA. Verificar con pruebas de porcentaje esperado, sinónimos y respaldo sin IA.
 - [ ] 5.3 Crear `asistente/campos.py`, `assets/banco_preguntas.yaml` (unas 60 preguntas) y `asistente/respuestas.py`:
   - cascada;
   - identificación de campos estándar por etiqueta, `name` y tipo;
