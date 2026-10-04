@@ -48,6 +48,7 @@ from notificador_telegram import Notificador, crear_notificador
 from publicacion import ResultadoPublicacion, publicar
 from reportero import DatosFuente, Reportero
 from salud import Salud
+from simulacion import FALLAS_IA, NotificadorConsola, simular
 
 log = logging.getLogger("buscador")
 
@@ -452,6 +453,17 @@ def construir_parser() -> argparse.ArgumentParser:
                         help="marca todo lo encontrado como visto sin enviar")  # fmt: skip
     parser.add_argument("--chat-prueba", action="store_true",
                         help="envía al chat de prueba sin marcar envíos al canal")  # fmt: skip
+    parser.add_argument(
+        "--simular-incidente",
+        metavar="FUENTE:TIPO",
+        help="corre el reportero con un incidente de ejemplo y lo envía al chat de prueba "
+        "(con --dry-run lo imprime), sin tocar el estado real",
+    )
+    parser.add_argument(
+        "--simular-falla-ia",
+        choices=sorted(FALLAS_IA),
+        help="con --simular-incidente, fuerza la alerta plana de respaldo",
+    )
     parser.add_argument("--config", type=Path, default=cfg.RAIZ / "config.yaml")
     parser.add_argument("--env", type=Path, default=cfg.RAIZ / ".env")
     sub = parser.add_subparsers(dest="comando")
@@ -482,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.seed and (args.dry_run or args.chat_prueba):
         print("--seed no se combina con --dry-run ni --chat-prueba", file=sys.stderr)
         return 2
+    if args.simular_incidente:
+        return _simular(args)
     try:
         config = cfg.cargar_configuracion(args.config)
         modo = Modo(args.dry_run, args.seed, args.chat_prueba, args.fuente)
@@ -514,6 +528,44 @@ def main(argv: list[str] | None = None) -> int:
     except CorridaActiva as exc:
         log.warning("%s; esta ejecución termina sin hacer requests", exc)
         return 0
+
+
+def _simular(args: argparse.Namespace) -> int:
+    try:
+        config = cfg.cargar_configuracion(args.config)
+        secretos = cfg.cargar_secretos(
+            config, args.env, exigir_envio=False, exigir_chat_prueba=not args.dry_run
+        )
+        if (
+            not args.dry_run
+            and config.telegram.modo == "bot_api"
+            and not secretos.telegram_bot_token
+        ):
+            raise cfg.ErrorConfiguracion("Falta TELEGRAM_BOT_TOKEN para enviar al chat de prueba")
+    except cfg.ErrorConfiguracion as exc:
+        print(f"Error de configuración:\n{exc}", file=sys.stderr)
+        return 2
+    registro.configurar(
+        _ruta(cfg.RAIZ, config.rutas.logs), config.registro.retencion_dias, secretos.valores(),
+        config.zona_horaria,
+    )  # fmt: skip
+    if args.dry_run:
+        notificador: Notificador = NotificadorConsola()
+        chat = "consola"
+    else:
+        notificador = crear_notificador(config.telegram, secretos.telegram_bot_token)
+        chat = secretos.telegram_chat_prueba
+    try:
+        simular(
+            args.simular_incidente, config, notificador, chat, FUENTES,
+            api_key=secretos.deepseek_api_key, falla_ia=args.simular_falla_ia,
+        )  # fmt: skip
+    except ValueError as exc:
+        print(f"Simulación inválida: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        notificador.cerrar()
+    return 0
 
 
 def _correr(

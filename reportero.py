@@ -79,15 +79,21 @@ def duracion(desde: datetime, hasta: datetime) -> str:
 
 
 def muestra_cuerpo(cuerpo: str, maximo: int) -> str:
-    """Texto visible del cuerpo, sin scripts ni estilos, hasta ``maximo`` caracteres."""
+    """HTML del cuerpo sin scripts, estilos ni atributos salvo class e id, hasta ``maximo``.
+
+    Se conserva la estructura para que la IA pueda sugerir selectores ante un cambio de HTML.
+    """
     if not cuerpo:
         return ""
     if cuerpo.lstrip()[:1] in "{[":
         return cuerpo[:maximo]
     sopa = BeautifulSoup(cuerpo, "lxml")
-    for etiqueta in sopa(["script", "style", "noscript", "svg"]):
+    for etiqueta in sopa(["script", "style", "noscript", "svg", "head", "link", "meta", "img"]):
         etiqueta.decompose()
-    return " ".join(sopa.get_text(" ").split())[:maximo]
+    for etiqueta in sopa.find_all(True):
+        etiqueta.attrs = {k: v for k, v in etiqueta.attrs.items() if k in ("class", "id")}
+    raiz = sopa.body or sopa
+    return " ".join(raiz.decode_contents().split())[:maximo]
 
 
 def _hora(momento: datetime, ahora: datetime) -> str:

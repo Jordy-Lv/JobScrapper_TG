@@ -304,4 +304,8 @@ def test_utilidades():
     assert duracion(AHORA, AHORA + timedelta(hours=5, minutes=10)) == "5 h"
     assert duracion(AHORA, AHORA + timedelta(days=3)) == "3 días"
     assert muestra_cuerpo('{"a": 1}', 100) == '{"a": 1}'
-    assert muestra_cuerpo("<style>x</style><p>hola  mundo</p>", 100) == "hola mundo"
+    assert (
+        muestra_cuerpo("<style>x</style><p style='a'>hola  mundo</p>", 100) == "<p>hola mundo</p>"
+    )
+    html = "<html><body><div class='offer' data-x='1' onclick='y()'>A</div><script>z</script>"
+    assert muestra_cuerpo(html, 100) == '<div class="offer">A</div>'
