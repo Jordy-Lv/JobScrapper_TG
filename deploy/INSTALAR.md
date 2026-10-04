@@ -115,15 +115,21 @@ journalctl --user -u buscador -n 50 --no-pager
 
 ### Que el PC no se suspenda
 
-Un PC suspendido no corre nada. Desactivar la suspensión automática de GNOME para el
-usuario y para la pantalla de inicio de sesión (GDM), o directamente bloquear la suspensión:
+Un PC suspendido no corre nada. El PC actual es un **portátil con XFCE** (no GNOME): la
+suspensión por inactividad ya está en "nunca", pero puede suspenderse al cerrar la tapa o
+desde el menú. Lo más robusto es bloquear la suspensión a nivel de systemd, que cubre
+cualquier escritorio, la tapa y el menú (deshacer con `unmask`):
+
+```bash
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+```
+
+Para comprobar cuándo se suspendió: `journalctl -b -u systemd-logind | grep -i suspend`.
+
+Con GNOME, la alternativa sin `sudo` para el usuario es:
 
 ```bash
 gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
-sudo -u gdm dbus-run-session gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
-
-# Alternativa más robusta (deshacer con `unmask`):
-sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 ```
 
 Si el PC se apaga o suspende igualmente, `Persistent=true` hace una sola corrida de

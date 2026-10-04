@@ -152,6 +152,13 @@ Además se guarda la huella de `cargo` + `empresa`, que cubre el cruce entre fue
   `getChat 5051574309` es el chat privado de @ByLOGAN, que se usa como chat de prueba.
 - Envío real al chat de prueba: banner (sendPhoto), mensaje HTML de vacantes, incidente
   simulado con diagnóstico IA y resumen diario, todos aceptados por Telegram.
-- Pendiente en el PC Fedora: confirmar la ruta absoluta del `.env` de Hermes (se asume
-  `~/.hermes/.env`, ver `telegram.token_hermes` en `config.yaml`) y revisar `hermes send --help`
-  (HTML, vista previa, longitud máxima) por si hiciera falta el modo de respaldo `hermes_cli`.
+- Confirmado en el PC Fedora (2026-10-04): el token está en `/home/ByLOGAN/.hermes/.env`
+  (variable `TELEGRAM_BOT_TOKEN`), que coincide con `telegram.token_hermes`. Desde el PC,
+  `getMe` y `getChat` sobre el canal y el chat de prueba responden con ese token.
+- `hermes send --help` (2026-10-04): `-t/--to platform:chat_id[:thread_id]`, `-f` archivo,
+  `-s` asunto, `-q`, `--json`, `MEDIA:<ruta>` para adjuntos; códigos de salida 0 ok,
+  1 error de entrega y 2 error de uso. No expone opciones de modo de parseo (HTML) ni de
+  vista previa de enlaces, ni documenta un límite de longitud. Por eso el modo preferido
+  sigue siendo `bot_api`; `hermes_cli` queda solo como respaldo y no garantiza el formato.
+- El `~/.bashrc` del PC exporta una `DEEPSEEK_API_KEY` propia de Hermes (distinta de la del
+  buscador). El buscador da prioridad a su `.env`, así que no la usa.

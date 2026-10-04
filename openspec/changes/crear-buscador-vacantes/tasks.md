@@ -4,7 +4,7 @@
 
 - [x] 1.1 Copiar desde el PC Fedora a `referencia_hermes/` (versionado en git: no contiene secretos) `scrape_jobs.py`, los scripts de El Empleo, Magneto, RemoteOK y GetOnBoard, `send_encabezado.py`, `encabezado_vacantes.jpg`, `historial_vacantes.json` y el prompt del cronjob `d6381ce58395`. Verificar que los archivos existen y que no contienen tokens ni claves.
 - [x] 1.2 Revisar esos archivos y anotar en `referencia_hermes/NOTAS.md` las fuentes, endpoints, selectores, palabras clave, exclusiones y la clave que usa el historial. Verificar que las notas cubren cada script.
-- [ ] 1.3 Ubicar en la configuración de Hermes el token de su bot de Telegram (anotar la ruta en `NOTAS.md`, sin copiar el valor) y revisar `hermes send --help` para saber si soporta HTML, la desactivación de la vista previa y qué longitud máxima admite. Verificar con `getMe` y `getChat` sobre el canal `-1004429829042` y sobre el chat de prueba usando ese token.
+- [x] 1.3 Ubicar en la configuración de Hermes el token de su bot de Telegram (anotar la ruta en `NOTAS.md`, sin copiar el valor) y revisar `hermes send --help` para saber si soporta HTML, la desactivación de la vista previa y qué longitud máxima admite. Verificar con `getMe` y `getChat` sobre el canal `-1004429829042` y sobre el chat de prueba usando ese token.
 
 ## 2. Esqueleto del proyecto
 
@@ -66,7 +66,7 @@
 
 ## 10. Despliegue en Fedora
 
-- [ ] 10.1 Crear `deploy/buscador.service`, `deploy/buscador.timer`, `deploy/buscador-resumen.service` y `deploy/buscador-resumen.timer` según design D9. Verificar con `systemd-analyze --user verify` en Fedora.
+- [x] 10.1 Crear `deploy/buscador.service`, `deploy/buscador.timer`, `deploy/buscador-resumen.service` y `deploy/buscador-resumen.timer` según design D9. Verificar con `systemd-analyze --user verify` en Fedora.
 - [ ] 10.2 Escribir `deploy/INSTALAR.md`: uv, clonar en `~/buscador-vacantes`, `.env` con chmod 600, `migrar`, `--seed`, copiar las unidades, `loginctl enable-linger`, desactivar la suspensión, crear el check en healthchecks.io y comandos de diagnóstico y rollback. Verificar siguiendo la guía en el PC Fedora.
 - [ ] 10.3 Instalar en Fedora apuntando al chat de prueba, correr la migración y el seed, y activar los timers. Verificar con `systemctl --user list-timers` y con que healthchecks está en verde.
 
