@@ -86,7 +86,7 @@
 
 ## 5. Vacantes, respuestas y CV
 
-- [ ] 5.1 Crear `asistente/vacantes.py` (índice de `vistas` y retención) y `asistente/detalle.py` (extractores, ritmo, cooldown y caché), con una página de detalle real por fuente en `tests/fixtures/detalle/`. Verificar con respx:
+- [x] 5.1 Crear `asistente/vacantes.py` (índice de `vistas` y retención) y `asistente/detalle.py` (extractores, ritmo, cooldown y caché), con una página de detalle real por fuente en `tests/fixtures/detalle/`. Verificar con respx:
   - cada fixture produce texto;
   - un 403 da `bloqueada`;
   - una vacante finalizada da `cerrada`;
