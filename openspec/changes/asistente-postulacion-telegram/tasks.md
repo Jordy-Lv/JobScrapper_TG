@@ -122,7 +122,7 @@
 
 ## 6. API y orquestación en el servidor
 
-- [ ] 6.1 Crear `asistente/api.py` (FastAPI) con el contrato del design 2:
+- [x] 6.1 Crear `asistente/api.py` (FastAPI) con el contrato del design 2:
   - página y canje de vinculación;
   - latido con trabajo, versión mínima y versión de selectores;
   - selectores;
