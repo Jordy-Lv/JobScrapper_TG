@@ -8,9 +8,9 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
-from fechas import desde_epoch
-from fuentes.base import CambioHTML, Fuente, Peticion
-from modelo import Vacante
+from buscador_vacantes.fechas import desde_epoch
+from buscador_vacantes.fuentes.base import CambioHTML, Fuente, Peticion
+from buscador_vacantes.modelo import Vacante
 
 URL_BUSQUEDA = "https://www.getonbrd.com/api/v0/search/jobs"
 MAX_DESCRIPCION = 600

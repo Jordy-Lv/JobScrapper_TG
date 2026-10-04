@@ -10,7 +10,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from modelo import Categoria, Vacante
+from buscador_vacantes.modelo import Categoria, Vacante
 
 ESQUEMA_VERSION = 1
 

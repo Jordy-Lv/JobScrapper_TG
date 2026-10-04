@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 from html.parser import HTMLParser
 
-from fechas import ZONA
-from formato import LIMITE_TELEGRAM, componer, encabezado, ficha, longitud
-from modelo import Categoria, Vacante
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.formato import LIMITE_TELEGRAM, componer, encabezado, ficha, longitud
+from buscador_vacantes.modelo import Categoria, Vacante
 
 AHORA = datetime(2026, 10, 3, 23, 30, tzinfo=ZONA)
 

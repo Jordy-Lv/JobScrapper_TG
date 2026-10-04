@@ -2,12 +2,12 @@ from datetime import datetime
 
 import pytest
 
-import buscador
-from config import cargar_configuracion
-from fechas import ZONA
-from ia_cliente import RespuestaIA
-from incidentes import TIPOS
-from simulacion import NotificadorConsola, simular, validar_objetivo
+from buscador_vacantes import corrida as buscador
+from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.ia_cliente import RespuestaIA
+from buscador_vacantes.incidentes import TIPOS
+from buscador_vacantes.simulacion import NotificadorConsola, simular, validar_objetivo
 
 AHORA = datetime(2026, 10, 3, 10, 0, tzinfo=ZONA)
 
@@ -48,7 +48,9 @@ def test_diagnostico_ia_simulado(config, monkeypatch):
         "causa_probable": "Cambió el HTML", "evidencia_clave": "0 items con 200",
         "accion_recomendada": "Actualizar selectores", "requiere_intervencion": True,
         "sugerencia_tecnica": "section.offer-card"}]}  # fmt: skip
-    monkeypatch.setattr("simulacion.FALLAS_IA", {"fija": RespuestaIA(True, diagnostico)})
+    monkeypatch.setattr(
+        "buscador_vacantes.simulacion.FALLAS_IA", {"fija": RespuestaIA(True, diagnostico)}
+    )
     texto = correr(config, "computrabajo:cambio_html", "fija")
     assert "<b>Incidente: Computrabajo · cambio_html</b> (severidad media)" in texto
     assert "<pre>section.offer-card</pre>" in texto

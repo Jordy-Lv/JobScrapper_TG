@@ -13,5 +13,5 @@
 ## Flujo de trabajo
 
 - Todo cambio se planifica e implementa con **OpenSpec** (`openspec/`): `/opsx:propose` → `/opsx:apply` → `/opsx:archive`. No se escribe código fuera de un change.
-- La especificación de origen del proyecto es `buscador-vacantes-spec.md`; el contexto y el stack están en `openspec/config.yaml`.
+- La especificación de origen del proyecto es `docs/buscador-vacantes-spec.md`; el contexto y el stack están en `openspec/config.yaml`.
 - Idioma: código, identificadores, mensajes, documentación y commits en español.

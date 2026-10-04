@@ -6,9 +6,9 @@ import html
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from fechas import fecha_relativa
-from modelo import Categoria, Vacante
-from normalizar import normalizar_texto
+from buscador_vacantes.fechas import fecha_relativa
+from buscador_vacantes.modelo import Categoria, Vacante
+from buscador_vacantes.normalizar import normalizar_texto
 
 LIMITE_TELEGRAM = 4096
 SEPARADOR = "\n\n"

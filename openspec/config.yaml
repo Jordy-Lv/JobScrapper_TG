@@ -8,7 +8,7 @@ context: |
   Proyecto: buscador de vacantes de prácticas/aprendiz/junior TI (Colombia + remoto
   LATAM en español) que publica en el canal de Telegram "JOBS - PRACTICAS/APRENDIZ".
   Reemplaza al cronjob de Hermes + DeepSeek y debe ser igual o mejor que él.
-  Especificación de origen: buscador-vacantes-spec.md (raíz del repo).
+  Especificación de origen: docs/buscador-vacantes-spec.md.
 
   Entorno: corre 24/7 en un PC Linux Fedora (SELinux activo) mediante systemd
   user timers. Se desarrolla en macOS; lo específico de Fedora se entrega en deploy/.

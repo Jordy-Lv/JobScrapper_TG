@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from estado import Estado, a_texto
-from migrar_historial import clave_desde_registro, fecha_descubrimiento, migrar
-from normalizar import huella
+from buscador_vacantes.estado import Estado, a_texto
+from buscador_vacantes.migrar_historial import clave_desde_registro, fecha_descubrimiento, migrar
+from buscador_vacantes.normalizar import huella
 
 FIXTURE = Path(__file__).parent / "fixtures" / "historial_hermes.json"
 AHORA = datetime(2026, 10, 3, 15, 0, tzinfo=UTC)

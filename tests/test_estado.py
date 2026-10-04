@@ -2,9 +2,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from estado import Estado, EstadoNoInicializado, a_texto
-from modelo import Categoria, Vacante
-from normalizar import huella
+from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto
+from buscador_vacantes.modelo import Categoria, Vacante
+from buscador_vacantes.normalizar import huella
 
 AHORA = datetime(2026, 10, 3, 15, 0, tzinfo=UTC)
 

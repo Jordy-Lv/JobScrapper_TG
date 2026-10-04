@@ -10,7 +10,7 @@ ciberseguridad) en Colombia y remoto LATAM, y publica solo las nuevas en el cana
 - Corre cada 30 minutos en el PC Fedora con systemd de usuario: guía completa de instalación,
   fase de prueba, paso a producción, operación y rollback en `deploy/INSTALAR.md`.
 
-La especificación completa está en `buscador-vacantes-spec.md` y el plan en
+La especificación completa está en `docs/buscador-vacantes-spec.md` y el plan en
 `openspec/changes/crear-buscador-vacantes/`.
 
 ## Instalación local
@@ -30,7 +30,7 @@ PRUEBA_REAL=1 uv run pytest  # incluye DeepSeek y healthchecks reales (usa la re
 ```bash
 uv run buscador.py --dry-run --fuente getonboard   # consulta una fuente e imprime el resultado
 uv run buscador.py --dry-run                       # todas las fuentes activas, sin enviar nada
-uv run buscador.py migrar --archivo referencia_hermes/historial_vacantes.json
+uv run buscador.py migrar --archivo docs/referencia_hermes/historial_vacantes.json
 uv run buscador.py --seed                          # marca lo actual como visto, sin enviar
 uv run buscador.py --chat-prueba                   # envía al chat de prueba
 uv run buscador.py                                 # corrida normal (la que ejecuta systemd)
@@ -81,22 +81,30 @@ de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat d
 ## Estructura
 
 ```
-buscador.py            CLI y flujo de la corrida
-config.py              carga y validación de config.yaml y .env
-fuentes/               una clase por fuente sobre fuentes/base.py
-filtros.py             veredicto aceptar/rechazar/dudosa y categoría
-clasificador.py        dudosas → DeepSeek (ia_cliente.py)
-estado.py              SQLite
-formato.py             mensajes HTML de Telegram
-publicacion.py         banner y envío con confirmación (notificador_telegram.py)
-incidentes.py          detección determinista de incidentes
-reportero.py           diagnóstico IA de incidentes y alertas planas
-resumen.py             resumen diario con métricas y recomendaciones
-simulacion.py          --simular-incidente
-salud.py               heartbeat a healthchecks.io
-migrar_historial.py    importación del historial de Hermes
-referencia_hermes/     scripts originales de Hermes y NOTAS.md (solo referencia)
+buscador.py                 punto de entrada (uv run buscador.py ...)
+config.yaml                 configuración funcional (fuentes, filtros, presupuestos)
+buscador_vacantes/          código del buscador
+  corrida.py                CLI y flujo de la corrida
+  config.py                 carga y validación de config.yaml y .env
+  fuentes/                  una clase por fuente sobre fuentes/base.py
+  filtros.py                veredicto aceptar/rechazar/dudosa y categoría
+  clasificador.py           dudosas → DeepSeek (ia_cliente.py)
+  estado.py                 SQLite
+  formato.py                mensajes HTML de Telegram
+  publicacion.py            banner y envío con confirmación (notificador_telegram.py)
+  incidentes.py             detección determinista de incidentes
+  reportero.py              diagnóstico IA de incidentes y alertas planas
+  resumen.py                resumen diario con métricas y recomendaciones
+  simulacion.py             --simular-incidente
+  salud.py                  heartbeat a healthchecks.io
+  migrar_historial.py       importación del historial de Hermes
+tests/                      pruebas (pytest + respx) y fixtures
+deploy/                     unidades systemd y guía de instalación en Fedora
+assets/                     banner del canal
+docs/                       especificación de origen y referencia_hermes/ (scripts
+                            originales de Hermes y NOTAS.md, solo referencia)
 ```
 
-Para agregar una fuente: crear `fuentes/<nombre>.py` con `construir_peticion()` y `parsear()`,
-registrarla en `FUENTES` de `buscador.py` y agregarla a `fuentes:` en `config.yaml`.
+Para agregar una fuente: crear `buscador_vacantes/fuentes/<nombre>.py` con
+`construir_peticion()` y `parsear()`, registrarla en `FUENTES` de
+`buscador_vacantes/corrida.py` y agregarla a `fuentes:` en `config.yaml`.

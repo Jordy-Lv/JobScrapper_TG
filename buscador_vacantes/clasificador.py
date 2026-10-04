@@ -8,11 +8,11 @@ from datetime import datetime, timedelta
 
 from pydantic import BaseModel, ValidationError
 
-import config as cfg
-from estado import Estado, a_texto, de_texto, vacante_a_json, vacante_de_json
-from filtros import Filtros
-from ia_cliente import ClienteIA
-from modelo import Categoria, Vacante
+from buscador_vacantes import config as cfg
+from buscador_vacantes.estado import Estado, a_texto, de_texto, vacante_a_json, vacante_de_json
+from buscador_vacantes.filtros import Filtros
+from buscador_vacantes.ia_cliente import ClienteIA
+from buscador_vacantes.modelo import Categoria, Vacante
 
 log = logging.getLogger(__name__)
 

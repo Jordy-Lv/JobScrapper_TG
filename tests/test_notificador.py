@@ -6,8 +6,8 @@ import httpx
 import pytest
 import respx
 
-from config import cargar_configuracion
-from notificador_telegram import (
+from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.notificador_telegram import (
     API,
     NotificadorBotAPI,
     NotificadorHermesCLI,

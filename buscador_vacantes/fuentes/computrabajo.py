@@ -8,10 +8,10 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
-from fechas import interpretar_fecha
-from fuentes.base import CambioHTML, Fuente, Peticion
-from modelo import Vacante
-from normalizar import normalizar_texto
+from buscador_vacantes.fechas import interpretar_fecha
+from buscador_vacantes.fuentes.base import CambioHTML, Fuente, Peticion
+from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.normalizar import normalizar_texto
 
 URL_BASE = "https://co.computrabajo.com"
 _ID = re.compile(r"^[A-F0-9]{32}$", re.IGNORECASE)

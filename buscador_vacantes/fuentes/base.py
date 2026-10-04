@@ -15,10 +15,10 @@ from typing import Any
 
 import httpx
 
-import config as cfg
-from estado import Estado, a_texto, de_texto
-from modelo import Vacante
-from rotacion import Consulta
+from buscador_vacantes import config as cfg
+from buscador_vacantes.estado import Estado, a_texto, de_texto
+from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.rotacion import Consulta
 
 STATUS_BLOQUEO = {403, 429, 999}
 CABECERAS_PERMITIDAS = {"retry-after", "server", "content-type", "cf-ray"}

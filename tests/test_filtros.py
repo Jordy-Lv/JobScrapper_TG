@@ -2,10 +2,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from config import cargar_configuracion
-from fechas import ZONA
-from filtros import Filtros, Motivo
-from modelo import Categoria, Vacante, Veredicto
+from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.filtros import Filtros, Motivo
+from buscador_vacantes.modelo import Categoria, Vacante, Veredicto
 
 AHORA = datetime(2026, 10, 3, 12, 0, tzinfo=ZONA)
 A, R, D = Veredicto.ACEPTAR, Veredicto.RECHAZAR, Veredicto.DUDOSA

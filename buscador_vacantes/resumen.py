@@ -12,13 +12,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-import config as cfg
-from estado import Estado, a_texto
-from fechas import ZONA
-from formato import NOMBRES_FUENTE, empaquetar, escapar
-from modelo import Categoria
-from notificador_telegram import Notificador
-from reportero import ClienteChat
+from buscador_vacantes import config as cfg
+from buscador_vacantes.estado import Estado, a_texto
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.formato import NOMBRES_FUENTE, empaquetar, escapar
+from buscador_vacantes.modelo import Categoria
+from buscador_vacantes.notificador_telegram import Notificador
+from buscador_vacantes.reportero import ClienteChat
 
 log = logging.getLogger(__name__)
 

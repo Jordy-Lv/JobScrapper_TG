@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from salud import Salud
+from buscador_vacantes.salud import Salud
 
 URL = "https://hc-ping.com/uuid-de-prueba"
 

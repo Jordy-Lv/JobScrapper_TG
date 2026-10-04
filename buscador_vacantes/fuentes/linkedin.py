@@ -8,9 +8,9 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
-from fechas import interpretar_fecha
-from fuentes.base import CambioHTML, Fuente, Peticion
-from modelo import Vacante
+from buscador_vacantes.fechas import interpretar_fecha
+from buscador_vacantes.fuentes.base import CambioHTML, Fuente, Peticion
+from buscador_vacantes.modelo import Vacante
 
 URL_BUSQUEDA = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 URL_OFERTA = "https://co.linkedin.com/jobs/view/{id}"

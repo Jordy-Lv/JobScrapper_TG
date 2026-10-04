@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-import config as cfg
-from modelo import Categoria, Vacante, Veredicto
-from normalizar import coincidencias, compilar_terminos, normalizar_texto
+from buscador_vacantes import config as cfg
+from buscador_vacantes.modelo import Categoria, Vacante, Veredicto
+from buscador_vacantes.normalizar import coincidencias, compilar_terminos, normalizar_texto
 
 _EXPERIENCIA = r"(?:experiencia|experience)"
 _ANIOS = r"(?:anos?|years?)"

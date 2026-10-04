@@ -2,13 +2,13 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from config import RAIZ, cargar_configuracion
-from estado import Estado
-from fechas import ZONA
-from modelo import Categoria, Vacante
-from normalizar import huella
-from notificador_telegram import ResultadoEnvio
-from publicacion import publicar
+from buscador_vacantes.config import RAIZ, cargar_configuracion
+from buscador_vacantes.estado import Estado
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.modelo import Categoria, Vacante
+from buscador_vacantes.normalizar import huella
+from buscador_vacantes.notificador_telegram import ResultadoEnvio
+from buscador_vacantes.publicacion import publicar
 
 AHORA = datetime(2026, 10, 3, 7, 0, tzinfo=ZONA)
 CHAT = "-100123"

@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from clasificador import Clasificador, Dudosa
-from config import cargar_configuracion
-from estado import Estado
-from filtros import Filtros
-from ia_cliente import ClienteIA, RespuestaIA
-from modelo import Categoria, Vacante
-from normalizar import huella
+from buscador_vacantes.clasificador import Clasificador, Dudosa
+from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.estado import Estado
+from buscador_vacantes.filtros import Filtros
+from buscador_vacantes.ia_cliente import ClienteIA, RespuestaIA
+from buscador_vacantes.modelo import Categoria, Vacante
+from buscador_vacantes.normalizar import huella
 
 AHORA = datetime(2026, 10, 3, 15, 0, tzinfo=UTC)
 FIXTURE = Path(__file__).parent / "fixtures" / "dudosas_reales.json"

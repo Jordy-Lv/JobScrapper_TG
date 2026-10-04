@@ -5,14 +5,14 @@ import httpx
 import pytest
 import respx
 
-from config import cargar_configuracion
-from estado import Estado, a_texto
-from fechas import ZONA
-from fuentes.base import Intento, TipoError
-from ia_cliente import ClienteIA, RespuestaIA
-from incidentes import Detector, Incidente, ResultadoEvaluacion
-from notificador_telegram import ResultadoEnvio
-from reportero import DatosFuente, Reportero, duracion, muestra_cuerpo
+from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.estado import Estado, a_texto
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.fuentes.base import Intento, TipoError
+from buscador_vacantes.ia_cliente import ClienteIA, RespuestaIA
+from buscador_vacantes.incidentes import Detector, Incidente, ResultadoEvaluacion
+from buscador_vacantes.notificador_telegram import ResultadoEnvio
+from buscador_vacantes.reportero import DatosFuente, Reportero, duracion, muestra_cuerpo
 
 AHORA = datetime(2026, 10, 3, 15, 30, tzinfo=ZONA)
 TOKEN = "123456789:AAFakeTokenFakeTokenFakeTokenFake12"

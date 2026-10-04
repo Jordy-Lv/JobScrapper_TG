@@ -10,10 +10,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from estado import Estado, ahora_utc
-from fechas import ZONA
-from modelo import Vacante
-from normalizar import huella
+from buscador_vacantes.estado import Estado, ahora_utc
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.normalizar import huella
 
 log = logging.getLogger(__name__)
 

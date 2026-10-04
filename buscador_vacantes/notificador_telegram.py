@@ -12,7 +12,7 @@ from typing import Protocol
 
 import httpx
 
-import config as cfg
+from buscador_vacantes import config as cfg
 
 log = logging.getLogger(__name__)
 

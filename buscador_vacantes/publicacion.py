@@ -9,12 +9,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-import config as cfg
-from estado import Estado
-from fechas import ZONA
-from formato import componer
-from modelo import Vacante
-from notificador_telegram import Notificador
+from buscador_vacantes import config as cfg
+from buscador_vacantes.estado import Estado
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.formato import componer
+from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.notificador_telegram import Notificador
 
 log = logging.getLogger(__name__)
 

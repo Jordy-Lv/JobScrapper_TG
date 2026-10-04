@@ -4,12 +4,12 @@ import httpx
 import pytest
 import respx
 
-from config import cargar_configuracion
-from estado import Estado
-from fechas import ZONA
-from fuentes.base import CambioHTML, Fuente, Peticion, TipoError
-from modelo import Vacante
-from rotacion import Consulta
+from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.estado import Estado
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.fuentes.base import CambioHTML, Fuente, Peticion, TipoError
+from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.rotacion import Consulta
 
 URL = "https://empleos.ejemplo/buscar"
 HTML_OK = "<html><body><div class='oferta'>Practicante</div></body></html>"

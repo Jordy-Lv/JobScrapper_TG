@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from config import RAIZ, ErrorConfiguracion, cargar_configuracion, cargar_secretos
-from modelo import Categoria
+from buscador_vacantes.config import RAIZ, ErrorConfiguracion, cargar_configuracion, cargar_secretos
+from buscador_vacantes.modelo import Categoria
 
 VARIABLES = (
     "TELEGRAM_BOT_TOKEN",

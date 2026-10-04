@@ -11,10 +11,10 @@ from typing import Any, Literal
 
 import httpx
 
-import config as cfg
-from estado import Estado, a_texto, ahora_utc, de_texto
-from fechas import ZONA
-from registro import enmascarar
+from buscador_vacantes import config as cfg
+from buscador_vacantes.estado import Estado, a_texto, ahora_utc, de_texto
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.registro import enmascarar
 
 Proposito = Literal["clasificador", "reportero", "resumen"]
 

@@ -3,12 +3,12 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from config import cargar_configuracion
-from estado import Estado, a_texto
-from fechas import ZONA
-from ia_cliente import RespuestaIA
-from notificador_telegram import ResultadoEnvio
-from resumen import Resumen, calcular_metricas
+from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.estado import Estado, a_texto
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.ia_cliente import RespuestaIA
+from buscador_vacantes.notificador_telegram import ResultadoEnvio
+from buscador_vacantes.resumen import Resumen, calcular_metricas
 
 AHORA = datetime(2026, 10, 4, 8, 0, tzinfo=ZONA)
 

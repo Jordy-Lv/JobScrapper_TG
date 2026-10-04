@@ -4,12 +4,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from config import cargar_configuracion
-from estado import Estado
-from fechas import ZONA
-from fuentes.base import CambioHTML
-from fuentes.computrabajo import Computrabajo, slug
-from fuentes.linkedin import URL_BUSQUEDA, LinkedIn
+from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.estado import Estado
+from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.fuentes.base import CambioHTML
+from buscador_vacantes.fuentes.computrabajo import Computrabajo, slug
+from buscador_vacantes.fuentes.linkedin import URL_BUSQUEDA, LinkedIn
 
 FIXTURES = Path(__file__).parent / "fixtures"
 AHORA = datetime(2026, 10, 3, 22, 0, tzinfo=ZONA)

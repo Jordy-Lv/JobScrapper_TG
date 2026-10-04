@@ -3,8 +3,8 @@ from datetime import date, timedelta
 
 import pytest
 
-import registro
-from lock import CorridaActiva, Lock
+from buscador_vacantes import registro
+from buscador_vacantes.lock import CorridaActiva, Lock
 
 TOKEN = "123456789:AAFakeTokenFakeTokenFakeTokenFake12"
 
