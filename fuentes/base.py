@@ -86,16 +86,13 @@ def filtrar_cabeceras(cabeceras: httpx.Headers | dict[str, str]) -> dict[str, st
     }
 
 
-def _es_html(respuesta: httpx.Response) -> bool:
-    tipo = respuesta.headers.get("content-type", "").lower()
-    return "html" in tipo or (not tipo and respuesta.text.lstrip()[:1] == "<")
-
-
 class Fuente(ABC):
     """Una fuente define cómo construir la petición de una palabra clave y cómo parsearla."""
 
     nombre: str = ""
     selectores: list[str] = []
+    # Códigos HTTP que la fuente usa para "sin resultados" (p. ej. elempleo responde 404)
+    status_sin_resultados: frozenset[int] = frozenset()
 
     def __init__(
         self,
@@ -269,6 +266,8 @@ class Fuente(ABC):
         self, respuesta: httpx.Response, intento: Intento, keyword: str, ahora: datetime
     ) -> list[Vacante]:
         status = respuesta.status_code
+        if status in self.status_sin_resultados:
+            return []
         if status in STATUS_BLOQUEO:
             intento.tipo_error = TipoError.BLOQUEO
             return []
@@ -278,10 +277,8 @@ class Fuente(ABC):
         if status >= 400 or status < 200:
             intento.tipo_error = TipoError.HTTP
             return []
-        # Las páginas de desafío son HTML; en JSON la palabra "challenge" puede ser contenido
-        if _es_html(respuesta) and self._marcadores.search(respuesta.text.lower()):
-            intento.tipo_error, intento.desafio = TipoError.CAPTCHA, True
-            return []
+        # Se parsea primero: un marcador de desafío solo cuenta si falta el listado, porque
+        # hay sitios con reCAPTCHA en formularios de todas sus páginas (elempleo)
         try:
             return self.parsear(respuesta, keyword, ahora)
         except CambioHTML as exc:
@@ -289,6 +286,8 @@ class Fuente(ABC):
         except Exception as exc:  # noqa: BLE001 - un parser roto no debe tumbar la corrida
             intento.tipo_error, intento.detalle = TipoError.CAMBIO_HTML, repr(exc)
             self.log.exception("Error parseando %s", self.nombre)
+        if self._marcadores.search(respuesta.text.lower()):
+            intento.tipo_error, intento.desafio = TipoError.CAPTCHA, True
         return []
 
     def ejecutar(self, lote: list[Consulta]) -> ResultadoFuente:
@@ -304,7 +303,9 @@ class Fuente(ABC):
             if intento.tipo_error in (TipoError.BLOQUEO, TipoError.CAPTCHA):
                 resultado.cooldown_hasta = self.aplicar_cooldown(intento.ts)
                 break
-            if intento.status is not None and 200 <= intento.status < 300:
+            if intento.status is not None and (
+                200 <= intento.status < 300 or intento.status in self.status_sin_resultados
+            ):
                 self.registrar_exito(intento.ts)
         return resultado
 

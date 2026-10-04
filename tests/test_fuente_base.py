@@ -162,7 +162,7 @@ def test_exito_reinicia_el_escalon(fuente, estado, reloj):
 
 @respx.mock
 def test_200_con_cf_chl_es_desafio(fuente, estado, reloj):
-    cuerpo = "<html><script src='/cdn-cgi/challenge-platform/cf-chl'></script>oferta</html>"
+    cuerpo = "<html><script src='/cdn-cgi/challenge-platform/cf-chl'></script>Verificando</html>"
     respx.get(URL).mock(
         return_value=httpx.Response(200, text=cuerpo, headers={"content-type": "text/html"})
     )
@@ -172,6 +172,17 @@ def test_200_con_cf_chl_es_desafio(fuente, estado, reloj):
     assert resultado.cooldown_hasta == reloj.momento + timedelta(hours=2)
     fila = intentos(estado)[0]
     assert fila["desafio"] == 1 and fila["tipo_error"] == "captcha"
+
+
+@respx.mock
+def test_marcador_en_pagina_con_listado_no_es_desafio(fuente):
+    cuerpo = HTML_OK.replace("</body>", "<script src='https://www.google.com/recaptcha/api.js'>"
+                             "</script></body>")  # fmt: skip
+    respx.get(URL).mock(return_value=httpx.Response(200, text=cuerpo))
+    resultado = fuente.ejecutar(lote(1))
+    assert len(resultado.vacantes) == 1
+    assert resultado.intentos[0].tipo_error is None
+    assert resultado.cooldown_hasta is None
 
 
 @respx.mock

@@ -51,7 +51,7 @@
 
 - [x] 8.1 Implementar `fuentes/linkedin.py` (guest API con `f_E=1,2`, `f_TPR=r86400`, `location=Colombia`) con un fixture HTML. Verificar con un test del parser y con `--dry-run --fuente linkedin`.
 - [x] 8.2 Implementar `fuentes/computrabajo.py` con fixture y fechas relativas. Verificar con un test del parser y con `--dry-run --fuente computrabajo`.
-- [ ] 8.3 Implementar `fuentes/elempleo.py`, reutilizando lo anotado del script viejo. Verificar con un test del parser y con `--dry-run --fuente elempleo`.
+- [x] 8.3 Implementar `fuentes/elempleo.py`, reutilizando lo anotado del script viejo. Verificar con un test del parser y con `--dry-run --fuente elempleo`.
 - [ ] 8.4 Implementar `fuentes/magneto.py` (endpoint JSON si existe). Verificar con un test del parser y con `--dry-run --fuente magneto`.
 - [ ] 8.5 Implementar `fuentes/torre.py` filtrando a remoto LATAM/Colombia. Verificar con un test del parser y con `--dry-run --fuente torre`.
 - [ ] 8.6 Evaluar la Agencia Pública de Empleo del SENA: implementarla si no exige login ni captcha, o dejarla desactivada y documentar el motivo. Verificar con `--dry-run --fuente sena` o con la nota en `config.yaml`.

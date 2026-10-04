@@ -134,6 +134,8 @@ fuentes:
     activa: true
     presupuesto: 3
     reservado_nucleo: 1
+    opciones:
+      filtro_fecha: hace-1-semana   # ruta del filtro "Fecha de publicación"
   magneto:
     activa: true
     presupuesto: 3

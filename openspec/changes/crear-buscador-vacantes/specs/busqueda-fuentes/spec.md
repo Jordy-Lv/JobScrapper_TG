@@ -74,11 +74,15 @@ Ante una respuesta HTTP 429, 999 o 403, el sistema SHALL poner la fuente en cool
 - **THEN** el contador de fallos vuelve a cero y el próximo bloqueo empieza de nuevo en 2 h
 
 ### Requirement: Detección de desafíos anti-bot
-El sistema SHALL considerar desafío anti-bot una respuesta HTTP 200 cuyo cuerpo contenga marcadores como `captcha`, `cf-chl`, `challenge`, `are you a robot` o `unusual traffic`. La trata como bloqueo (aplica cooldown) y MUST NOT intentar resolverla.
+El sistema SHALL considerar desafío anti-bot una respuesta HTTP 200 cuyo cuerpo contenga marcadores como `captcha`, `cf-chl`, `challenge`, `are you a robot` o `unusual traffic` y en la que el parser no encuentre la estructura de vacantes. La trata como bloqueo (aplica cooldown) y MUST NOT intentar resolverla. Una página que trae el listado normal no es un desafío aunque contenga un marcador, porque algunos sitios incluyen reCAPTCHA en formularios de todas sus páginas (como elempleo).
 
 #### Scenario: Página de captcha con 200
 - **WHEN** Computrabajo responde 200 con una página que contiene `cf-chl`
 - **THEN** la respuesta no se parsea como vacantes, la fuente entra en cooldown y se registra un intento de tipo captcha
+
+#### Scenario: Marcador en una página normal
+- **WHEN** elempleo responde 200 con su listado de vacantes y un script de reCAPTCHA para un formulario
+- **THEN** las vacantes se procesan normalmente y no se aplica cooldown
 
 ### Requirement: Registro de cada intento
 El sistema SHALL registrar cada request con su fecha y hora, fuente, palabra clave, URL, código HTTP, duración, cantidad de elementos extraídos y error si lo hubo. Este historial alimenta la detección de incidentes y las métricas.

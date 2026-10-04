@@ -9,7 +9,7 @@ Detectar de forma determinista cuándo una fuente o el envío fallan, y avisar e
 ### Requirement: Detección determinista de incidentes
 El sistema SHALL abrir un incidente, identificado por fuente y tipo, cuando se cumple alguna de estas reglas:
 - `bloqueo`: HTTP 429, 999 o 403 en 2 corridas seguidas de la misma fuente, o cooldown escalado a 6 h o más.
-- `captcha`: respuesta 200 con marcadores de desafío anti-bot.
+- `captcha`: respuesta 200 con marcadores de desafío anti-bot y sin la estructura de vacantes.
 - `cambio_html`: respuesta 200 con cuerpo normal en la que el parser extrae 0 elementos o falla.
 - `sin_resultados`: 0 vacantes crudas en 24 h en una fuente que tuvo resultados en los 7 días anteriores.
 - `caida_volumen`: volumen de 24 h por debajo del 30 % del promedio diario de los 7 días anteriores.

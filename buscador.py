@@ -34,6 +34,7 @@ from filtros import Filtros, Motivo
 from formato import componer
 from fuentes.base import Fuente, Intento, ResultadoFuente, TipoError
 from fuentes.computrabajo import Computrabajo
+from fuentes.elempleo import Elempleo
 from fuentes.getonboard import GetOnBoard
 from fuentes.linkedin import LinkedIn
 from ia_cliente import ClienteIA
@@ -50,6 +51,7 @@ log = logging.getLogger("buscador")
 FUENTES: dict[str, type[Fuente]] = {
     "linkedin": LinkedIn,
     "computrabajo": Computrabajo,
+    "elempleo": Elempleo,
     "getonboard": GetOnBoard,
 }
 HISTORIAL_HERMES = Path("~/.hermes/cron/output/historial_vacantes.json")
