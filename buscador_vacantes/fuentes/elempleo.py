@@ -41,6 +41,8 @@ def _dato_rotulado(item, rotulo: str) -> str:
 class Elempleo(Fuente):
     nombre = "elempleo"
     status_sin_resultados = frozenset({404})
+    soporta_paginas = True  # ``?page=N``
+    tamano_pagina = 20
     selectores = [
         "div.result-item [data-ga4-offerdata][data-url]",
         "data-ga4-offerdata: id, title, company, location, salary",
@@ -49,9 +51,12 @@ class Elempleo(Fuente):
         "li.result-info-hover-li-description",
     ]
 
-    def construir_peticion(self, keyword: str) -> Peticion:
+    def construir_peticion(self, keyword: str, pagina: int = 1) -> Peticion:
         filtro = self.opciones.get("filtro_fecha", "hace-1-semana")
-        return Peticion(f"{URL_BASE}/co/ofertas-empleo/{filtro}/trabajo-{slug(keyword)}")
+        return Peticion(
+            f"{URL_BASE}/co/ofertas-empleo/{filtro}/trabajo-{slug(keyword)}",
+            params={"page": pagina} if pagina > 1 else None,
+        )
 
     def parsear(self, respuesta: httpx.Response, keyword: str, ahora: datetime) -> list[Vacante]:
         sopa = BeautifulSoup(respuesta.text, "lxml")

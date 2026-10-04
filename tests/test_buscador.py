@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from buscador_vacantes import corrida as buscador
+from buscador_vacantes import rotacion
 from buscador_vacantes.config import Fuente as ConfFuente
 from buscador_vacantes.config import Secretos, cargar_configuracion
 from buscador_vacantes.corrida import Corrida, Modo, es_sin_red
@@ -35,7 +36,7 @@ OFERTAS = [
 class FuenteFalsa(Fuente):
     nombre = "falsa"
 
-    def construir_peticion(self, keyword):
+    def construir_peticion(self, keyword, pagina=1):
         return Peticion(URL, params={"q": keyword})
 
     def parsear(self, respuesta, keyword, ahora):
@@ -381,3 +382,38 @@ def test_subcomando_con_lock_ocupado_falla_visible(tmp_path, capsys, monkeypatch
     assert codigo == 1
     assert "No se ejecutó 'promover-prueba'" in capsys.readouterr().err
     assert buscador.main(["--config", str(ruta), "promover-prueba"]) == 0
+
+
+class FuentePaginadaFalsa(FuenteFalsa):
+    soporta_paginas = True
+    tamano_pagina = len(OFERTAS)  # cada respuesta simulada es una página completa
+
+
+def config_paginada(config):
+    fuentes = {"falsa": ConfFuente(presupuesto=4, reservado_nucleo=1, paginas_nucleo=3)}
+    return config.model_copy(update={"fuentes": fuentes})
+
+
+@respx.mock
+def test_corrida_pagina_el_nucleo(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas()
+    fuentes = {"falsa": FuentePaginadaFalsa}
+    resumen = corrida(config_paginada(config), estado, fuentes=fuentes).ejecutar()
+    ejecutadas = resumen.resultados[0].ejecutadas
+    assert [(c.grupo, c.pagina) for c in ejecutadas] == [
+        ("nucleo", 1), ("nucleo", 2), ("nucleo", 3), ("cola_larga", 1),
+    ]  # fmt: skip
+    assert rotacion.obtener_indice(estado, "falsa", rotacion.NUCLEO) == 1
+
+
+@respx.mock
+def test_fuente_sin_paginacion_lee_solo_la_primera_pagina(config, estado, caplog):
+    estado.marcar_inicializada()
+    mock_ofertas()
+    resumen = corrida(config_paginada(config), estado).ejecutar()
+    ejecutadas = resumen.resultados[0].ejecutadas
+    assert [(c.grupo, c.pagina) for c in ejecutadas] == [
+        ("nucleo", 1), ("cola_larga", 1), ("cola_larga", 1), ("cola_larga", 1),
+    ]  # fmt: skip
+    assert "no soporta paginación" in caplog.text

@@ -51,7 +51,10 @@ ENV_COMPLETO = {
 def test_config_inicial_carga(config):
     assert config.zona_horaria == "America/Bogota"
     assert config.fuentes["linkedin"].presupuesto == 3
-    assert config.fuentes["computrabajo"].presupuesto == 4
+    assert config.fuentes["computrabajo"].presupuesto == 8
+    assert config.fuentes["computrabajo"].paginas_nucleo == 3
+    assert config.fuentes["elempleo"].presupuesto == 5
+    assert config.fuentes["magneto"].paginas_nucleo == 1
     assert config.fuentes["getonboard"].presupuesto == 5
     assert config.fuentes["sena"].activa is False
     assert config.banner.modo == "diario"
@@ -75,6 +78,21 @@ def test_palabras_clave_cubren_roles(config):
     plana = config.palabras_clave.cola_larga_plana
     assert len(plana) == len(set(plana))
     assert "DBA junior" in plana
+
+
+def test_nucleo_exclusivo_de_practicas(config):
+    nucleo = config.palabras_clave.nucleo
+    assert not [k for k in nucleo if "junior" in k.lower()]
+    assert {"aprendiz SENA", "aprendiz ADSO", "practicante TI"} <= set(nucleo)
+    assert not set(nucleo) & set(config.palabras_clave.cola_larga_plana)
+
+
+def test_nucleo_ocupa_al_menos_la_mitad_del_presupuesto(config):
+    for nombre, fuente in config.fuentes.items():
+        if not fuente.activa or fuente.filtra_nivel:
+            continue
+        reservados = fuente.reservado_nucleo * fuente.paginas_nucleo
+        assert reservados * 2 >= fuente.presupuesto, nombre
 
 
 def test_areas_cubren_categorias(config):
@@ -106,6 +124,17 @@ def test_modo_banner_invalido(tmp_path):
 def test_reserva_mayor_que_presupuesto(tmp_path):
     ruta = escribir_config(tmp_path, lambda d: d["fuentes"]["linkedin"].update(reservado_nucleo=9))
     with pytest.raises(ErrorConfiguracion, match="reservado_nucleo"):
+        cargar_configuracion(ruta)
+
+
+def test_paginas_del_nucleo_cuentan_en_el_presupuesto(tmp_path):
+    ruta = escribir_config(
+        tmp_path,
+        lambda d: d["fuentes"]["computrabajo"].update(
+            presupuesto=8, reservado_nucleo=3, paginas_nucleo=3
+        ),
+    )
+    with pytest.raises(ErrorConfiguracion, match="paginas_nucleo"):
         cargar_configuracion(ruta)
 
 

@@ -32,7 +32,7 @@ class LinkedIn(Fuente):
         "span.job-search-card__salary-info",
     ]
 
-    def construir_peticion(self, keyword: str) -> Peticion:
+    def construir_peticion(self, keyword: str, pagina: int = 1) -> Peticion:
         return Peticion(
             URL_BUSQUEDA,
             params={

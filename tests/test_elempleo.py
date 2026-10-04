@@ -31,6 +31,13 @@ def test_peticion_con_filtro_de_fecha(fuente):
     assert peticion.url == (
         "https://www.elempleo.com/co/ofertas-empleo/hace-1-semana/trabajo-practicante-sistemas"
     )
+    assert peticion.params is None
+
+
+def test_peticion_pagina_siguiente(fuente):
+    peticion = fuente.construir_peticion("practicante sistemas", 2)
+    assert peticion.url.endswith("/hace-1-semana/trabajo-practicante-sistemas")
+    assert peticion.params == {"page": 2}
 
 
 def test_parser_con_fixture_real(fuente):

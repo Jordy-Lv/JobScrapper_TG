@@ -29,19 +29,27 @@ red:
     - unusual traffic
 
 palabras_clave:
-  # Consultas amplias: se repiten en cada ciclo corto (reservado_nucleo por fuente)
+  # Prioridad del canal: solo prácticas, pasantías y aprendizaje (nada de nivel junior).
+  # Se repiten en cada ciclo corto (reservado_nucleo por fuente) y pueden paginarse
   nucleo:
     - practicante sistemas
     - practicante TI
+    - practicante ingeniería de sistemas
+    - practicante desarrollo de software
     - aprendiz SENA
     - aprendiz sistemas
+    - aprendiz ADSO
+    - aprendiz análisis y desarrollo de software
+    - aprendiz técnico en sistemas
     - pasante tecnología
+    - pasantía ingeniería de sistemas
+    - práctica profesional ingeniería de sistemas
+    - estudiante últimos semestres ingeniería de sistemas
     - trainee tecnología
-    - junior TI
-    - desarrollador junior
   # Consultas específicas por rol: se recorren en rotación con el resto del presupuesto
   cola_larga:
     desarrollo:
+      - desarrollador junior
       - programador junior
       - desarrollador backend junior
       - desarrollador frontend junior
@@ -51,26 +59,24 @@ palabras_clave:
       - desarrollador .NET junior
       - desarrollador web junior
       - desarrollador móvil junior
-      - practicante desarrollo
       - aprendiz desarrollo de software
       - tecnólogo desarrollo de software
+      - Software Engineer Intern
+      - Junior Software Engineer
+      - Junior Java Developer
+      - Spring Boot junior
     infraestructura:
       - DevOps junior
       - cloud junior
-      - AWS junior
-      - Azure junior
-      - SysOps
-      - CloudOps
       - infraestructura junior
       - administrador de sistemas junior
       - Linux junior
       - aprendiz infraestructura
     redes:
       - redes junior
-      - técnico de redes
-      - telecomunicaciones junior
       - NOC junior
       - aprendiz redes
+      - practicante redes
     bases_datos:
       - DBA junior
       - administrador de bases de datos junior
@@ -85,9 +91,11 @@ palabras_clave:
       - auxiliar TI
       - técnico de sistemas
       - aprendiz soporte
+      - practicante soporte
     datos:
       - analista de datos junior
       - data analyst junior
+      - Junior Data Analyst
       - BI junior
       - Power BI
       - ingeniero de datos junior
@@ -98,11 +106,15 @@ palabras_clave:
       - tester junior
       - analista de pruebas junior
       - automatización de pruebas junior
+      - Junior QA Engineer
+      - practicante QA
     ciberseguridad:
       - ciberseguridad junior
       - analista SOC junior
       - seguridad informática junior
+      - practicante ciberseguridad
     general:
+      - junior TI
       - analista de sistemas junior
       - analista TI junior
       - ingeniero de sistemas recién egresado
@@ -115,13 +127,15 @@ palabras_clave:
       - intern
       - entry level developer
 
-# Presupuesto = requests máximos por corrida. reservado_nucleo = parte del presupuesto
-# para el grupo núcleo; el resto avanza la cola larga.
+# Presupuesto = requests máximos por corrida (cada página cuenta). reservado_nucleo =
+# palabras clave del núcleo por corrida; paginas_nucleo = páginas leídas de cada una (solo
+# en fuentes que paginan). El resto del presupuesto avanza la cola larga (solo página 1).
+# En fuentes sin filtro de nivel nativo, reservado_nucleo × paginas_nucleo ≥ presupuesto / 2.
 fuentes:
   linkedin:
     activa: true
     presupuesto: 3
-    reservado_nucleo: 1
+    reservado_nucleo: 2
     filtra_nivel: true   # f_E=1,2: solo prácticas y nivel de entrada
     opciones:
       location: Colombia
@@ -129,18 +143,20 @@ fuentes:
       f_TPR: r86400     # Últimas 24 h
   computrabajo:
     activa: true
-    presupuesto: 4
-    reservado_nucleo: 1
+    presupuesto: 8
+    reservado_nucleo: 2
+    paginas_nucleo: 3    # la página 1 viene ordenada por relevancia, no por fecha
   elempleo:
     activa: true
-    presupuesto: 3
-    reservado_nucleo: 1
+    presupuesto: 5
+    reservado_nucleo: 2
+    paginas_nucleo: 2
     opciones:
       filtro_fecha: hace-1-semana   # ruta del filtro "Fecha de publicación"
   magneto:
     activa: true
-    presupuesto: 3
-    reservado_nucleo: 1
+    presupuesto: 4
+    reservado_nucleo: 2   # ya ordena por fecha de publicación: basta la página 1
   getonboard:
     activa: true
     presupuesto: 5
@@ -318,6 +334,7 @@ filtros:
         - desarrollador
         - desarrolladora
         - desarrollo de software
+        - adso   # tecnólogo SENA en Análisis y Desarrollo de Software
         - desarrollo web
         - desarrollo de aplicaciones
         - programador

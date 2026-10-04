@@ -14,6 +14,7 @@ COLA_LARGA = "cola_larga"
 class Consulta:
     keyword: str
     grupo: str
+    pagina: int = 1
 
 
 def _tomar(lista: list[str], inicio: int, cantidad: int) -> list[str]:
@@ -38,18 +39,24 @@ def calcular_lote(
     cola_larga: list[str],
     presupuesto: int,
     reservado_nucleo: int,
+    paginas_nucleo: int = 1,
 ) -> list[Consulta]:
     """Lote de la corrida: primero las consultas núcleo reservadas y luego la cola larga.
 
+    El presupuesto cuenta requests: cada palabra clave del núcleo ocupa ``paginas_nucleo``
+    requests (páginas 1..N consecutivas) y la cola larga lee solo la primera página.
     Si un grupo está vacío, su parte del presupuesto pasa al otro.
     """
-    n_nucleo = min(reservado_nucleo, presupuesto, len(nucleo))
-    n_cola = min(presupuesto - n_nucleo, len(cola_larga))
-    if n_cola < presupuesto - n_nucleo:
-        n_nucleo = min(presupuesto - n_cola, len(nucleo))
+    paginas = max(1, paginas_nucleo)
+    n_nucleo = min(reservado_nucleo, presupuesto // paginas, len(nucleo))
+    libre = presupuesto - n_nucleo * paginas
+    n_cola = min(libre, len(cola_larga))
+    if n_cola < libre:
+        n_nucleo = min((presupuesto - n_cola) // paginas, len(nucleo))
     lote = [
-        Consulta(k, NUCLEO)
+        Consulta(k, NUCLEO, pagina)
         for k in _tomar(nucleo, obtener_indice(estado, fuente, NUCLEO), n_nucleo)
+        for pagina in range(1, paginas + 1)
     ]
     lote += [
         Consulta(k, COLA_LARGA)
@@ -78,5 +85,7 @@ def avanzar_lote(
     total_nucleo: int,
     total_cola: int,
 ) -> None:
-    avanzar(estado, fuente, NUCLEO, sum(c.grupo == NUCLEO for c in ejecutadas), total_nucleo)
+    # El núcleo avanza por palabra clave, no por página
+    nucleo = sum(c.grupo == NUCLEO and c.pagina == 1 for c in ejecutadas)
+    avanzar(estado, fuente, NUCLEO, nucleo, total_nucleo)
     avanzar(estado, fuente, COLA_LARGA, sum(c.grupo == COLA_LARGA for c in ejecutadas), total_cola)

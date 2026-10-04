@@ -66,15 +66,20 @@ class PalabrasClave(Modelo):
 class Fuente(Modelo):
     activa: bool = True
     presupuesto: int = Field(ge=0)
-    reservado_nucleo: int = Field(1, ge=0)
+    reservado_nucleo: int = Field(1, ge=0)  # palabras clave del núcleo por corrida
+    paginas_nucleo: int = Field(1, ge=1)  # páginas por palabra clave del núcleo
     filtra_nivel: bool = False  # la fuente ya filtra por nivel de experiencia
     nota: str | None = None
     opciones: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _reserva(self) -> Fuente:
-        if self.reservado_nucleo > self.presupuesto:
-            raise ValueError("reservado_nucleo no puede superar el presupuesto")
+        # El presupuesto cuenta requests: cada página del núcleo es un request
+        if self.reservado_nucleo * self.paginas_nucleo > self.presupuesto:
+            raise ValueError(
+                "reservado_nucleo × paginas_nucleo no puede superar el presupuesto "
+                f"({self.reservado_nucleo} × {self.paginas_nucleo} > {self.presupuesto})"
+            )
         return self
 
 

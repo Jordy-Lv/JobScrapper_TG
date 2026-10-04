@@ -72,7 +72,7 @@ class GetOnBoard(Fuente):
     nombre = "getonboard"
     selectores = ["data[].attributes.title", "data[].attributes.seniority", "links.public_url"]
 
-    def construir_peticion(self, keyword: str) -> Peticion:
+    def construir_peticion(self, keyword: str, pagina: int = 1) -> Peticion:
         return Peticion(
             URL_BUSQUEDA,
             params={

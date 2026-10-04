@@ -93,6 +93,10 @@ class Fuente(ABC):
     selectores: list[str] = []
     # Códigos HTTP que la fuente usa para "sin resultados" (p. ej. elempleo responde 404)
     status_sin_resultados: frozenset[int] = frozenset()
+    # Paginación de las consultas del núcleo: una página con menos de ``tamano_pagina``
+    # vacantes es la última y no se piden las siguientes
+    soporta_paginas: bool = False
+    tamano_pagina: int = 20
 
     def __init__(
         self,
@@ -130,7 +134,7 @@ class Fuente(ABC):
     # --- a implementar por cada fuente ---------------------------------------------------
 
     @abstractmethod
-    def construir_peticion(self, keyword: str) -> Peticion: ...
+    def construir_peticion(self, keyword: str, pagina: int = 1) -> Peticion: ...
 
     @abstractmethod
     def parsear(self, respuesta: httpx.Response, keyword: str, ahora: datetime) -> list[Vacante]:
@@ -230,7 +234,7 @@ class Fuente(ABC):
     def consultar(self, consulta: Consulta) -> tuple[Intento, list[Vacante]]:
         """Hace un request, lo clasifica y lo registra. Nunca lanza excepciones de red."""
         ahora = self.reloj()
-        peticion = self.construir_peticion(consulta.keyword)
+        peticion = self.construir_peticion(consulta.keyword, consulta.pagina)
         intento = Intento(ts=ahora, fuente=self.nombre, keyword=consulta.keyword, url=peticion.url)
         vacantes: list[Vacante] = []
         inicio = time.monotonic()
@@ -252,9 +256,10 @@ class Fuente(ABC):
         intento.items = len(vacantes)
         self._registrar_intento(intento)
         self.log.info(
-            "%s %r → %s %s ms, %s items%s",
+            "%s %r%s → %s %s ms, %s items%s",
             self.nombre,
             consulta.keyword,
+            f" p{consulta.pagina}" if consulta.pagina > 1 else "",
             intento.status or "-",
             intento.ms,
             intento.items,
@@ -291,10 +296,17 @@ class Fuente(ABC):
         return []
 
     def ejecutar(self, lote: list[Consulta]) -> ResultadoFuente:
-        """Recorre el lote respetando presupuesto y pausas. Se detiene ante un bloqueo."""
+        """Recorre el lote respetando presupuesto y pausas. Se detiene ante un bloqueo.
+
+        Las páginas siguientes de una palabra clave se omiten si la anterior falló o vino
+        incompleta (era la última página).
+        """
         resultado = ResultadoFuente(self.nombre)
-        for numero, consulta in enumerate(lote[: self.config.presupuesto]):
-            if numero:
+        sin_mas_paginas: set[str] = set()
+        for consulta in lote[: self.config.presupuesto]:
+            if consulta.pagina > 1 and consulta.keyword in sin_mas_paginas:
+                continue
+            if resultado.intentos:
                 self.dormir(self.aleatorio(self.red.pausa_min_s, self.red.pausa_max_s))
             intento, vacantes = self.consultar(consulta)
             resultado.intentos.append(intento)
@@ -303,6 +315,8 @@ class Fuente(ABC):
             if intento.tipo_error in (TipoError.BLOQUEO, TipoError.CAPTCHA):
                 resultado.cooldown_hasta = self.aplicar_cooldown(intento.ts)
                 break
+            if intento.tipo_error or len(vacantes) < self.tamano_pagina:
+                sin_mas_paginas.add(consulta.keyword)
             if intento.status is not None and (
                 200 <= intento.status < 300 or intento.status in self.status_sin_resultados
             ):

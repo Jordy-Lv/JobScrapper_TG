@@ -132,3 +132,36 @@ def test_grupo_vacio_cede_presupuesto(estado):
     assert [c.keyword for c in lote] == ["n0", "n1", "n2"]
     lote = correr(estado, "otra", presupuesto=3, reservado=1, nucleo=[], cola=["a", "b"])
     assert [c.keyword for c in lote] == ["a", "b"]
+
+
+def test_nucleo_paginado(estado):
+    lote = rotacion.calcular_lote(estado, "computrabajo", NUCLEO, COLA, 8, 2, 3)
+    assert [(c.keyword, c.pagina) for c in lote if c.grupo == rotacion.NUCLEO] == [
+        ("n0", 1), ("n0", 2), ("n0", 3), ("n1", 1), ("n1", 2), ("n1", 3),
+    ]  # fmt: skip
+    assert [(c.keyword, c.pagina) for c in lote if c.grupo == rotacion.COLA_LARGA] == [
+        ("c0", 1), ("c1", 1),
+    ]  # fmt: skip
+
+
+def test_nucleo_paginado_avanza_por_palabra_clave(estado):
+    lote = rotacion.calcular_lote(estado, "computrabajo", NUCLEO, COLA, 8, 2, 3)
+    rotacion.avanzar_lote(estado, "computrabajo", lote, len(NUCLEO), len(COLA))
+    assert rotacion.obtener_indice(estado, "computrabajo", rotacion.NUCLEO) == 2
+    assert rotacion.obtener_indice(estado, "computrabajo", rotacion.COLA_LARGA) == 2
+    siguiente = rotacion.calcular_lote(estado, "computrabajo", NUCLEO, COLA, 8, 2, 3)
+    assert [c.keyword for c in siguiente if c.grupo == rotacion.NUCLEO][::3] == ["n2", "n3"]
+
+
+def test_paginas_cortadas_no_frenan_la_rotacion(estado):
+    # Solo se ejecutó la página 1 de cada palabra clave (las demás se cortaron)
+    lote = rotacion.calcular_lote(estado, "computrabajo", NUCLEO, COLA, 8, 2, 3)
+    ejecutadas = [c for c in lote if c.pagina == 1]
+    rotacion.avanzar_lote(estado, "computrabajo", ejecutadas, len(NUCLEO), len(COLA))
+    assert rotacion.obtener_indice(estado, "computrabajo", rotacion.NUCLEO) == 2
+
+
+def test_cola_vacia_cede_presupuesto_a_palabras_paginadas(estado):
+    lote = rotacion.calcular_lote(estado, "x", NUCLEO, [], 8, 2, 3)
+    assert len(lote) == 6  # 8 // 3 = 2 palabras clave completas
+    assert {c.keyword for c in lote} == {"n0", "n1"}

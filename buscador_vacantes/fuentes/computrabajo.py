@@ -34,6 +34,10 @@ def slug(keyword: str) -> str:
 
 class Computrabajo(Fuente):
     nombre = "computrabajo"
+    # La página 1 viene ordenada por relevancia, no por fecha: las ofertas recientes
+    # también aparecen en las páginas siguientes (``p=N``)
+    soporta_paginas = True
+    tamano_pagina = 20
     selectores = [
         "article.box_offer[data-id]",
         "h2 a.js-o-link",
@@ -43,11 +47,11 @@ class Computrabajo(Fuente):
         "p.fc_aux (fecha relativa)",
     ]
 
-    def construir_peticion(self, keyword: str) -> Peticion:
-        return Peticion(
-            f"{URL_BASE}/trabajo-de-{slug(keyword)}",
-            params={"pubdate": self.opciones.get("pubdate", 3)},
-        )
+    def construir_peticion(self, keyword: str, pagina: int = 1) -> Peticion:
+        params: dict[str, int] = {"pubdate": self.opciones.get("pubdate", 3)}
+        if pagina > 1:
+            params["p"] = pagina
+        return Peticion(f"{URL_BASE}/trabajo-de-{slug(keyword)}", params=params)
 
     def parsear(self, respuesta: httpx.Response, keyword: str, ahora: datetime) -> list[Vacante]:
         sopa = BeautifulSoup(respuesta.text, "lxml")

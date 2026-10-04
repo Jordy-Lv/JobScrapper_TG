@@ -63,11 +63,18 @@ de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat d
 
 ## Configuración
 
-- **`config.yaml`**: fuentes (activa, presupuesto de requests, reserva para el grupo núcleo),
-  palabras clave (núcleo y cola larga por rol), filtros (seniority, nivel, áreas de TI, áreas
+- **`config.yaml`**: fuentes (activa, presupuesto de requests, palabras clave del núcleo por
+  corrida y páginas leídas de cada una), palabras clave (núcleo y cola larga por rol), filtros
+  (seniority, nivel, áreas de TI, áreas
   que no son TI, ubicación), Telegram, banner (`diario`, `nunca` o `siempre`), IA (modelo,
   presupuesto diario, saldo mínimo, prompts), resumen diario, incidentes y retención. Se valida
   al arrancar: un campo inválido detiene el programa indicando cuál es.
+- **Prioridad de prácticas**: el grupo núcleo contiene solo términos de prácticas, pasantías y
+  aprendizaje (practicante, aprendiz SENA/ADSO, pasantía, trainee). Se consulta en cada corrida
+  (`reservado_nucleo` palabras clave por fuente) y, en las fuentes que paginan (Computrabajo y
+  elempleo), se leen hasta `paginas_nucleo` páginas de cada una; una página incompleta corta
+  las siguientes. El presupuesto cuenta requests, así que cada página es uno. Los términos
+  junior van en la cola larga, que lee solo la primera página.
 - **`.env`** (permisos 600, nunca en git): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
   `TELEGRAM_CHAT_PRUEBA`, `DEEPSEEK_API_KEY` y `HEALTHCHECK_URL`. Si `TELEGRAM_BOT_TOKEN` está
   vacío, el token se lee del archivo indicado en `telegram.token_hermes` (el bot de Hermes).

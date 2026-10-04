@@ -230,9 +230,14 @@ class Corrida:
                     resumen.omitidas[nombre] = f"en cooldown hasta {hasta.astimezone(ZONA):%H:%M}"
                     log.info("%s omitida: %s", nombre, resumen.omitidas[nombre])
                     continue
+                paginas = conf.paginas_nucleo
+                if paginas > 1 and not fuente.soporta_paginas:
+                    log.warning("%s no soporta paginación: se lee solo la página 1", nombre)
+                    paginas = 1
                 lote = rotacion.calcular_lote(
-                    self.estado, nombre, nucleo, cola, conf.presupuesto, conf.reservado_nucleo
-                )
+                    self.estado, nombre, nucleo, cola, conf.presupuesto, conf.reservado_nucleo,
+                    paginas,
+                )  # fmt: skip
                 resultado = fuente.ejecutar(lote)
                 if not self.modo.dry_run:  # el dry-run no mueve la rotación de producción
                     rotacion.avanzar_lote(

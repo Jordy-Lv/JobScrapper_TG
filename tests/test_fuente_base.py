@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 
+from buscador_vacantes.config import Fuente as ConfFuente
 from buscador_vacantes.config import cargar_configuracion
 from buscador_vacantes.estado import Estado
 from buscador_vacantes.fechas import ZONA
@@ -18,7 +19,7 @@ HTML_OK = "<html><body><div class='oferta'>Practicante</div></body></html>"
 class FuenteFalsa(Fuente):
     nombre = "falsa"
 
-    def construir_peticion(self, keyword):
+    def construir_peticion(self, keyword, pagina=1):
         return Peticion(URL, params={"q": keyword})
 
     def parsear(self, respuesta, keyword, ahora):
@@ -235,3 +236,70 @@ def test_parser_con_excepcion_no_tumba_la_corrida(fuente, monkeypatch):
     monkeypatch.setattr(fuente, "parsear", lambda *a: 1 / 0)
     resultado = fuente.ejecutar(lote(2))
     assert [i.tipo_error for i in resultado.intentos] == [TipoError.CAMBIO_HTML] * 2
+
+
+class FuentePaginada(FuenteFalsa):
+    nombre = "paginada"
+    soporta_paginas = True
+    tamano_pagina = 2
+
+    def construir_peticion(self, keyword, pagina=1):
+        return Peticion(URL, params={"q": keyword, "p": pagina})
+
+
+@pytest.fixture
+def paginada(config, estado, reloj, pausas):
+    conf = ConfFuente(presupuesto=8, reservado_nucleo=2, paginas_nucleo=3)
+    f = FuentePaginada(
+        conf, config.red, estado, corrida_id=1, dormir=pausas.append,
+        aleatorio=lambda a, b: (a + b) / 2, reloj=reloj,
+    )  # fmt: skip
+    yield f
+    f.cerrar()
+
+
+def lote_paginado():
+    return [Consulta(k, "nucleo", p) for k in ("a", "b") for p in (1, 2, 3)]
+
+
+def responder(paginas):
+    """paginas: {(keyword, página): respuesta}; lo no listado responde una página completa."""
+
+    def manejar(request):
+        clave = (request.url.params["q"], int(request.url.params["p"]))
+        return paginas.get(clave, httpx.Response(200, text="oferta oferta"))
+
+    return manejar
+
+
+@respx.mock
+def test_paginas_completas_continuan(paginada, pausas):
+    ruta = respx.get(URL).mock(side_effect=responder({}))
+    resultado = paginada.ejecutar(lote_paginado())
+    assert ruta.call_count == 6
+    assert [(c.keyword, c.pagina) for c in resultado.ejecutadas] == [
+        ("a", 1), ("a", 2), ("a", 3), ("b", 1), ("b", 2), ("b", 3),
+    ]  # fmt: skip
+    assert len(pausas) == 5
+
+
+@respx.mock
+def test_pagina_incompleta_corta_la_palabra_clave(paginada, pausas):
+    incompleta = httpx.Response(200, text="oferta")
+    ruta = respx.get(URL).mock(side_effect=responder({("a", 1): incompleta}))
+    resultado = paginada.ejecutar(lote_paginado())
+    assert [(c.keyword, c.pagina) for c in resultado.ejecutadas] == [
+        ("a", 1), ("b", 1), ("b", 2), ("b", 3),
+    ]  # fmt: skip
+    assert ruta.call_count == 4
+    assert len(pausas) == 3  # sin pausas por las páginas omitidas
+
+
+@respx.mock
+def test_pagina_con_error_corta_la_palabra_clave(paginada):
+    respx.get(URL).mock(side_effect=responder({("a", 2): httpx.Response(500)}))
+    resultado = paginada.ejecutar(lote_paginado())
+    assert [(c.keyword, c.pagina) for c in resultado.ejecutadas] == [
+        ("a", 1), ("a", 2), ("b", 1), ("b", 2), ("b", 3),
+    ]  # fmt: skip
+    assert resultado.intentos[1].tipo_error == TipoError.SERVIDOR

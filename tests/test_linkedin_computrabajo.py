@@ -87,6 +87,12 @@ def test_computrabajo_peticion(entorno):
     assert peticion.params == {"pubdate": 3}
 
 
+def test_computrabajo_peticion_pagina_siguiente(entorno):
+    peticion = crear(Computrabajo, entorno).construir_peticion("aprendiz SENA", 3)
+    assert peticion.url == "https://co.computrabajo.com/trabajo-de-aprendiz-sena"
+    assert peticion.params == {"pubdate": 3, "p": 3}
+
+
 def test_computrabajo_parser(entorno):
     vacantes = crear(Computrabajo, entorno).parsear(
         respuesta("computrabajo_busqueda.html"), "practicante sistemas", AHORA
