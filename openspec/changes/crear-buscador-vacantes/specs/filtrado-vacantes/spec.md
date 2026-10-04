@@ -80,7 +80,7 @@ El sistema SHALL aceptar vacantes ubicadas en cualquier ciudad de Colombia y vac
 - **THEN** se rechaza por ubicación
 
 ### Requirement: Clasificación IA de vacantes dudosas
-El sistema SHALL enviar a la IA todas las vacantes dudosas de una corrida en una sola llamada por lote, hasta el máximo de vacantes por llamada configurado. Por cada vacante envía título, empresa, ubicación, modalidad, salario, palabra clave, fragmento de descripción si existe e indicación de si la fuente ya filtró por nivel de experiencia (como LinkedIn con prácticas y nivel de entrada). Si el título no indica el nivel, la IA MUST aceptarla solo cuando haya evidencia de que es práctica o junior (filtro de nivel de la fuente, descripción o salario). La IA MUST responder por cada vacante si se acepta, su categoría y un motivo breve. La IA MUST NOT recibir tokens, claves, cookies, ids de chat ni otros datos sensibles. La IA solo clasifica: no scrapea, no envía mensajes ni modifica configuración.
+El sistema SHALL enviar a la IA todas las vacantes dudosas de una corrida en una sola llamada por lote, hasta el máximo de vacantes por llamada configurado. Por cada vacante envía título, empresa, ubicación, modalidad, salario, palabra clave, fragmento de descripción si existe e indicación de si la fuente ya filtró por nivel de experiencia (como LinkedIn con prácticas y nivel de entrada). Si el título no indica el nivel, la IA MUST aceptarla solo cuando haya evidencia de que es práctica o junior (filtro de nivel de la fuente, descripción o salario). Una vacante de aprendiz SENA genérica, cuyo título no nombra un área ("Aprendiz SENA", "Aprendiz SENA Cali", "Contrato de aprendizaje"), MUST aceptarse con categoría prácticas aunque no mencione TI, salvo que el título o la descripción indiquen un área o tareas que no son de TI (salud, farmacia, mecánica, retail, ventas, atención al cliente, tareas administrativas u operativas, etc.). La excepción aplica solo a aprendices SENA o de contrato de aprendizaje: un practicante sin área sigue la regla general. La IA MUST responder por cada vacante si se acepta, su categoría y un motivo breve. La IA MUST NOT recibir tokens, claves, cookies, ids de chat ni otros datos sensibles. La IA solo clasifica: no scrapea, no envía mensajes ni modifica configuración.
 
 #### Scenario: Dudosas clasificadas
 - **WHEN** una corrida produce 5 vacantes dudosas
@@ -89,6 +89,14 @@ El sistema SHALL enviar a la IA todas las vacantes dudosas de una corrida en una
 #### Scenario: Sin dudosas
 - **WHEN** una corrida no produce vacantes dudosas
 - **THEN** no se llama a la IA para clasificar
+
+#### Scenario: Aprendiz SENA genérico
+- **WHEN** el título es "Aprendiz SENA Candelaria Cali" y ni el título ni la descripción nombran un área
+- **THEN** la IA la acepta en la categoría prácticas
+
+#### Scenario: Aprendiz SENA de otra área
+- **WHEN** el título es "Aprendiz SENA - Villavicencio" y la descripción es de un cargo de salud
+- **THEN** la IA la rechaza
 
 ### Requirement: Caché de clasificaciones
 El sistema SHALL guardar el veredicto de la IA asociado a la huella de la vacante (título y empresa normalizados) y reutilizarlo. La misma vacante dudosa MUST NOT enviarse a la IA más de una vez, aunque aparezca en otra fuente o en otra corrida.

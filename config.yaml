@@ -767,6 +767,15 @@ clasificador:
     (en Colombia, más de unos 4,5 millones de pesos al mes suele indicar un cargo no junior).
     Sin evidencia, recházala.
 
+    Aprendiz SENA genérico: si el título es solo "Aprendiz SENA" (o "Aprendiz", "Contrato de
+    aprendizaje", "Etapa productiva/práctica") con ciudad, empresa o código, pero sin nombrar
+    un área, ACÉPTALA con categoría "practicas", aunque no se mencione TI. Recházala si el
+    título o la descripción indican un área o unas tareas que no son de TI: salud, farmacia,
+    mecánica, retail, ventas, atención al cliente, cocina, tareas administrativas u
+    operativas, logística, etc. Esta excepción es solo para aprendices SENA o de contrato de
+    aprendizaje: un "Practicante" o "Estudiante en práctica" sin área sigue la regla general
+    (se acepta solo si hay evidencia de TI).
+
     Recibes un JSON con una lista "vacantes"; cada una tiene un "id". Responde SOLO con un
     JSON con esta forma, con una entrada por cada id recibido:
     {"vacantes": [{"id": 0, "aceptar": true, "categoria": "desarrollo", "motivo": "frase breve"}]}
