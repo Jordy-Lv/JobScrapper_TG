@@ -186,11 +186,17 @@ class Filtros:
             or coincidencias(self._ti_generico, descripcion)
         )
         nivel = bool(coincidencias(self._practica, texto) or coincidencias(self._junior, texto))
-        no_ti_titulo = coincidencias(self._no_ti, titulo)
+        # El área no TI se busca sin las frases técnicas: "Mantenimiento de cómputo" es TI,
+        # "Programador de mantenimiento" no
+        titulo_sin_ti = titulo
+        for _, patron in self._areas:
+            titulo_sin_ti = patron.sub(" ", titulo_sin_ti)
+        no_ti_titulo = coincidencias(self._no_ti, titulo_sin_ti)
 
-        # 4. Aceptar: TI + nivel. Si el título es de un área no TI y lo técnico solo aparece
-        # en la descripción ("Practicante Contable … sistemas contables"), decide la IA.
-        if ti and nivel and (ti_titulo or not no_ti_titulo):
+        # 4. Aceptar: TI en el título + nivel, salvo que el título mencione un área no TI
+        # ("Programador de mantenimiento"). Si lo técnico solo está en la descripción
+        # ("Auxiliar logístico … manejo de sistemas"), decide la IA.
+        if ti_titulo and nivel and not no_ti_titulo:
             if geo == _Geo.REMOTO_SIN_PAIS:
                 return Evaluacion(Veredicto.DUDOSA, Motivo.REMOTO_SIN_PAIS, detalle=detalle_geo)
             return Evaluacion(

@@ -151,14 +151,22 @@ fuentes:
       # Las remotas en inglés quedan fuera del alcance (remoto LATAM en español)
       excluir_remoto_en_ingles: true
   torre:
-    activa: true
+    activa: false
     presupuesto: 5
     reservado_nucleo: 1
+    nota: >-
+      Desactivada (2026-10-03). La API pública search.torre.co ya no acepta búsquedas
+      ("Invalid request") y la nueva solo funciona desde la app web con la cabecera de
+      identidad X-Torre-GgId; integrarla exigiría depender de un identificador de sesión.
   sena:
     activa: false
     presupuesto: 3
     reservado_nucleo: 1
-    nota: Pendiente de evaluar si exige login o captcha (tarea 8.6).
+    nota: >-
+      Desactivada (2026-10-03). La consulta de vacantes de la Agencia Pública de Empleo
+      (agenciapublicadeempleo.sena.edu.co) redirige a /spe/login: exige iniciar sesión.
+      El portal ape.sena.edu.co no tiene buscador público. Las vacantes SENA siguen
+      llegando por "aprendiz SENA" en LinkedIn, Computrabajo, elempleo y Magneto.
 
 filtros:
   max_dias_publicada: 15
@@ -194,9 +202,6 @@ filtros:
     - desarrollo humano
     - desarrollo de negocios
     - desarrollo comercial
-    - seguridad y salud
-    - seguridad industrial
-    - seguridad física
     - tecnología de alimentos
     - tecnología en alimentos
     - buenas prácticas
@@ -413,6 +418,7 @@ filtros:
         - cómputo
         - equipos de cómputo
         - mantenimiento de computadores
+        - mantenimiento de cómputo
         - mantenimiento de equipos
         - computadores
         - hardware
@@ -485,8 +491,10 @@ filtros:
     - chef
     - mesero
     - logística
+    - logístico
     - bodega
     - compras
+    - comercio exterior
     - producción
     - calidad
     - mantenimiento
@@ -496,6 +504,11 @@ filtros:
     - industrial
     - enfermería
     - salud ocupacional
+    - seguridad y salud
+    - seguridad salud
+    - salud en el trabajo
+    - seguridad industrial
+    - seguridad física
     - sst
     - hseq
     - jurídico

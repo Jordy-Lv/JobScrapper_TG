@@ -62,6 +62,10 @@ def vac(titulo, ubicacion="Bogotá, Colombia", modalidad=None, descripcion=None,
         ("Practicante Sistemas de Gestión de Calidad", R, Motivo.NO_TI, None),
         # Sin nivel → dudosa
         ("Desarrollador Java", D, Motivo.DUDOSA, None),
+        # TI junto a un área no TI en el título → dudosa
+        ("Programador de Mantenimiento Junior", D, Motivo.DUDOSA, None),
+        ("Docente programador por horas junior", D, Motivo.DUDOSA, None),
+        ("Practicante Seguridad Salud en el trabajo", R, Motivo.NO_TI, None),
     ],
 )  # fmt: skip
 def test_veredicto_por_titulo(filtros, titulo, veredicto, motivo, categoria):
@@ -132,6 +136,19 @@ def test_alcance_geografico(filtros, ubicacion, modalidad, veredicto, motivo):
 def test_remoto_sin_pais_no_salva_lo_que_no_es_ti(filtros):
     evaluacion = filtros.evaluar(vac("Asesor Comercial", "Remoto", "Remoto"), AHORA)
     assert evaluacion.motivo == Motivo.NO_TI
+
+
+@pytest.mark.parametrize(
+    ("titulo", "descripcion"),
+    [
+        ("Auxiliar logistico rionegro", "Manejo de sistemas de inventario y software ERP."),
+        ("Instalador de proyectos y servicios junior", "Cableado estructurado y redes de datos."),
+        ("Banco de Talentos Aprendices Técnicos", "Técnicos en sistemas, desarrollo de software."),
+    ],
+)
+def test_ti_solo_en_descripcion_es_dudosa(filtros, titulo, descripcion):
+    evaluacion = filtros.evaluar(vac(titulo, descripcion=descripcion), AHORA)
+    assert evaluacion.veredicto == D, evaluacion
 
 
 def test_area_no_ti_con_sistemas_solo_en_descripcion_es_dudosa(filtros):

@@ -22,7 +22,7 @@ El sistema SHALL asignar a cada vacante exactamente un veredicto, aplicando las 
 1. **rechazar** si el **título** contiene un término de seniority excluido (`senior`, `sr`, `semi senior`, `ssr`, `lead`, `líder`, `gerente`, `manager`, `director`, `jefe`, `arquitecto`, `architect`, `head`, `coordinador`, `especialista`), o si el título o la descripción piden experiencia de 3 o más años. Los términos de seniority no se buscan en la descripción porque frases como "reportarás al líder técnico" descartarían vacantes junior válidas; si en operación se cuelan vacantes senior, se endurece la regla para ese caso.
 2. **rechazar** si tiene más de 15 días de publicada, cuando la fecha es conocida.
 3. **rechazar** si está fuera del alcance geográfico.
-4. **aceptar** si contiene al menos un término técnico de TI y al menos un término de nivel práctica/aprendiz/junior/entrada.
+4. **aceptar** si el **título** contiene al menos un término técnico de TI, hay al menos un término de nivel práctica/aprendiz/junior/entrada (en el título o la descripción) y el título no menciona un área que no es de TI. Si lo técnico solo aparece en la descripción, o el título menciona un área no TI (como en "Programador de mantenimiento"), la vacante pasa a dudosa.
 5. **rechazar** si no contiene ningún término técnico de TI ni ningún término de los que hacen dudosa una vacante.
 6. **dudosa** en cualquier otro caso.
 
@@ -47,6 +47,14 @@ Las listas de términos MUST ser configurables.
 #### Scenario: Fuera de TI
 - **WHEN** el título es "Practicante Contable"
 - **THEN** el veredicto es rechazar por no ser TI
+
+#### Scenario: TI solo en la descripción
+- **WHEN** el título es "Auxiliar logístico" y la descripción menciona "manejo de sistemas"
+- **THEN** el veredicto es dudosa y lo decide la IA
+
+#### Scenario: Término de TI junto a un área no TI
+- **WHEN** el título es "Programador de Mantenimiento Junior"
+- **THEN** el veredicto es dudosa y lo decide la IA
 
 #### Scenario: Caso ambiguo
 - **WHEN** el título es "Practicante" sin área, o "Analista de Procesos" sin nivel
