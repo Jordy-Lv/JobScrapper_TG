@@ -79,6 +79,9 @@ class IAFalsa:
         self.respuesta = respuesta
         self.llamadas = 0
 
+    def saldo(self):
+        return 0.4
+
     def chat_json(self, proposito, prompt, payload, **kwargs):
         self.llamadas += 1
         if self.respuesta is not None:
@@ -279,3 +282,37 @@ def test_cli_config_invalida(tmp_path, capsys):
     ruta.write_text("red: 3\n")
     assert buscador.main(["--config", str(ruta), "--dry-run"]) == 2
     assert "Configuración inválida" in capsys.readouterr().err
+
+
+@respx.mock
+def test_cambio_html_genera_aviso_de_incidente(config, estado):
+    estado.marcar_inicializada()
+    respx.get(URL).mock(return_value=httpx.Response(200, text="<html>nuevo diseño</html>"))
+    notificador = NotificadorFalso()
+    ia = IAFalsa(RespuestaIA(False, motivo="saldo bajo", realizada=False))
+    resumen = corrida(config, estado, ia=ia, notificador=notificador).ejecutar()
+    assert [i.clave for i in resumen.incidentes.nuevos] == ["falsa:cambio_html"]
+    [(chat, texto)] = notificador.mensajes
+    assert chat == "-100REAL"
+    assert "🚨 Incidente: falsa · cambio_html" in texto
+    assert "Diagnóstico IA no disponible (motivo: saldo bajo)" in texto
+
+
+@respx.mock
+def test_excepcion_del_reportero_no_afecta_las_vacantes(config, estado, monkeypatch, caplog):
+    estado.marcar_inicializada()
+    mock_ofertas()
+
+    def explota(self, *args):
+        raise RuntimeError("reportero roto")
+
+    monkeypatch.setattr(buscador.Reportero, "notificar", explota)
+    monkeypatch.setattr(buscador.Detector, "evaluar", lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("detector roto")))  # fmt: skip
+    notificador = NotificadorFalso()
+    resumen = corrida(config, estado, notificador=notificador).ejecutar()
+    assert resumen.enviadas == 2
+    assert estado.contar_vistas(enviadas=True) == 2
+    assert "Error en el detector o el reportero" in caplog.text
+    fila = estado.cx.execute("SELECT enviadas, error FROM corridas").fetchone()
+    assert fila["enviadas"] == 2 and fila["error"] is None

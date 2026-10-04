@@ -60,7 +60,7 @@
 ## 9. Incidentes, reportero y resumen
 
 - [x] 9.1 Implementar `incidentes.py` con las 7 reglas, el caso `red:sin_conexion`, la apertura y cierre, el recordatorio cada 24 h y la agrupación por corrida. Verificar con tests con historial simulado en SQLite para cada regla y para la falla de red total.
-- [ ] 9.2 Implementar `reportero.py` (evidencia sanitizada, prompt fijo, validación de la respuesta, mensaje HTML con bloque `<pre>` para sugerencias, alerta plana, aviso de recuperación y aviso de saldo bajo una vez al día) aislado en try/except. Verificar con tests de cada escenario de `incidentes-reportero` y uno donde el reportero lanza una excepción y las vacantes quedan enviadas.
+- [x] 9.2 Implementar `reportero.py` (evidencia sanitizada, prompt fijo, validación de la respuesta, mensaje HTML con bloque `<pre>` para sugerencias, alerta plana, aviso de recuperación y aviso de saldo bajo una vez al día) aislado en try/except. Verificar con tests de cada escenario de `incidentes-reportero` y uno donde el reportero lanza una excepción y las vacantes quedan enviadas.
 - [ ] 9.3 Implementar `--simular-incidente <fuente:tipo>`, que envía al chat de prueba sin tocar el estado. Verificar ejecutándolo para cada tipo, más saldo bajo y API caída, y mostrar los mensajes al usuario.
 - [ ] 9.4 Implementar `resumen.py` (métricas de 24 h, una llamada a la IA, respaldo plano y control de una vez al día). Verificar con tests de los escenarios de `resumen-diario` y con un envío real al chat de prueba.
 

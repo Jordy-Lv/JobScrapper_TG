@@ -39,12 +39,14 @@ from fuentes.getonboard import GetOnBoard
 from fuentes.linkedin import LinkedIn
 from fuentes.magneto import Magneto
 from ia_cliente import ClienteIA
+from incidentes import Detector, ResultadoEvaluacion
 from lock import CorridaActiva, Lock
 from migrar_historial import migrar
 from modelo import Vacante, Veredicto
 from normalizar import huella
 from notificador_telegram import Notificador, crear_notificador
 from publicacion import ResultadoPublicacion, publicar
+from reportero import DatosFuente, Reportero
 from salud import Salud
 
 log = logging.getLogger("buscador")
@@ -101,6 +103,7 @@ class ResumenCorrida:
     a_publicar: list[Vacante] = field(default_factory=list)
     publicacion: ResultadoPublicacion | None = None
     sembradas: int = 0
+    incidentes: ResultadoEvaluacion | None = None
     sin_red: bool = False
     duracion_s: float = 0.0
 
@@ -124,8 +127,17 @@ class ResumenCorrida:
             f"ia_aceptadas={self.ia_aceptadas} ia_rechazadas={self.ia_rechazadas} "
             f"ia_cache={self.ia_desde_cache} pendientes={self.pendientes} "
             f"vencidas={self.vencidas} ia_llamadas={self.ia_llamadas} enviadas={self.enviadas} "
-            f"sembradas={self.sembradas} sin_red={self.sin_red} duracion={self.duracion_s:.1f}s"
+            f"sembradas={self.sembradas} sin_red={self.sin_red} "
+            f"incidentes={self._resumen_incidentes()} duracion={self.duracion_s:.1f}s"
         )
+
+    def _resumen_incidentes(self) -> dict[str, list[str]]:
+        if self.incidentes is None:
+            return {}
+        return {
+            "nuevos": [i.clave for i in self.incidentes.nuevos],
+            "recuperados": [i.clave for i in self.incidentes.recuperados],
+        }
 
 
 def es_sin_red(intentos: list[Intento]) -> bool:
@@ -288,16 +300,47 @@ class Corrida:
     def _publicar(self, resumen: ResumenCorrida) -> None:
         if not resumen.a_publicar:
             return
-        chat = (
-            self.secretos.telegram_chat_prueba
-            if self.modo.chat_prueba
-            else self.secretos.telegram_chat_id
-        )
+        chat = self._chat_destino()
         candidatas = [(v, huella(v.titulo, v.empresa, v.clave)) for v in resumen.a_publicar]
         resumen.publicacion = publicar(
             candidatas, self.notificador, self.estado, self.config.banner, chat, self.reloj(),
             prueba=self.modo.chat_prueba, raiz=self.raiz, dormir=self.dormir,
         )  # fmt: skip
+
+    def _chat_destino(self) -> str | None:
+        if self.modo.chat_prueba:
+            return self.secretos.telegram_chat_prueba
+        return self.secretos.telegram_chat_id
+
+    def _incidentes(self, resumen: ResumenCorrida) -> None:
+        """Detecta incidentes y avisa. Corre después del envío y nunca lo bloquea."""
+        detector = Detector(self.estado, self.config.incidentes)
+        publicacion = resumen.publicacion
+        rechazos = [r.descripcion for r in publicacion.rechazos] if publicacion else []
+        resumen.incidentes = detector.evaluar(
+            resumen.corrida_id,
+            self.reloj(),
+            self._fuentes_a_consultar(),
+            sin_red=resumen.sin_red,
+            rechazos_envio=rechazos,
+            envio_exitoso=bool(publicacion and publicacion.mensajes_enviados and not rechazos),
+        )
+        if resumen.incidentes.vacio or self.notificador is None:
+            return
+        datos = {
+            nombre: DatosFuente(clase.selectores, self.config.fuentes[nombre].presupuesto)
+            for nombre, clase in self.fuentes.items()
+            if nombre in self.config.fuentes
+        }
+        fuentes_ok = [
+            r.fuente for r in resumen.resultados
+            if any(i.status is not None and 200 <= i.status < 300 for i in r.intentos)
+        ]  # fmt: skip
+        reportero = Reportero(
+            self.config.reportero, self.ia, self.estado, detector, self.notificador,
+            self._chat_destino(), datos, reloj=self.reloj,
+        )  # fmt: skip
+        reportero.notificar(resumen.incidentes, resumen.intentos, fuentes_ok)
 
     def _imprimir_dry_run(self, resumen: ResumenCorrida) -> None:
         escribir = self.salida
@@ -380,6 +423,11 @@ class Corrida:
                 aceptadas += self._cola_de_envio({v.clave for v in aceptadas})
                 resumen.a_publicar = aceptadas
                 self._publicar(resumen)
+                # El reportero va aislado: sus errores nunca afectan a las vacantes ya enviadas
+                try:
+                    self._incidentes(resumen)
+                except Exception:  # noqa: BLE001
+                    log.exception("Error en el detector o el reportero de incidentes")
         except Exception as exc:
             error = repr(exc)
             raise

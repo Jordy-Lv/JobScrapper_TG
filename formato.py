@@ -131,3 +131,24 @@ def componer(
         categoria_actual = categoria
     mensajes.append(actual)
     return mensajes
+
+
+def empaquetar(bloques: list[str], limite: int = LIMITE_TELEGRAM) -> list[str]:
+    """Une bloques en mensajes de hasta ``limite`` sin partir ningún bloque.
+
+    Un bloque que por sí solo supera el límite se recorta (solo pasa con textos de la IA).
+    """
+    mensajes: list[str] = []
+    actual = ""
+    for bloque in bloques:
+        if longitud(bloque) > limite:
+            bloque = bloque[: limite // 2]
+        candidato = f"{actual}{SEPARADOR}{bloque}" if actual else bloque
+        if longitud(candidato) <= limite:
+            actual = candidato
+        else:
+            mensajes.append(actual)
+            actual = bloque
+    if actual:
+        mensajes.append(actual)
+    return mensajes
