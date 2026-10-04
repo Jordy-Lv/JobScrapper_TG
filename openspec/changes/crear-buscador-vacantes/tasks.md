@@ -37,9 +37,9 @@
 
 ## 6. Publicación en Telegram
 
-- [ ] 6.1 Implementar `formato.py` (encabezado singular y plural, orden de categorías, fichas de 3 o 4 líneas, fecha relativa, escape HTML y división ≤4096 repitiendo el título de categoría). Verificar con tests de cada escenario de `publicacion-telegram`, incluidas 40 vacantes y un título con `&`, `<` y `>`.
+- [x] 6.1 Implementar `formato.py` (encabezado singular y plural, orden de categorías, fichas de 3 o 4 líneas, fecha relativa, escape HTML y división ≤4096 repitiendo el título de categoría). Verificar con tests de cada escenario de `publicacion-telegram`, incluidas 40 vacantes y un título con `&`, `<` y `>`.
 - [ ] 6.2 Implementar `notificador_telegram.py` con los backends `bot_api` (token del bot de Hermes leído de su configuración o del `.env`; solo sendMessage sin vista previa y sendPhoto) y `hermes_cli` (respaldo con `hermes send`), con chat real o de prueba y manejo de errores, incluido 401 por token inválido. Verificar con tests usando respx para `bot_api`, con un comando falso para `hermes_cli`, y con un envío real al chat de prueba con el bot de Hermes.
-- [ ] 6.3 Implementar el banner diario, nunca o siempre con la fecha persistida en `kv`, y la marca de enviada por mensaje confirmado. Verificar con tests: primer y segundo envío del día, y rechazo parcial de Telegram.
+- [x] 6.3 Implementar el banner diario, nunca o siempre con la fecha persistida en `kv`, y la marca de enviada por mensaje confirmado. Verificar con tests: primer y segundo envío del día, y rechazo parcial de Telegram.
 
 ## 7. Orquestación y CLI
 
