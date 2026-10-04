@@ -38,7 +38,7 @@
 ## 6. Publicación en Telegram
 
 - [x] 6.1 Implementar `formato.py` (encabezado singular y plural, orden de categorías, fichas de 3 o 4 líneas, fecha relativa, escape HTML y división ≤4096 repitiendo el título de categoría). Verificar con tests de cada escenario de `publicacion-telegram`, incluidas 40 vacantes y un título con `&`, `<` y `>`.
-- [ ] 6.2 Implementar `notificador_telegram.py` con los backends `bot_api` (token del bot de Hermes leído de su configuración o del `.env`; solo sendMessage sin vista previa y sendPhoto) y `hermes_cli` (respaldo con `hermes send`), con chat real o de prueba y manejo de errores, incluido 401 por token inválido. Verificar con tests usando respx para `bot_api`, con un comando falso para `hermes_cli`, y con un envío real al chat de prueba con el bot de Hermes.
+- [x] 6.2 Implementar `notificador_telegram.py` con los backends `bot_api` (token del bot de Hermes leído de su configuración o del `.env`; solo sendMessage sin vista previa y sendPhoto) y `hermes_cli` (respaldo con `hermes send`), con chat real o de prueba y manejo de errores, incluido 401 por token inválido. Verificar con tests usando respx para `bot_api`, con un comando falso para `hermes_cli`, y con un envío real al chat de prueba con el bot de Hermes.
 - [x] 6.3 Implementar el banner diario, nunca o siempre con la fecha persistida en `kv`, y la marca de enviada por mensaje confirmado. Verificar con tests: primer y segundo envío del día, y rechazo parcial de Telegram.
 
 ## 7. Orquestación y CLI
@@ -62,7 +62,7 @@
 - [x] 9.1 Implementar `incidentes.py` con las 7 reglas, el caso `red:sin_conexion`, la apertura y cierre, el recordatorio cada 24 h y la agrupación por corrida. Verificar con tests con historial simulado en SQLite para cada regla y para la falla de red total.
 - [x] 9.2 Implementar `reportero.py` (evidencia sanitizada, prompt fijo, validación de la respuesta, mensaje HTML con bloque `<pre>` para sugerencias, alerta plana, aviso de recuperación y aviso de saldo bajo una vez al día) aislado en try/except. Verificar con tests de cada escenario de `incidentes-reportero` y uno donde el reportero lanza una excepción y las vacantes quedan enviadas.
 - [x] 9.3 Implementar `--simular-incidente <fuente:tipo>`, que envía al chat de prueba sin tocar el estado. Verificar ejecutándolo para cada tipo, más saldo bajo y API caída, y mostrar los mensajes al usuario.
-- [ ] 9.4 Implementar `resumen.py` (métricas de 24 h, una llamada a la IA, respaldo plano y control de una vez al día). Verificar con tests de los escenarios de `resumen-diario` y con un envío real al chat de prueba.
+- [x] 9.4 Implementar `resumen.py` (métricas de 24 h, una llamada a la IA, respaldo plano y control de una vez al día). Verificar con tests de los escenarios de `resumen-diario` y con un envío real al chat de prueba.
 
 ## 10. Despliegue en Fedora
 

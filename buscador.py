@@ -506,7 +506,12 @@ def main(argv: list[str] | None = None) -> int:
             args.comando == "resumen" and not args.dry_run
         )
         secretos = cfg.cargar_secretos(
-            config, args.env, exigir_envio=exigir_envio, exigir_chat_prueba=modo.chat_prueba
+            config,
+            args.env,
+            exigir_envio=exigir_envio,
+            exigir_chat_prueba=modo.chat_prueba,
+            # El resumen no hace ping de salud
+            exigir_salud=config.salud.activo and args.comando is None,
         )
     except cfg.ErrorConfiguracion as exc:
         print(f"Error de configuración:\n{exc}", file=sys.stderr)

@@ -160,3 +160,12 @@ def test_variable_de_entorno_tiene_prioridad(tmp_path, config, monkeypatch):
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100999")
     secretos = cargar_secretos(config, escribir_env(tmp_path, **ENV_COMPLETO))
     assert secretos.telegram_chat_id == "-100999"
+
+
+def test_resumen_no_exige_healthcheck(tmp_path, config):
+    valores = dict(ENV_COMPLETO)
+    del valores["HEALTHCHECK_URL"]
+    ruta = escribir_env(tmp_path, **valores)
+    with pytest.raises(ErrorConfiguracion, match="HEALTHCHECK_URL"):
+        cargar_secretos(config, ruta)
+    assert cargar_secretos(config, ruta, exigir_salud=False).healthcheck_url is None

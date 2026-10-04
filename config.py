@@ -273,6 +273,7 @@ def cargar_secretos(
     *,
     exigir_envio: bool = True,
     exigir_chat_prueba: bool = False,
+    exigir_salud: bool | None = None,
 ) -> Secretos:
     """Lee los secretos del .env (las variables de entorno tienen prioridad).
 
@@ -306,7 +307,9 @@ def cargar_secretos(
             faltantes.append("TELEGRAM_CHAT_ID")
         if config.usa_ia and not secretos.deepseek_api_key:
             faltantes.append("DEEPSEEK_API_KEY (la IA está activada en config.yaml)")
-        if config.salud.activo and not secretos.healthcheck_url:
+        if exigir_salud is None:
+            exigir_salud = config.salud.activo
+        if exigir_salud and not secretos.healthcheck_url:
             faltantes.append("HEALTHCHECK_URL (salud.activo está en true)")
     if exigir_chat_prueba and not secretos.telegram_chat_prueba:
         faltantes.append("TELEGRAM_CHAT_PRUEBA (necesario para el chat de prueba)")

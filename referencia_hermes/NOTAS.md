@@ -144,5 +144,14 @@ Además se guarda la huella de `cargo` + `empresa`, que cubre el cruce entre fue
 - Canal: `-1004429829042`.
 - `send_encabezado.py` usa `hermes send -t telegram:<chat> "MEDIA:<ruta>"` con un reintento y
   nunca falla el cron. La imagen está en `/home/ByLOGAN/.hermes/cron/media/encabezado_vacantes.jpg`.
-- Pendiente (tarea 1.3): ruta del token del bot en la configuración de Hermes y capacidades de
-  `hermes send` (HTML, vista previa, longitud máxima). Requiere el PC Fedora.
+- Bot de Hermes: `@Jobs_Practicas_Bot` (id 8859411567). El token está en el `.env` de Hermes
+  (variable `TELEGRAM_BOT_TOKEN`; usuarios autorizados en `TELEGRAM_ALLOWED_USERS`). El valor
+  no se copia aquí.
+- Verificado el 2026-10-04 con la Bot API: `getMe` responde; `getChat -1004429829042` es el
+  canal "👨🏼‍💻JOBS - PRACTICAS/APRENDIZ" y el bot es administrador con permiso de publicar;
+  `getChat 5051574309` es el chat privado de @ByLOGAN, que se usa como chat de prueba.
+- Envío real al chat de prueba: banner (sendPhoto), mensaje HTML de vacantes, incidente
+  simulado con diagnóstico IA y resumen diario, todos aceptados por Telegram.
+- Pendiente en el PC Fedora: confirmar la ruta absoluta del `.env` de Hermes (se asume
+  `~/.hermes/.env`, ver `telegram.token_hermes` en `config.yaml`) y revisar `hermes send --help`
+  (HTML, vista previa, longitud máxima) por si hiciera falta el modo de respaldo `hermes_cli`.
