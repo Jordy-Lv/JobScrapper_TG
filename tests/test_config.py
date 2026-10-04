@@ -95,6 +95,14 @@ def test_nucleo_ocupa_al_menos_la_mitad_del_presupuesto(config):
         assert reservados * 2 >= fuente.presupuesto, nombre
 
 
+def test_fuente_spe(config):
+    spe = config.fuentes["spe"]
+    assert spe.activa and spe.filtra_nivel
+    assert spe.presupuesto == 2
+    assert "symplicity.com" in spe.opciones["dominios_con_login"]
+    assert "spe" in config.filtros.ubicacion.fuentes_colombianas
+
+
 def test_areas_cubren_categorias(config):
     categorias = {area.categoria for area in config.filtros.areas}
     esperadas = set(Categoria) - {Categoria.PRACTICAS, Categoria.OTROS_TI}

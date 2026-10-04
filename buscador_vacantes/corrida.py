@@ -37,6 +37,7 @@ from buscador_vacantes.fuentes.elempleo import Elempleo
 from buscador_vacantes.fuentes.getonboard import GetOnBoard
 from buscador_vacantes.fuentes.linkedin import LinkedIn
 from buscador_vacantes.fuentes.magneto import Magneto
+from buscador_vacantes.fuentes.spe import ServicioPublicoEmpleo
 from buscador_vacantes.ia_cliente import ClienteIA
 from buscador_vacantes.incidentes import Detector, ResultadoEvaluacion
 from buscador_vacantes.lock import CorridaActiva, Lock
@@ -58,6 +59,7 @@ FUENTES: dict[str, type[Fuente]] = {
     "elempleo": Elempleo,
     "magneto": Magneto,
     "getonboard": GetOnBoard,
+    "spe": ServicioPublicoEmpleo,
 }
 HISTORIAL_HERMES = Path("~/.hermes/cron/output/historial_vacantes.json")
 HORAS_COLA_ENVIO = 24
@@ -230,16 +232,24 @@ class Corrida:
                     resumen.omitidas[nombre] = f"en cooldown hasta {hasta.astimezone(ZONA):%H:%M}"
                     log.info("%s omitida: %s", nombre, resumen.omitidas[nombre])
                     continue
-                paginas = conf.paginas_nucleo
-                if paginas > 1 and not fuente.soporta_paginas:
-                    log.warning("%s no soporta paginación: se lee solo la página 1", nombre)
-                    paginas = 1
-                lote = rotacion.calcular_lote(
-                    self.estado, nombre, nucleo, cola, conf.presupuesto, conf.reservado_nucleo,
-                    paginas,
-                )  # fmt: skip
+                if fuente.consulta_fija:
+                    # Fuente que no usa palabras clave: lee sus páginas más recientes
+                    lote = [
+                        rotacion.Consulta(fuente.consulta_fija, rotacion.NUCLEO, pagina)
+                        for pagina in range(1, conf.presupuesto + 1)
+                    ]
+                else:
+                    paginas = conf.paginas_nucleo
+                    if paginas > 1 and not fuente.soporta_paginas:
+                        log.warning("%s no soporta paginación: se lee solo la página 1", nombre)
+                        paginas = 1
+                    lote = rotacion.calcular_lote(
+                        self.estado, nombre, nucleo, cola, conf.presupuesto, conf.reservado_nucleo,
+                        paginas,
+                    )  # fmt: skip
                 resultado = fuente.ejecutar(lote)
-                if not self.modo.dry_run:  # el dry-run no mueve la rotación de producción
+                # El dry-run no mueve la rotación de producción; la consulta fija no rota
+                if not self.modo.dry_run and not fuente.consulta_fija:
                     rotacion.avanzar_lote(
                         self.estado, nombre, resultado.ejecutadas, len(nucleo), len(cola)
                     )

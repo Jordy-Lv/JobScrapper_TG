@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import random
 import re
+import ssl
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -97,6 +98,9 @@ class Fuente(ABC):
     # vacantes es la última y no se piden las siguientes
     soporta_paginas: bool = False
     tamano_pagina: int = 20
+    # Fuentes que no usan la rotación de palabras clave (p. ej. el SPE con su filtro de
+    # prácticas): la corrida pide las páginas 1..presupuesto con esta consulta
+    consulta_fija: str | None = None
 
     def __init__(
         self,
@@ -126,12 +130,21 @@ class Fuente(ABC):
             },
             timeout=config_red.timeout_s,
             follow_redirects=True,
+            verify=self.verificacion_tls(),
         )
         self._marcadores = re.compile(
             "|".join(re.escape(m.lower()) for m in config_red.marcadores_desafio) or r"(?!x)x"
         )
 
     # --- a implementar por cada fuente ---------------------------------------------------
+
+    def pagina_completa(self, vacantes: list[Vacante]) -> bool:
+        """Si la última página leída venía llena (puede haber más páginas)."""
+        return len(vacantes) >= self.tamano_pagina
+
+    def verificacion_tls(self) -> ssl.SSLContext | bool:
+        """Verificación TLS del cliente. Nunca se desactiva; una fuente puede ampliar la cadena."""
+        return True
 
     @abstractmethod
     def construir_peticion(self, keyword: str, pagina: int = 1) -> Peticion: ...
@@ -315,7 +328,7 @@ class Fuente(ABC):
             if intento.tipo_error in (TipoError.BLOQUEO, TipoError.CAPTCHA):
                 resultado.cooldown_hasta = self.aplicar_cooldown(intento.ts)
                 break
-            if intento.tipo_error or len(vacantes) < self.tamano_pagina:
+            if intento.tipo_error or not self.pagina_completa(vacantes):
                 sin_mas_paginas.add(consulta.keyword)
             if intento.status is not None and (
                 200 <= intento.status < 300 or intento.status in self.status_sin_resultados

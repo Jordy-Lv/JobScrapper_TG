@@ -75,6 +75,13 @@ de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat d
   elempleo), se leen hasta `paginas_nucleo` páginas de cada una; una página incompleta corta
   las siguientes. El presupuesto cuenta requests, así que cada página es uno. Los términos
   junior van en la cola larga, que lee solo la primera página.
+- **Fuentes**: LinkedIn, Computrabajo, elempleo, Magneto, GetOnBoard y el Servicio Público de
+  Empleo (buscadordeempleo.gov.co). El SPE no usa palabras clave: pide las plazas de práctica
+  (`PLAZA_PRACTICA=1`) más recientes. Sus copias de elempleo y Magneto se identifican con la
+  clave y el enlace del portal de origen, para no duplicarlas, y se descartan las plazas
+  vencidas, sin enlace o cuyo enlace exige iniciar sesión (`opciones.dominios_con_login`). Su
+  servidor no envía el certificado intermedio: se completa la cadena con
+  `assets/certs/geotrust-tls-rsa-ca-g1.pem` (DigiCert), sin desactivar la verificación TLS.
 - **`.env`** (permisos 600, nunca en git): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
   `TELEGRAM_CHAT_PRUEBA`, `DEEPSEEK_API_KEY` y `HEALTHCHECK_URL`. Si `TELEGRAM_BOT_TOKEN` está
   vacío, el token se lee del archivo indicado en `telegram.token_hermes` (el bot de Hermes).
@@ -107,7 +114,7 @@ buscador_vacantes/          código del buscador
   migrar_historial.py       importación del historial de Hermes
 tests/                      pruebas (pytest + respx) y fixtures
 deploy/                     unidades systemd y guía de instalación en Fedora
-assets/                     banner del canal
+assets/                     banner del canal y certs/ (certificado intermedio del SPE)
 docs/                       especificación de origen y referencia_hermes/ (scripts
                             originales de Hermes y NOTAS.md, solo referencia)
 ```

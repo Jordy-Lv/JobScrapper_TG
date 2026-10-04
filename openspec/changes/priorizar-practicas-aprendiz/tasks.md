@@ -33,8 +33,8 @@
 
 ## 3. Despliegue y recuperación
 
-- [ ] 3.1 Commit y push a `origin/main` (sin atribución a IA), luego `git pull` en el servidor. Verificar en el log de la siguiente corrida que `requests` muestra 8 en Computrabajo, 5 en elempleo y 4 en Magneto, o menos si hubo cortes por página incompleta.
-- [ ] 3.2 En el servidor, ejecutar el script de recuperación de las 26 vacantes sembradas (respaldo de la base, borrar las vistas y encolar en `por_enviar`). Verificar que la siguiente corrida las publica y que `por_enviar` queda en 0.
+- [x] 3.1 Commit y push a `origin/main` (sin atribución a IA), luego `git pull` en el servidor. Verificar en el log de la siguiente corrida que `requests` muestra 8 en Computrabajo, 5 en elempleo y 4 en Magneto, o menos si hubo cortes por página incompleta.
+- [x] 3.2 En el servidor, ejecutar el script de recuperación de las 26 vacantes sembradas (respaldo de la base, borrar las vistas y encolar en `por_enviar`). Verificar que la siguiente corrida las publica y que `por_enviar` queda en 0.
 
 ## 4. Verificación en producción
 

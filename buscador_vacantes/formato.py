@@ -33,6 +33,7 @@ NOMBRES_FUENTE = {
     "getonboard": "GetOnBoard",
     "torre": "Torre",
     "sena": "APE SENA",
+    "spe": "Servicio Público de Empleo",
 }
 
 

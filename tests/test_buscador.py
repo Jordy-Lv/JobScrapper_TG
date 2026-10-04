@@ -417,3 +417,23 @@ def test_fuente_sin_paginacion_lee_solo_la_primera_pagina(config, estado, caplog
         ("nucleo", 1), ("cola_larga", 1), ("cola_larga", 1), ("cola_larga", 1),
     ]  # fmt: skip
     assert "no soporta paginación" in caplog.text
+
+
+class FuenteFijaFalsa(FuentePaginadaFalsa):
+    consulta_fija = "plazas de práctica"
+
+
+@respx.mock
+def test_consulta_fija_lee_sus_paginas_sin_rotar(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas()
+    fuentes_conf = {"falsa": ConfFuente(presupuesto=2, reservado_nucleo=1)}
+    resumen = corrida(
+        config.model_copy(update={"fuentes": fuentes_conf}), estado,
+        fuentes={"falsa": FuenteFijaFalsa},
+    ).ejecutar()  # fmt: skip
+    ejecutadas = resumen.resultados[0].ejecutadas
+    assert [(c.keyword, c.pagina) for c in ejecutadas] == [
+        ("plazas de práctica", 1), ("plazas de práctica", 2),
+    ]  # fmt: skip
+    assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0

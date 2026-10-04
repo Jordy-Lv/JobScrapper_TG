@@ -168,6 +168,22 @@ fuentes:
       seniorities: [no_experience, junior]
       # Las remotas en inglés quedan fuera del alcance (remoto LATAM en español)
       excluir_remoto_en_ingles: true
+  spe:
+    activa: true
+    presupuesto: 2       # páginas de 50 plazas, las más recientes primero
+    reservado_nucleo: 1
+    filtra_nivel: true   # PLAZA_PRACTICA=1: solo plazas de práctica
+    nota: >-
+      Servicio Público de Empleo (buscadordeempleo.gov.co). No usa las palabras clave: pide
+      las plazas de práctica más recientes. Las copias de elempleo y Magneto se identifican
+      con la clave de su portal de origen. Los datos llegan con días de retraso.
+    opciones:
+      # Bolsas cuyo enlace de detalle exige iniciar sesión: esas plazas se descartan
+      dominios_con_login:
+        - symplicity.com
+        - coallytalent.com
+        - oficia.uniandes.edu.co
+        - talentumsabana.unisabana.edu.co
   torre:
     activa: false
     presupuesto: 5
@@ -709,7 +725,7 @@ filtros:
       - italy
       - india
     # Portales que solo publican vacantes de Colombia: su "Remoto" implica Colombia
-    fuentes_colombianas: [linkedin, computrabajo, elempleo, magneto, sena]
+    fuentes_colombianas: [linkedin, computrabajo, elempleo, magneto, sena, spe]
     patrones_restriccion:
       - solo residentes en
       - solo para residentes
