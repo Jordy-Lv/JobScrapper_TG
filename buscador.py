@@ -47,6 +47,7 @@ from normalizar import huella
 from notificador_telegram import Notificador, crear_notificador
 from publicacion import ResultadoPublicacion, publicar
 from reportero import DatosFuente, Reportero
+from resumen import Resumen
 from salud import Salud
 from simulacion import FALLAS_IA, NotificadorConsola, simular
 
@@ -61,6 +62,7 @@ FUENTES: dict[str, type[Fuente]] = {
 }
 HISTORIAL_HERMES = Path("~/.hermes/cron/output/historial_vacantes.json")
 HORAS_COLA_ENVIO = 24
+ESPERA_LOCK_RESUMEN_S = 600
 DESCARTES = (Motivo.SENIORITY, Motivo.ANTIGUEDAD, Motivo.UBICACION, Motivo.NO_TI)
 
 
@@ -469,6 +471,7 @@ def construir_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="comando")
     migrar_p = sub.add_parser("migrar", help="importa el historial JSON de Hermes")
     migrar_p.add_argument("--archivo", type=Path, default=HISTORIAL_HERMES)
+    sub.add_parser("resumen", help="envía el resumen diario (una vez al día)")
     return parser
 
 
@@ -499,11 +502,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = cfg.cargar_configuracion(args.config)
         modo = Modo(args.dry_run, args.seed, args.chat_prueba, args.fuente)
+        exigir_envio = (args.comando is None and modo.envia) or (
+            args.comando == "resumen" and not args.dry_run
+        )
         secretos = cfg.cargar_secretos(
-            config,
-            args.env,
-            exigir_envio=modo.envia and args.comando is None,
-            exigir_chat_prueba=modo.chat_prueba,
+            config, args.env, exigir_envio=exigir_envio, exigir_chat_prueba=modo.chat_prueba
         )
     except cfg.ErrorConfiguracion as exc:
         print(f"Error de configuración:\n{exc}", file=sys.stderr)
@@ -515,13 +518,17 @@ def main(argv: list[str] | None = None) -> int:
         config.zona_horaria,
     )  # fmt: skip
     try:
-        with Lock(_ruta(raiz, config.rutas.lock)):
+        # El resumen espera a que termine una corrida en curso en lugar de perderse
+        espera = ESPERA_LOCK_RESUMEN_S if args.comando == "resumen" else 0
+        with Lock(_ruta(raiz, config.rutas.lock), esperar_s=espera):
             estado = Estado.abrir(_ruta(raiz, config.rutas.base_datos))
             try:
                 if args.comando == "migrar":
                     resultado = migrar(estado, args.archivo.expanduser())
                     print(f"Migración: {resultado}")
                     return 0
+                if args.comando == "resumen":
+                    return _resumen(config, secretos, estado, modo)
                 return _correr(config, secretos, estado, modo, raiz)
             finally:
                 estado.cerrar()
@@ -565,6 +572,30 @@ def _simular(args: argparse.Namespace) -> int:
         return 2
     finally:
         notificador.cerrar()
+    return 0
+
+
+def _resumen(config: cfg.Configuracion, secretos: cfg.Secretos, estado: Estado, modo: Modo) -> int:
+    if modo.dry_run:
+        notificador: Notificador = NotificadorConsola()
+        chat = "consola"
+    else:
+        notificador = crear_notificador(config.telegram, secretos.telegram_bot_token)
+        chat = secretos.telegram_chat_prueba if modo.chat_prueba else secretos.telegram_chat_id
+    ia = None
+    if secretos.deepseek_api_key:
+        ia = ClienteIA(config.ia, secretos.deepseek_api_key, estado, secretos=secretos.valores())
+    try:
+        Resumen(config.resumen, ia, estado, notificador, chat, prueba=modo.chat_prueba).enviar(
+            registrar=not modo.dry_run
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("Error generando el resumen diario")
+        return 1
+    finally:
+        notificador.cerrar()
+        if ia is not None:
+            ia.cerrar()
     return 0
 
 

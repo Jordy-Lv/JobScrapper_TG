@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import time
 from pathlib import Path
 from types import TracebackType
 
@@ -13,18 +14,26 @@ class CorridaActiva(Exception):
 
 
 class Lock:
-    def __init__(self, ruta: Path) -> None:
+    """Con ``esperar_s`` > 0 reintenta hasta ese tiempo antes de rendirse (resumen diario)."""
+
+    def __init__(self, ruta: Path, esperar_s: float = 0) -> None:
         self.ruta = ruta
+        self.esperar_s = esperar_s
         self._fd: int | None = None
 
     def __enter__(self) -> Lock:
         self.ruta.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(self.ruta, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            os.close(fd)
-            raise CorridaActiva(f"Hay otra corrida activa (lock en {self.ruta})") from exc
+        limite = time.monotonic() + self.esperar_s
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                if time.monotonic() >= limite:
+                    os.close(fd)
+                    raise CorridaActiva(f"Hay otra corrida activa (lock en {self.ruta})") from exc
+                time.sleep(min(1.0, max(limite - time.monotonic(), 0.01)))
         os.ftruncate(fd, 0)
         os.write(fd, str(os.getpid()).encode())
         self._fd = fd

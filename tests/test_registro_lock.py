@@ -69,3 +69,30 @@ def test_segundo_lock_falla_de_inmediato(tmp_path):
                 pass
     with Lock(ruta):
         pass
+
+
+def test_lock_con_espera(tmp_path):
+    import threading
+    import time
+
+    ruta = tmp_path / "buscador.lock"
+    with Lock(ruta):
+        inicio = time.monotonic()
+        with pytest.raises(CorridaActiva):
+            with Lock(ruta, esperar_s=0.3):
+                pass
+        assert time.monotonic() - inicio >= 0.3
+
+    tomado = threading.Event()
+
+    def sostener():
+        with Lock(ruta):
+            tomado.set()
+            time.sleep(0.3)
+
+    hilo = threading.Thread(target=sostener)
+    hilo.start()
+    tomado.wait()
+    with Lock(ruta, esperar_s=5):  # espera a que el otro lo suelte
+        pass
+    hilo.join()

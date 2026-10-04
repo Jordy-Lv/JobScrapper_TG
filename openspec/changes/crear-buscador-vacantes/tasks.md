@@ -43,7 +43,7 @@
 
 ## 7. Orquestación y CLI
 
-- [ ] 7.1 Implementar `buscador.py` con el flujo de design D3 y los modos `--dry-run`, `--fuente`, `--seed` y `--chat-prueba`, más los subcomandos `migrar` y `resumen`. Verificar con un test de extremo a extremo con fuentes mockeadas: vacantes nuevas → mensaje; sin novedades → nada; seed → nada enviado y todo visto.
+- [x] 7.1 Implementar `buscador.py` con el flujo de design D3 y los modos `--dry-run`, `--fuente`, `--seed` y `--chat-prueba`, más los subcomandos `migrar` y `resumen`. Verificar con un test de extremo a extremo con fuentes mockeadas: vacantes nuevas → mensaje; sin novedades → nada; seed → nada enviado y todo visto.
 - [ ] 7.2 Implementar `salud.py` (healthchecks start, éxito y fail, sin romper la corrida si falla). Verificar con tests usando respx y con un ping real al check de prueba.
 - [x] 7.3 Documentar en `README.md` la instalación local, los modos de ejecución y la configuración. Verificar ejecutando cada comando documentado.
 

@@ -6,11 +6,12 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from estado import Estado, ahora_utc
+from fechas import ZONA
 from modelo import Vacante
 from normalizar import huella
 
@@ -19,6 +20,26 @@ log = logging.getLogger(__name__)
 _NUMERO_FINAL = re.compile(r"(\d{6,})/?$")
 _HEX_FINAL = re.compile(r"([A-Fa-f0-9]{32})/?$")
 _SLUG_GETONBOARD = re.compile(r"/jobs/([^/?#]+)")
+
+
+# Sin fecha de descubrimiento, la vacante se fecha antes de la ventana del resumen diario
+# para que la migración no aparezca como "enviadas hoy"
+ANTIGUEDAD_SIN_FECHA = timedelta(days=2)
+
+
+def fecha_descubrimiento(registro: dict, momento: datetime) -> datetime:
+    for campo in ("descubierto_en", "fecha_descubrimiento"):
+        texto = (registro.get(campo) or "").strip()
+        if not texto:
+            continue
+        try:
+            fecha = datetime.fromisoformat(texto)
+        except ValueError:
+            continue
+        fecha = fecha if fecha.tzinfo else fecha.replace(tzinfo=ZONA)
+        if fecha <= momento:
+            return fecha
+    return momento - ANTIGUEDAD_SIN_FECHA
 
 
 @dataclass
@@ -85,7 +106,7 @@ def migrar(estado: Estado, ruta: Path | str, momento: datetime | None = None) ->
         estado.registrar_vista(
             vacante,
             huella(vacante.titulo, vacante.empresa, vacante.clave),
-            momento=momento,
+            momento=fecha_descubrimiento(registro, momento),
             enviada=True,
         )
         resultado.importadas += 1

@@ -1,11 +1,11 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from estado import Estado
-from migrar_historial import clave_desde_registro, migrar
+from estado import Estado, a_texto
+from migrar_historial import clave_desde_registro, fecha_descubrimiento, migrar
 from normalizar import huella
 
 FIXTURE = Path(__file__).parent / "fixtures" / "historial_hermes.json"
@@ -73,3 +73,16 @@ def test_vacante_migrada_no_se_vuelve_a_publicar(estado):
     )
     otra = huella(registro["cargo"], registro["empresa"], "computrabajo:XYZ")
     assert estado.ya_vista("computrabajo:XYZ", otra)
+
+
+def test_fecha_de_envio_es_la_de_hermes(estado):
+    assert fecha_descubrimiento({"descubierto_en": "2026-08-16T15:47:42.311939"}, AHORA).month == 8
+    assert fecha_descubrimiento({"fecha_descubrimiento": "2026-09-01 10:00:00"}, AHORA).day == 1
+    assert fecha_descubrimiento({"fecha": "Hace 3 días"}, AHORA) == AHORA - timedelta(days=2)
+    migrar(estado, FIXTURE, AHORA)
+    # Nada de lo migrado cae en la ventana de 24 h del resumen diario
+    desde = a_texto(AHORA - timedelta(hours=24))
+    recientes = estado.cx.execute(
+        "SELECT COUNT(*) FROM vistas WHERE enviada_en >= ?", (desde,)
+    ).fetchone()[0]
+    assert recientes == 0

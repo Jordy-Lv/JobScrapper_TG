@@ -32,7 +32,16 @@ uv run buscador.py migrar --archivo referencia_hermes/historial_vacantes.json
 uv run buscador.py --seed                          # marca lo actual como visto, sin enviar
 uv run buscador.py --chat-prueba                   # envía al chat de prueba
 uv run buscador.py                                 # corrida normal (la que ejecuta systemd)
+uv run buscador.py resumen                         # resumen diario (una vez al día, 08:00)
+uv run buscador.py --dry-run resumen               # muestra el resumen sin enviarlo
+uv run buscador.py --simular-incidente linkedin:bloqueo --dry-run
+uv run buscador.py --simular-incidente magneto:cambio_html --simular-falla-ia saldo_bajo
 ```
+
+`--simular-incidente FUENTE:TIPO` arma evidencia de ejemplo y corre el reportero completo
+(diagnóstico IA o alerta plana) sobre una base en memoria: no toca el estado real. Tipos:
+`bloqueo`, `captcha`, `cambio_html`, `sin_resultados`, `caida_volumen`, `error_servidor`, además
+de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat de prueba.
 
 | Modo | Envía | Marca vistas | Llama a la IA | Necesita secretos |
 |---|---|---|---|---|
@@ -41,6 +50,7 @@ uv run buscador.py                                 # corrida normal (la que ejec
 | `--seed` | no | sí | no | no |
 | `--chat-prueba` | al chat de prueba | solo para el chat de prueba | sí | sí, más `TELEGRAM_CHAT_PRUEBA` |
 | normal | al canal | sí | sí | sí |
+| `resumen` | al canal (o al chat de prueba) | no | una llamada | sí |
 
 - `--fuente <nombre>` limita la corrida a una fuente. En dry-run sirve también para probar una
   fuente desactivada.
@@ -76,6 +86,10 @@ clasificador.py        dudosas → DeepSeek (ia_cliente.py)
 estado.py              SQLite
 formato.py             mensajes HTML de Telegram
 publicacion.py         banner y envío con confirmación (notificador_telegram.py)
+incidentes.py          detección determinista de incidentes
+reportero.py           diagnóstico IA de incidentes y alertas planas
+resumen.py             resumen diario con métricas y recomendaciones
+simulacion.py          --simular-incidente
 salud.py               heartbeat a healthchecks.io
 migrar_historial.py    importación del historial de Hermes
 referencia_hermes/     scripts originales de Hermes y NOTAS.md (solo referencia)
