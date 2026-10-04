@@ -66,7 +66,7 @@
 ## 4. IA del usuario (Gemini) y lectura del CV
 
 - [ ] 4.1 Consultar `GET /v1beta/models` con una clave de prueba del dueño, confirmar los modelos de cada tarea con salida JSON y ajustar `config.yaml`. Verificar dejando la lista y la fecha en un comentario.
-- [ ] 4.2 Crear `asistente/gemini.py`:
+- [x] 4.2 Crear `asistente/gemini.py`:
   - cliente async por tarea con esquemas pydantic;
   - validación de la clave;
   - manejo de 401/403, de 429 con `retryDelay` y de los timeouts;
