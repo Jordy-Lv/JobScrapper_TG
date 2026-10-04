@@ -79,7 +79,7 @@
   - la clave nunca aparece en logs;
   - un JSON inválido reintenta una vez;
   - el tope se respeta.
-- [ ] 4.3 Crear `asistente/cv_lectura.py` con pypdf, sus límites, el enmascarado, la detección de escaneado y `leer_cv` → `PerfilExtraido`. Verificar con PDF generados en las pruebas:
+- [x] 4.3 Crear `asistente/cv_lectura.py` con pypdf, sus límites, el enmascarado, la detección de escaneado y `leer_cv` → `PerfilExtraido`. Verificar con PDF generados en las pruebas:
   - correo y teléfono enmascarados en el cuerpo enviado;
   - el escaneado pide confirmación;
   - un archivo que no es CV pide otro.
