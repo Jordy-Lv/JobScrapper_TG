@@ -26,6 +26,7 @@ from pathlib import Path
 
 from buscador_vacantes import config as cfg
 from buscador_vacantes import registro, rotacion
+from buscador_vacantes.asistente import cli as asistente_cli
 from buscador_vacantes.clasificador import Clasificador, Dudosa
 from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto, ahora_utc
 from buscador_vacantes.fechas import ZONA
@@ -509,6 +510,7 @@ def construir_parser() -> argparse.ArgumentParser:
         "promover-prueba",
         help="al pasar a producción, marca como enviadas las vacantes de la fase de prueba",
     )
+    asistente_cli.agregar_subcomandos(sub)
     return parser
 
 
@@ -536,6 +538,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.simular_incidente:
         return _simular(args)
+    if args.comando == "asistente":
+        # El asistente es otro servicio: no toma el lock de las corridas del buscador
+        return asistente_cli.ejecutar(args)
     try:
         config = cfg.cargar_configuracion(args.config)
         modo = Modo(args.dry_run, args.seed, args.chat_prueba, args.fuente)

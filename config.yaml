@@ -879,3 +879,75 @@ salud:
 
 operacion:
   timeout_corrida_min: 25
+
+# Asistente de postulación (bot asistente, API para la extensión y CV adaptado).
+# Plan: openspec/changes/asistente-postulacion-telegram. Desactivado hasta el piloto.
+asistente:
+  activo: false
+  enlace_canal: false        # mostrar "⚡ Postularme" en las fichas (requiere activo)
+  bot_usuario: ""            # @usuario del bot asistente, sin @
+  dueno_telegram_id: 0       # id de Telegram del administrador
+  base_datos: data/asistente.db
+  archivos: data/asistente   # CV, PDF generados y evidencia (permisos 700)
+  api:
+    host: 127.0.0.1
+    puerto: 8787
+    url_publica: ""          # https://<equipo>.<tailnet>.ts.net (Tailscale Funnel)
+  extension:
+    url_edge: ""             # enlace de la tienda de complementos de Edge
+    version_minima: "1.0.0"
+    latido_s: 30
+    navegador_caido_min: 2
+  grupo:
+    chat_id: ""              # vacío: el TELEGRAM_CHAT_ID del buscador (el grupo privado)
+    comprobar_cada_h: 24
+    cache_min: 10
+  politica:
+    version: 1
+    # Texto definitivo en la tarea 2.2, aprobado por el administrador
+    texto: |-
+      PENDIENTE: texto de autorización y política de tratamiento de datos.
+  cv:
+    max_mb: 5
+    max_paginas: 10
+  topes:
+    usuario_dia: 15          # postulaciones por usuario y día
+    ia_usuario_dia: 60       # llamadas a Gemini por usuario y día
+    mensajes_min: 30         # antiabuso
+  ejecucion:
+    pausa_s: {min: 45, max: 120}
+    espera_navegador_h: 24
+    espera_usuario_h: 12
+    espera_sesion_h: 24
+    espera_verificacion_h: 2
+  plataformas:
+    computrabajo: {automatica: true}
+    magneto: {automatica: true}
+  automatico_usuario:
+    umbral_defecto: 70
+  carta_max_caracteres: 1000
+  recordatorio_dias: 2
+  inactividad_meses: 12
+  retencion_dias: 90
+  evidencia_dias: 30
+  detalle:
+    intervalo_dominio_s: 5
+    timeout_s: 15
+    cache_h: 24
+  # Preguntas típicas por fuente para el paquete de respaldo (se completan en la tarea 3.1)
+  preguntas_tipicas:
+    otras:
+      - ¿Cuál es tu aspiración salarial?
+      - ¿Cuál es tu disponibilidad para iniciar?
+      - ¿Por qué te interesa esta vacante?
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    timeout_s: 60
+    # Modelos por confirmar en la tarea 4.1 contra GET /v1beta/models
+    tareas:
+      leer_cv: {modelo: gemini-2.5-flash, temperatura: 0.1, max_tokens: 4000}
+      requisitos: {modelo: gemini-2.5-flash-lite, temperatura: 0.1, max_tokens: 800}
+      adaptar_cv: {modelo: gemini-2.5-flash, temperatura: 0.3, max_tokens: 1500}
+      carta: {modelo: gemini-2.5-flash, temperatura: 0.5, max_tokens: 800}
+      responder: {modelo: gemini-2.5-flash-lite, temperatura: 0.3, max_tokens: 400}
+      clasificar_pregunta: {modelo: gemini-2.5-flash-lite, temperatura: 0, max_tokens: 200}

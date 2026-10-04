@@ -5,14 +5,14 @@
 - [ ] 1.1 Agregar a `pyproject.toml` el grupo `asistente` (`python-telegram-bot>=21`, `fastapi`, `uvicorn`, `cryptography`, `pypdf`, `fpdf2`) y `playwright` al grupo `dev`, y actualizar `uv.lock`. Verificar:
   - `uv sync` sin el grupo deja `uv run pytest` en verde;
   - `uv sync --group asistente` instala sin error.
-- [ ] 1.2 Crear la sección `asistente` en `config.py` (pydantic) y en `config.yaml` (valores del design 17, desactivada y con `enlace_canal: false`), y agregar `ASISTENTE_BOT_TOKEN` y `ASISTENTE_CLAVE_CIFRADO` a `Secretos` y `.env.example`. Verificar con `tests/test_config.py` que:
+- [x] 1.2 Crear la sección `asistente` en `config.py` (pydantic) y en `config.yaml` (valores del design 17, desactivada y con `enlace_canal: false`), y agregar `ASISTENTE_BOT_TOKEN` y `ASISTENTE_CLAVE_CIFRADO` a `Secretos` y `.env.example`. Verificar con `tests/test_config.py` que:
   - la configuración por defecto carga;
   - un modo de registro inválido, topes negativos o una tarea de Gemini sin modelo se rechazan indicando el campo.
-- [ ] 1.3 Crear `buscador_vacantes/asistente/datos.py` con el esquema de `data/asistente.db` (design 5) en WAL, más `abrir_vacantes_ro()`. Verificar con `tests/test_asistente_datos.py` que:
+- [x] 1.3 Crear `buscador_vacantes/asistente/datos.py` con el esquema de `data/asistente.db` (design 5) en WAL, más `abrir_vacantes_ro()`. Verificar con `tests/test_asistente_datos.py` que:
   - las tablas se crean;
   - `vacantes.db` no se puede escribir desde esa conexión;
   - `UNIQUE(usuario_id, id_corto)` se respeta.
-- [ ] 1.4 Crear `asistente/cifrado.py` (Fernet) y los subcomandos `asistente generar-clave` y `asistente rotar-clave`. Verificar con pruebas de cifrado y descifrado ida y vuelta, de clave inválida (el servicio no arranca) y de rotación sin pérdida.
+- [x] 1.4 Crear `asistente/cifrado.py` (Fernet) y los subcomandos `asistente generar-clave` y `asistente rotar-clave`. Verificar con pruebas de cifrado y descifrado ida y vuelta, de clave inválida (el servicio no arranca) y de rotación sin pérdida.
 
 ## 2. Enlaces del canal y usuarios
 
