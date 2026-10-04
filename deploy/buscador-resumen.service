@@ -1,0 +1,12 @@
+[Unit]
+Description=Resumen diario del buscador de vacantes
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/buscador-vacantes
+ExecStart=%h/.local/bin/uv run --frozen buscador.py resumen
+# Incluye hasta 10 min de espera si coincide con una corrida en curso
+TimeoutStartSec=15min
+Nice=10
+Environment=PYTHONUNBUFFERED=1
+SyslogIdentifier=buscador-resumen

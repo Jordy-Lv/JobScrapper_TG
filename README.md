@@ -7,7 +7,8 @@ ciberseguridad) en Colombia y remoto LATAM, y publica solo las nuevas en el cana
 
 - Las reglas deciden los casos claros; DeepSeek solo clasifica las vacantes **dudosas**.
 - Nunca se publica dos veces la misma vacante, aunque aparezca en varias fuentes.
-- Corre cada 30 minutos en el PC Fedora con systemd (ver `deploy/INSTALAR.md`).
+- Corre cada 30 minutos en el PC Fedora con systemd de usuario: guía completa de instalación,
+  fase de prueba, paso a producción, operación y rollback en `deploy/INSTALAR.md`.
 
 La especificación completa está en `buscador-vacantes-spec.md` y el plan en
 `openspec/changes/crear-buscador-vacantes/`.
@@ -34,6 +35,7 @@ uv run buscador.py --chat-prueba                   # envía al chat de prueba
 uv run buscador.py                                 # corrida normal (la que ejecuta systemd)
 uv run buscador.py resumen                         # resumen diario (una vez al día, 08:00)
 uv run buscador.py --dry-run resumen               # muestra el resumen sin enviarlo
+uv run buscador.py promover-prueba                 # al pasar a producción (ver deploy/INSTALAR.md)
 uv run buscador.py --simular-incidente linkedin:bloqueo --dry-run
 uv run buscador.py --simular-incidente magneto:cambio_html --simular-falla-ia saldo_bajo
 ```

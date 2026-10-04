@@ -472,6 +472,10 @@ def construir_parser() -> argparse.ArgumentParser:
     migrar_p = sub.add_parser("migrar", help="importa el historial JSON de Hermes")
     migrar_p.add_argument("--archivo", type=Path, default=HISTORIAL_HERMES)
     sub.add_parser("resumen", help="envía el resumen diario (una vez al día)")
+    sub.add_parser(
+        "promover-prueba",
+        help="al pasar a producción, marca como enviadas las vacantes de la fase de prueba",
+    )
     return parser
 
 
@@ -531,6 +535,10 @@ def main(argv: list[str] | None = None) -> int:
                 if args.comando == "migrar":
                     resultado = migrar(estado, args.archivo.expanduser())
                     print(f"Migración: {resultado}")
+                    return 0
+                if args.comando == "promover-prueba":
+                    print(f"Vacantes de la fase de prueba marcadas como enviadas: "
+                          f"{estado.promover_prueba()}")  # fmt: skip
                     return 0
                 if args.comando == "resumen":
                     return _resumen(config, secretos, estado, modo)

@@ -1,0 +1,12 @@
+[Unit]
+Description=Corrida del buscador de vacantes cada 30 minutos
+
+[Timer]
+OnCalendar=*:00,30
+# Al volver de un apagado o suspensión ejecuta una sola corrida de recuperación
+Persistent=true
+RandomizedDelaySec=120
+Unit=buscador.service
+
+[Install]
+WantedBy=timers.target

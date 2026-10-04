@@ -281,6 +281,17 @@ class Estado:
                 ),
             )
 
+    def promover_prueba(self) -> int:
+        """Marca como enviadas al canal las vacantes enviadas solo al chat de prueba.
+
+        Se usa al pasar a producción para que el canal no reciba el atraso de la fase de prueba.
+        """
+        with self.cx:
+            return self.cx.execute(
+                "UPDATE vistas SET enviada_en = prueba_en "
+                "WHERE enviada_en IS NULL AND prueba_en IS NOT NULL"
+            ).rowcount
+
     def contar_vistas(self, *, enviadas: bool | None = None) -> int:
         consulta = "SELECT COUNT(*) FROM vistas"
         if enviadas is True:

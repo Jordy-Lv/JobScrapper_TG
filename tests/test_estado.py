@@ -181,3 +181,14 @@ def test_limpieza_por_antiguedad(estado):
         "SELECT fuente FROM incidentes WHERE cerrado_en IS NULL"
     ).fetchall()
     assert [f[0] for f in abiertos] == ["linkedin"]
+
+
+def test_promover_prueba(estado):
+    v1, v2 = vacante(id_fuente="1", titulo="A"), vacante(id_fuente="2", titulo="B")
+    estado.registrar_vista(v1, h(v1), enviada=True, prueba=True)
+    estado.registrar_vista(v2, h(v2))  # sembrada: no cambia
+    assert not estado.ya_vista(v1.clave, h(v1))
+    assert estado.promover_prueba() == 1
+    assert estado.ya_vista(v1.clave, h(v1))
+    assert estado.contar_vistas(enviadas=True) == 1
+    assert estado.promover_prueba() == 0

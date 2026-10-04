@@ -1,0 +1,10 @@
+[Unit]
+Description=Resumen diario del buscador de vacantes a las 08:00 (hora de Colombia)
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 America/Bogota
+Persistent=true
+Unit=buscador-resumen.service
+
+[Install]
+WantedBy=timers.target
