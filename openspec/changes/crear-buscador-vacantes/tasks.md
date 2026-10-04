@@ -26,14 +26,14 @@
 - [x] 4.1 Implementar `fechas.py` (hoy, ayer, "hace N horas/días/semanas", fechas absolutas, zona America/Bogota). Verificar con tests de cada formato observado en las fuentes.
 - [x] 4.2 Implementar `rotacion.py` con lote núcleo + cola larga persistente. Verificar con tests de los escenarios "Núcleo frecuente", "Avance de la rotación" y "Fin de la lista".
 - [x] 4.3 Implementar `fuentes/base.py`: cliente por fuente, cabeceras, timeout, pausa aleatoria, presupuesto, detección de desafío, cooldown escalonado 2/6/24 h con reinicio al éxito, registro en `intentos` y clasificación de errores de red. Verificar con tests usando respx: 429 → cooldown 2 h, repetido → 6 h, éxito → reinicio, 200 con `cf-chl` → desafío, y timeout registrado.
-- [ ] 4.4 Implementar `fuentes/getonboard.py` (API, filtro junior/sin experiencia y remoto LATAM) con un fixture JSON real. Verificar con un test del parser y con `uv run buscador.py --dry-run --fuente getonboard` contra la API real.
+- [x] 4.4 Implementar `fuentes/getonboard.py` (API, filtro junior/sin experiencia y remoto LATAM) con un fixture JSON real. Verificar con un test del parser y con `uv run buscador.py --dry-run --fuente getonboard` contra la API real.
 
 ## 5. Filtros y clasificación
 
 - [x] 5.1 Implementar `filtros.py` con el veredicto en el orden de la spec, el alcance geográfico y la categoría por área. Verificar con tests parametrizados con todos los escenarios de `filtrado-vacantes`, incluidos DBA, datos, soporte, redes, QA, ciberseguridad, "Junior sin área", "Practicante Contable" y remoto restringido.
 - [x] 5.2 Implementar `ia_cliente.py` (chat JSON, saldo cacheado, presupuesto por propósito, `ia_uso` y sanitización). Verificar con tests usando respx: saldo bajo, 402, timeout, JSON inválido, tope diario, y que el payload no contiene token, clave ni chat id.
 - [ ] 5.3 Implementar `clasificador.py` (lote, ids cortos, validación pydantic, caché por huella, pendientes con vencimiento de 24 h y política sin IA). Verificar con tests de cada escenario de "Clasificación IA", "Caché" y "Respaldo", y probar con un fixture de 20 títulos dudosos reales contra DeepSeek, revisando los veredictos a mano.
-- [ ] 5.4 Agregar las métricas de descarte por regla y del clasificador a la tabla `corridas` y al log. Verificar con un test de una corrida simulada que comprueba los conteos.
+- [x] 5.4 Agregar las métricas de descarte por regla y del clasificador a la tabla `corridas` y al log. Verificar con un test de una corrida simulada que comprueba los conteos.
 
 ## 6. Publicación en Telegram
 
@@ -45,7 +45,7 @@
 
 - [ ] 7.1 Implementar `buscador.py` con el flujo de design D3 y los modos `--dry-run`, `--fuente`, `--seed` y `--chat-prueba`, más los subcomandos `migrar` y `resumen`. Verificar con un test de extremo a extremo con fuentes mockeadas: vacantes nuevas → mensaje; sin novedades → nada; seed → nada enviado y todo visto.
 - [ ] 7.2 Implementar `salud.py` (healthchecks start, éxito y fail, sin romper la corrida si falla). Verificar con tests usando respx y con un ping real al check de prueba.
-- [ ] 7.3 Documentar en `README.md` la instalación local, los modos de ejecución y la configuración. Verificar ejecutando cada comando documentado.
+- [x] 7.3 Documentar en `README.md` la instalación local, los modos de ejecución y la configuración. Verificar ejecutando cada comando documentado.
 
 ## 8. Fuentes restantes
 
