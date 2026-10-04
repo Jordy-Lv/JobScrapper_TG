@@ -37,6 +37,7 @@ from fuentes.computrabajo import Computrabajo
 from fuentes.elempleo import Elempleo
 from fuentes.getonboard import GetOnBoard
 from fuentes.linkedin import LinkedIn
+from fuentes.magneto import Magneto
 from ia_cliente import ClienteIA
 from lock import CorridaActiva, Lock
 from migrar_historial import migrar
@@ -52,6 +53,7 @@ FUENTES: dict[str, type[Fuente]] = {
     "linkedin": LinkedIn,
     "computrabajo": Computrabajo,
     "elempleo": Elempleo,
+    "magneto": Magneto,
     "getonboard": GetOnBoard,
 }
 HISTORIAL_HERMES = Path("~/.hermes/cron/output/historial_vacantes.json")
