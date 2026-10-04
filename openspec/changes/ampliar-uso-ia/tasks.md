@@ -12,4 +12,4 @@
 
 ## 3. Despliegue
 
-- [ ] 3.1 Commit y push (sin atribución a IA) y `git pull` en el servidor. Verificar en el log de la siguiente corrida que suben las dudosas, que hay líneas "IA acepta/rechaza" de prácticas de otras áreas y que no aparece "tope diario alcanzado".
+- [x] 3.1 Commit y push (sin atribución a IA) y `git pull` en el servidor. Verificar en el log de la siguiente corrida que suben las dudosas, que hay líneas "IA acepta/rechaza" de prácticas de otras áreas y que no aparece "tope diario alcanzado".
