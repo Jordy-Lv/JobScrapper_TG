@@ -16,5 +16,5 @@
 ## 3. Verificación y despliegue
 
 - [x] 3.1 En la Mac, ejecutar `uv run buscador.py --dry-run --fuente getonboard`, `uv run buscador.py --dry-run resumen` y `uv run buscador.py --simular-incidente linkedin:bloqueo --dry-run`. Verificar que terminan sin error, que leen `config.yaml` y `.env` de la raíz y que no aparece ningún `data/` ni `logs/` dentro de `buscador_vacantes/`.
-- [ ] 3.2 Hacer commit y push a `main` (mensajes en español, sin atribución a IA). Verificar con `git status` limpio y `git log origin/main -1`.
-- [ ] 3.3 En el PC Fedora: `systemctl --user stop buscador.timer` → `git pull` → `uv sync --frozen` → `uv run buscador.py --dry-run` → `systemctl --user start buscador.timer`, sin tocar las unidades systemd ni el `.env`. Verificar con `systemctl --user list-timers` (timer activo), la siguiente corrida sin errores en `journalctl --user -u buscador` y healthchecks en verde.
+- [x] 3.2 Hacer commit y push a `main` (mensajes en español, sin atribución a IA). Verificar con `git status` limpio y `git log origin/main -1`.
+- [x] 3.3 En el PC Fedora: `systemctl --user stop buscador.timer` → `git pull` → `uv sync --frozen` → `uv run buscador.py --dry-run` → `systemctl --user start buscador.timer`, sin tocar las unidades systemd ni el `.env`. Verificar con `systemctl --user list-timers` (timer activo), la siguiente corrida sin errores en `journalctl --user -u buscador` y healthchecks en verde.
