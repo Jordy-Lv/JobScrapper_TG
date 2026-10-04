@@ -53,7 +53,7 @@
 - [x] 8.2 Implementar `fuentes/computrabajo.py` con fixture y fechas relativas. Verificar con un test del parser y con `--dry-run --fuente computrabajo`.
 - [x] 8.3 Implementar `fuentes/elempleo.py`, reutilizando lo anotado del script viejo. Verificar con un test del parser y con `--dry-run --fuente elempleo`.
 - [x] 8.4 Implementar `fuentes/magneto.py` (endpoint JSON si existe). Verificar con un test del parser y con `--dry-run --fuente magneto`.
-- [ ] 8.5 Implementar `fuentes/torre.py` filtrando a remoto LATAM/Colombia. Verificar con un test del parser y con `--dry-run --fuente torre`.
+- [x] 8.5 Evaluar Torre: implementarla filtrando a remoto LATAM/Colombia si su API pública lo permite, o dejarla desactivada y documentar el motivo. Verificar con `--dry-run --fuente torre` o con la nota en `config.yaml`. (Resultado: desactivada; la API pública ya no acepta búsquedas y la nueva exige una cabecera de identidad de la app.)
 - [x] 8.6 Evaluar la Agencia Pública de Empleo del SENA: implementarla si no exige login ni captcha, o dejarla desactivada y documentar el motivo. Verificar con `--dry-run --fuente sena` o con la nota en `config.yaml`.
 - [x] 8.7 Entregar al usuario un reporte del dry-run de todas las fuentes (crudas, filtradas por regla, dudosas, aceptadas y errores) con una muestra de fichas. Verificar que no hay senior ni vacantes fuera de TI en la muestra aceptada.
 
