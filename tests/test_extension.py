@@ -651,4 +651,3 @@ def test_el_correo_se_busca_siguiendo_mi_cuenta(tmp_path, api):
     assert ct["estado"] == "listo"
     assert ct["correo"] == "ana.perez@gmail.com"
     assert ct["pagina_correo"] == "/candidate/micuenta/"
-
