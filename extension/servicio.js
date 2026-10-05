@@ -82,7 +82,7 @@ async function enviarLatido(portales) {
   const cuerpo = { version: version(), portales: {} };
   for (const [plataforma, p] of Object.entries(portales)) {
     cuerpo.portales[plataforma] = { estado: p.estado, correo: p.correo || null,
-      pagina_correo: p.pagina_correo || null };
+      pagina_correo: p.pagina_correo || null, motivo: p.motivo || null };
   }
   try {
     const r = await llamar("POST", "/latido", cuerpo);
@@ -154,12 +154,14 @@ async function revisarPortal(plataforma) {
   const pestana = await abrirPestana(inicio);
   try {
     let tab = await chrome.tabs.get(pestana.id);
-    if (plataformaDeUrl(tab.url) !== plataforma) return { estado: "sin_sesion", correo: null };
+    if (plataformaDeUrl(tab.url) !== plataforma) {
+      return { estado: "sin_sesion", correo: null, motivo: "fuera_del_portal" };
+    }
     await inyectar(pestana.id, plataforma);
     const s = await enPestana(
       pestana.id, (ss) => globalThis.__asistente.revisar(ss, { secciones: false }), sel,
     );
-    if (s.estado === "sin_sesion") return { estado: "sin_sesion", correo: null };
+    if (s.estado === "sin_sesion") return { estado: "sin_sesion", correo: null, motivo: s.motivo };
     let correo = s.correo;
     let origen = correo ? tab.url : null;
     const pendientes = [...(cuenta.urls || (cuenta.url ? [cuenta.url] : []))];
@@ -200,18 +202,11 @@ async function revisarPortal(plataforma) {
 
 // Pestaña en segundo plano: se crea vacía y luego navega, así la carga es igual a cualquier
 // navegación posterior (y las pruebas pueden servir las páginas del portal)
-// Se abre en una ventana minimizada aparte para no mover las pestañas del usuario; si el
-// portal pide una verificación, esa ventana se muestra (ver esperarVerificacion).
+// Pestaña en segundo plano en la ventana del usuario: tiene el tamaño real de la ventana, así
+// el portal muestra su versión de escritorio (una ventana minimizada lo pasa a la versión móvil
+// y oculta la cabecera y los botones). Si el portal pide una verificación, se activa.
 async function abrirPestana(url) {
-  let pestana;
-  try {
-    const ventana = await chrome.windows.create({
-      url: "about:blank", focused: false, state: "minimized",
-    });
-    pestana = ventana.tabs[0];
-  } catch (error) {
-    pestana = await chrome.tabs.create({ url: "about:blank", active: false });
-  }
+  const pestana = await chrome.tabs.create({ url: "about:blank", active: false });
   try {
     await navegar(pestana.id, url);
   } catch (error) {

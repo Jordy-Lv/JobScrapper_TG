@@ -416,10 +416,15 @@
   async function revisar(sel, datos = {}) {
     await esperar(["body"], 5000);
     await dormir(datos.espera_ms ?? 1500); // las páginas armadas con JS tardan en mostrar el usuario
-    if (sinSesion(sel)) return { estado: "sin_sesion" };
+    if (sinSesion(sel)) {
+      const redirigido = ((sel.sesion || {}).url_sin_sesion || []).some((p) => location.href.includes(p));
+      return { estado: "sin_sesion", motivo: redirigido ? "redireccion_login" : "enlace_ingresar" };
+    }
     const s = sel.sesion || {};
-    if ((s.iniciada || []).length && !(await esperar(s.iniciada, 5000))) {
-      return { estado: "sin_sesion" };
+    // La marca de sesión debe existir; no se exige que se vea (en pantallas pequeñas el portal
+    // la oculta en un menú)
+    if ((s.iniciada || []).length && !(await esperar(s.iniciada, 5000, { ocultos: true }))) {
+      return { estado: "sin_sesion", motivo: "sin_marca_sesion" };
     }
     const resultado = { estado: "listo", correo: null, secciones: {} };
     const cuenta = sel.cuenta || {};

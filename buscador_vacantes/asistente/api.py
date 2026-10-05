@@ -84,6 +84,7 @@ class Portal(BaseModel):
     estado: str = Field(pattern="^(sin_sesion|incompleto|listo)$")
     correo: str | None = Field(None, max_length=254)
     pagina_correo: str | None = Field(None, max_length=300)  # ruta donde se leyó el correo
+    motivo: str | None = Field(None, max_length=40)  # por qué se marcó sin sesión
 
 
 class Latido(BaseModel):
@@ -291,6 +292,9 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             if plataforma not in nucleo.config.plataformas:
                 continue
             if portal.estado == "sin_sesion":
+                if portal.motivo:
+                    log.info("%s sin sesión en el navegador %s: %s", plataforma, nav.id,
+                             portal.motivo)  # fmt: skip
                 cuentas_ok[plataforma] = False
                 continue
             if portal.pagina_correo:
