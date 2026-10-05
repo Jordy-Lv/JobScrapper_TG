@@ -1,18 +1,23 @@
 {
-  "version": "2026.10.05-1",
-  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (clase applyButton_apply-btn, módulos CSS con sufijo variable) y enlace a login.magneto365.com. Las páginas con sesión (formulario, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1).",
+  "version": "2026.10.05-2",
+  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (clase applyButton_apply-btn, módulos CSS con sufijo variable) y enlace a login.magneto365.com. Las páginas con sesión (formulario, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Sin sesión (2026-10-05): la cabecera muestra 'Iniciar sesión' hacia web.magneto365.com/sign-in y el menú 'Ingresa a tu cuenta' hacia login.magneto365.com.",
   "verificado": {
     "vacante": true,
     "postulacion": false,
     "cuenta": false,
     "perfil": false
   },
-  "url_registro": "https://login.magneto365.com/candidates",
+  "url_registro": "https://web.magneto365.com/sign-in",
   "sesion": {
     "url_sin_sesion": [
-      "login.magneto365.com"
+      "login.magneto365.com",
+      "web.magneto365.com/sign-in"
     ],
     "sin_sesion": [
+      {
+        "css": "a[href*='web.magneto365.com/sign-in']",
+        "texto": "iniciar sesion"
+      },
       {
         "css": "a[href*='login.magneto365.com']",
         "texto": "ingresa a tu cuenta"

@@ -89,6 +89,9 @@
   function htmlSinValores(raiz) {
     const copia = (raiz || document.documentElement).cloneNode(true);
     copia.querySelectorAll("script, style, noscript, svg, img, iframe").forEach((n) => n.remove());
+    // Sin la cabecera, el menú ni el recuadro de la cuenta: ahí están el nombre y el correo
+    copia.querySelectorAll("header, nav, footer, [data-info-user], .header_popup, [class*='user' i]")
+      .forEach((n) => n.remove());
     copia.querySelectorAll("input").forEach((n) => {
       n.removeAttribute("value");
       n.removeAttribute("checked");

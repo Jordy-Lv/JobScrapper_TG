@@ -24,7 +24,7 @@ export const NOMBRES = {
 // Página oficial de ingreso de cada portal: el usuario inicia sesión ahí, nunca en la extensión
 export const INGRESO = {
   computrabajo: "https://candidato.co.computrabajo.com/acceso/",
-  magneto: "https://login.magneto365.com/candidates",
+  magneto: "https://web.magneto365.com/sign-in",
   elempleo: "https://www.elempleo.com/co/",
   getonboard: "https://www.getonbrd.com/",
   linkedin: "https://www.linkedin.com/login",

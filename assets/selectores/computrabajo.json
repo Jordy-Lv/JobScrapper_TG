@@ -1,10 +1,10 @@
 {
-  "version": "2026.10.05-1",
-  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1).",
+  "version": "2026.10.05-2",
+  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Con sesión (2026-10-05): [data-info-user] muestra el nombre del candidato; el correo está en candidato.co.computrabajo.com/candidate/home dentro de .header_popup strong; el enlace Ingresar (span.js_login) queda oculto.",
   "verificado": {
     "vacante": true,
     "postulacion": false,
-    "cuenta": false,
+    "cuenta": true,
     "perfil": false
   },
   "url_registro": "https://candidato.co.computrabajo.com/acceso/",
@@ -16,20 +16,19 @@
       "a.js_login[data-access-menu]",
       "a[href*='candidato.co.computrabajo.com/acceso']"
     ],
-    "iniciada": [],
+    "iniciada": [
+      "[data-info-user]"
+    ],
     "url": "https://co.computrabajo.com/"
   },
   "cuenta": {
     "urls": [
-      "https://candidato.co.computrabajo.com/candidate/home",
-      "https://candidato.co.computrabajo.com/candidate/configuration/"
+      "https://candidato.co.computrabajo.com/candidate/home"
     ],
     "correo": [
+      ".header_popup strong",
       "[data-candidate-email]",
-      "input[type='email']",
-      "input[name*='mail' i]",
-      ".email",
-      "[class*='mail']"
+      "input[type='email']"
     ],
     "nota": "si ninguna URL muestra el correo, la extensión sigue los enlaces 'Mi cuenta', 'Mi perfil'… del portal y reporta en qué ruta lo encontró (pagina_correo) para fijarla aquí"
   },
