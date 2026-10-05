@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Asistente de postulación</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body class="popup">
+  <header><img src="iconos/32.png" alt="" width="24" height="24"><h1>Asistente de postulación</h1></header>
+  <section id="sin-vincular" hidden>
+    <p>Este navegador no está vinculado. En el bot toca <b>Vincular mi navegador</b> o escribe aquí el código que te dio:</p>
+    <form id="form-codigo">
+      <input id="codigo" maxlength="9" placeholder="ABCD-2345" autocomplete="off" required>
+      <button type="submit">Vincular</button>
+    </form>
+    <p id="mensaje-codigo" class="nota"></p>
+  </section>
+  <section id="vinculado" hidden>
+    <p id="linea"></p>
+    <ul id="portales"></ul>
+    <p id="actual" class="nota"></p>
+    <p id="ultima" class="nota"></p>
+    <p id="actualizar" class="error" hidden>Hay una versión nueva de la extensión. Actualízala para seguir postulando (el bot te explica cómo).</p>
+    <div class="botones">
+      <button id="revisar" type="button">Revisar portales</button>
+      <button id="pausar" type="button"></button>
+    </div>
+  </section>
+  <footer><a href="opciones.html" target="_blank">Opciones</a></footer>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

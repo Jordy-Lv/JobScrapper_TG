@@ -41,6 +41,7 @@ package = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["navegador: pruebas de la extensión en Chromium (uv sync --group navegador)"]
 
 [tool.ruff]
 line-length = 100

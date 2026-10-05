@@ -1,0 +1,147 @@
+{
+  "version": "2026.10.04-1",
+  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1).",
+  "verificado": {
+    "vacante": true,
+    "postulacion": false,
+    "cuenta": false,
+    "perfil": false
+  },
+  "url_registro": "https://candidato.co.computrabajo.com/acceso/",
+  "sesion": {
+    "url_sin_sesion": [
+      "candidato.co.computrabajo.com/acceso"
+    ],
+    "sin_sesion": [
+      "a.js_login[data-access-menu]",
+      "a[href*='candidato.co.computrabajo.com/acceso']"
+    ],
+    "iniciada": []
+  },
+  "cuenta": {
+    "url": "https://candidato.co.computrabajo.com/candidate/configuration/",
+    "correo": [
+      "[data-candidate-email]",
+      "input[type='email']",
+      "input[name*='mail' i]",
+      ".email",
+      "[class*='mail']"
+    ]
+  },
+  "perfil": {
+    "url": "https://candidato.co.computrabajo.com/candidate/cv/",
+    "secciones": {},
+    "completar": []
+  },
+  "cv": {
+    "modo": "adjunto",
+    "nota": "modo real por verificar en 3.1 (perfil_unico o perfil_multiple); los pasos cv_subir y cv_verificar se agregan entonces"
+  },
+  "captcha": [
+    "iframe[src*='recaptcha/api2/bframe']",
+    "iframe[src*='hcaptcha.com'][title*='challenge' i]",
+    "iframe[src*='challenges.cloudflare.com']"
+  ],
+  "textos": {
+    "confirmacion": [
+      "te has postulado",
+      "postulacion realizada",
+      "has aplicado",
+      "tu hoja de vida fue enviada",
+      "postulacion enviada",
+      "aplicaste"
+    ],
+    "ya_postulado": [
+      "ya te postulaste",
+      "ya aplicaste a esta oferta",
+      "ya estas inscrito"
+    ],
+    "cerrada": [
+      "oferta ya no esta disponible",
+      "esta oferta ha finalizado",
+      "oferta caducada",
+      "la oferta no existe"
+    ],
+    "verificacion": [
+      "verifica que eres humano",
+      "no soy un robot"
+    ]
+  },
+  "postular": [
+    {
+      "nombre": "revisar_vacante",
+      "accion": "detectar",
+      "casos": [
+        {
+          "selector": [
+            "a[already-applied-btn]:not(.hide)"
+          ],
+          "resultado": "ya_postulada"
+        },
+        {
+          "texto": "cerrada",
+          "resultado": "vacante_cerrada"
+        }
+      ]
+    },
+    {
+      "nombre": "aplicar",
+      "accion": "ir",
+      "selector": [
+        "a[data-href-offer-apply]"
+      ],
+      "atributo": "data-href-offer-apply",
+      "envia": true
+    },
+    {
+      "nombre": "revisar_postulacion",
+      "accion": "detectar",
+      "ms": 3000,
+      "casos": [
+        {
+          "texto": "ya_postulado",
+          "resultado": "ya_postulada"
+        },
+        {
+          "texto": "confirmacion",
+          "resultado": "enviada"
+        }
+      ]
+    },
+    {
+      "nombre": "preguntas",
+      "accion": "formulario",
+      "contenedor": [
+        "form#kqForm",
+        "form[action*='match']",
+        "main form",
+        "form"
+      ],
+      "opcional": true
+    },
+    {
+      "nombre": "enviar",
+      "accion": "enviar",
+      "selector": [
+        {
+          "css": "button, input[type='submit'], a.b_primary",
+          "texto": "postularme"
+        },
+        {
+          "css": "button, input[type='submit'], a.b_primary",
+          "texto": "enviar"
+        },
+        {
+          "css": "button, input[type='submit'], a.b_primary",
+          "texto": "aplicar"
+        }
+      ],
+      "navega": false
+    },
+    {
+      "nombre": "confirmar",
+      "accion": "confirmar",
+      "ms": 25000
+    }
+  ]
+}

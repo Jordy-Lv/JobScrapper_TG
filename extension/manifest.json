@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Asistente de postulación",
+  "short_name": "Postulación",
+  "version": "1.0.0",
+  "description": "Postula desde tu navegador, con tu propia sesión, a las vacantes del canal JOBS - PRÁCTICAS/APRENDIZ.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "tabs", "alarms", "scripting"],
+  "host_permissions": [
+    "https://*.computrabajo.com/*",
+    "https://*.magneto365.com/*",
+    "https://fedora.tailf6cdf1.ts.net/*"
+  ],
+  "optional_host_permissions": [
+    "https://*.ts.net/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "servicio.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Asistente de postulación",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "iconos/16.png",
+      "32": "iconos/32.png",
+      "48": "iconos/48.png",
+      "128": "iconos/128.png"
+    }
+  },
+  "options_page": "opciones.html",
+  "icons": {
+    "16": "iconos/16.png",
+    "32": "iconos/32.png",
+    "48": "iconos/48.png",
+    "128": "iconos/128.png"
+  }
+}

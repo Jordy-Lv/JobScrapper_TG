@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Opciones · Asistente de postulación</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body class="opciones">
+  <h1>Opciones</h1>
+  <form id="form-servidor">
+    <label for="servidor">Dirección del servidor</label>
+    <input id="servidor" type="url" required>
+    <p class="nota">Solo cámbiala si el administrador te lo pide.</p>
+    <button type="submit">Guardar</button>
+    <button id="restaurar" type="button">Restaurar</button>
+  </form>
+  <p id="mensaje" class="nota"></p>
+  <h2>Navegador</h2>
+  <p id="vinculo"></p>
+  <button id="desvincular" type="button">Desvincular este navegador</button>
+  <script type="module" src="opciones.js"></script>
+</body>
+</html>

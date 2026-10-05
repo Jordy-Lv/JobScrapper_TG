@@ -1,0 +1,146 @@
+{
+  "version": "2026.10.04-1",
+  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (clase applyButton_apply-btn, módulos CSS con sufijo variable) y enlace a login.magneto365.com. Las páginas con sesión (formulario, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1).",
+  "verificado": {
+    "vacante": true,
+    "postulacion": false,
+    "cuenta": false,
+    "perfil": false
+  },
+  "url_registro": "https://login.magneto365.com/candidates",
+  "sesion": {
+    "url_sin_sesion": [
+      "login.magneto365.com"
+    ],
+    "sin_sesion": [
+      {
+        "css": "a[href*='login.magneto365.com']",
+        "texto": "ingresa a tu cuenta"
+      }
+    ],
+    "iniciada": []
+  },
+  "cuenta": {
+    "url": "https://www.magneto365.com/co/perfil",
+    "correo": [
+      "input[type='email']",
+      "input[name*='mail' i]",
+      "[class*='email' i]",
+      "[class*='mail' i]"
+    ]
+  },
+  "perfil": {
+    "url": "https://www.magneto365.com/co/perfil",
+    "secciones": {},
+    "completar": []
+  },
+  "cv": {
+    "modo": "adjunto",
+    "nota": "modo real por verificar en 3.1 (perfil_unico o perfil_multiple); los pasos cv_subir y cv_verificar se agregan entonces"
+  },
+  "captcha": [
+    "iframe[src*='recaptcha/api2/bframe']",
+    "iframe[src*='hcaptcha.com'][title*='challenge' i]",
+    "iframe[src*='challenges.cloudflare.com']"
+  ],
+  "textos": {
+    "confirmacion": [
+      "te postulaste",
+      "postulacion exitosa",
+      "aplicaste",
+      "tu postulacion fue enviada",
+      "postulado con exito"
+    ],
+    "ya_postulado": [
+      "ya aplicaste",
+      "ya te postulaste"
+    ],
+    "cerrada": [
+      "esta vacante ya no esta disponible",
+      "vacante cerrada",
+      "oferta finalizada"
+    ],
+    "verificacion": [
+      "verifica que eres humano",
+      "no soy un robot"
+    ]
+  },
+  "postular": [
+    {
+      "nombre": "revisar_vacante",
+      "accion": "detectar",
+      "ms": 4000,
+      "casos": [
+        {
+          "texto": "cerrada",
+          "resultado": "vacante_cerrada"
+        }
+      ]
+    },
+    {
+      "nombre": "aplicar",
+      "accion": "clic",
+      "selector": [
+        "button[class*='applyButton_apply-btn']",
+        {
+          "css": "button",
+          "texto": "aplicar"
+        }
+      ],
+      "esperar_cambio": true,
+      "envia": true
+    },
+    {
+      "nombre": "revisar_postulacion",
+      "accion": "detectar",
+      "ms": 3000,
+      "casos": [
+        {
+          "texto": "ya_postulado",
+          "resultado": "ya_postulada"
+        },
+        {
+          "texto": "confirmacion",
+          "resultado": "enviada"
+        }
+      ]
+    },
+    {
+      "nombre": "preguntas",
+      "accion": "formulario",
+      "contenedor": [
+        "[role='dialog'] form",
+        "form",
+        "[role='dialog']"
+      ],
+      "opcional": true
+    },
+    {
+      "nombre": "enviar",
+      "accion": "enviar",
+      "selector": [
+        {
+          "css": "button",
+          "texto": "enviar postulacion"
+        },
+        {
+          "css": "button",
+          "texto": "enviar"
+        },
+        {
+          "css": "button",
+          "texto": "postularme"
+        },
+        {
+          "css": "button",
+          "texto": "aplicar"
+        }
+      ]
+    },
+    {
+      "nombre": "confirmar",
+      "accion": "confirmar",
+      "ms": 25000
+    }
+  ]
+}

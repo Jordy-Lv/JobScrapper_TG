@@ -413,6 +413,11 @@ def _portales_guardados(base: BaseAsistente, navegador_id: int) -> dict[str, dic
 
 def _trabajo(nucleo: Nucleo, p: Postulacion) -> dict[str, Any]:
     trabajo: dict[str, Any] = {"id": p.id, "tipo": p.tipo, "plataforma": p.plataforma}
+    fila = nucleo.base.cx.execute(
+        "SELECT actualizar_cv_portal FROM usuarios WHERE id = ?", (p.usuario_id,)
+    ).fetchone()
+    # Sin la autorización del usuario la extensión no toca el CV guardado en el portal
+    trabajo["actualizar_cv_portal"] = bool(fila and fila["actualizar_cv_portal"])
     if p.id_corto:
         vacante = nucleo.vacante(p.id_corto) or {}
         trabajo["url"] = vacante.get("url")

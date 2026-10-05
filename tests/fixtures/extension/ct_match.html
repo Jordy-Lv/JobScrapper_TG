@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Preguntas de la oferta</title></head>
+<body>
+<header><a class="logo" href="https://co.computrabajo.com">Computrabajo</a><span class="usuario">Ana</span></header>
+<main>
+  <!--CAPTCHA-->
+  <form id="kqForm">
+    <div class="field"><label for="nombre">Nombre completo *</label><input id="nombre" name="nombre_completo" required></div>
+    <div class="field"><label for="correo">Correo</label><input id="correo" name="correo" type="email"></div>
+    <div class="field"><label for="salario">Aspiración salarial</label><input id="salario" name="salario" type="number"></div>
+    <div class="field"><label for="ciudad">¿En qué ciudad vives?</label>
+      <select id="ciudad" name="ciudad" required>
+        <option value="">Selecciona…</option><option value="bog">Bogotá</option><option value="med">Medellín</option><option value="cal">Cali</option>
+      </select></div>
+    <fieldset><legend>¿Qué modalidad prefieres?</legend>
+      <label><input type="radio" name="modalidad" value="p" required> Presencial</label>
+      <label><input type="radio" name="modalidad" value="h"> Híbrida</label>
+      <label><input type="radio" name="modalidad" value="r"> Remota</label>
+    </fieldset>
+    <div class="field"><label><input type="checkbox" name="acepta" value="si"> Tengo disponibilidad inmediata</label></div>
+    <div class="field"><label for="motivo">¿Por qué te interesa?</label><textarea id="motivo" name="motivo"></textarea></div>
+    <div class="field"><label for="cv">Adjunta tu hoja de vida</label><input id="cv" name="cv" type="file" accept=".pdf"></div>
+    <button type="submit" class="b_primary">Postularme</button>
+  </form>
+  <p id="hecho" hidden>¡Te has postulado con éxito!</p>
+</main>
+<script>
+  document.getElementById("kqForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await fetch("https://candidato.co.computrabajo.com/recibir", { method: "POST", body: new FormData(e.target) });
+    e.target.hidden = true;
+    document.getElementById("hecho").hidden = false;
+  });
+</script>
+</body></html>
