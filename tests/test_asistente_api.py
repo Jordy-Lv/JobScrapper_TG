@@ -120,6 +120,12 @@ def test_pagina_de_vinculo_lleva_el_codigo(entorno):
     assert r.status_code == 200 and f'data-codigo="{codigo}"' in r.text
 
 
+def test_politica_de_privacidad_publica(entorno):
+    _, cliente = entorno
+    r = cliente.get("/api/v1/privacidad")
+    assert r.status_code == 200 and "contraseñas" in r.text and "/borrarme" in r.text
+
+
 def test_token_invalido_401(entorno):
     _, cliente = entorno
     cab = {"Authorization": "Bearer x"}

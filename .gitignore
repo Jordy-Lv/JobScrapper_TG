@@ -17,3 +17,4 @@ __pycache__/
 
 # Configuración propia de cada PC (bot, URL pública, rutas)
 config.local.yaml
+dist/

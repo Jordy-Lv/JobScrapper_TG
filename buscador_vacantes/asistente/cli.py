@@ -33,9 +33,37 @@ def agregar_subcomandos(sub: argparse._SubParsersAction) -> None:
     enlace.add_argument("clave", help="clave de la vacante, p. ej. computrabajo:ABC123")
     selectores = acciones.add_parser("selectores", help="selectores de los portales")
     selectores.add_argument("operacion", choices=["recargar"])
+    paquete = acciones.add_parser(
+        "empaquetar-extension", help="arma el .zip de la extensión para la tienda de Edge"
+    )
+    paquete.add_argument("--destino", default="dist", help="carpeta de salida (por defecto dist)")
+
+
+def empaquetar_extension(origen: Path, destino: Path) -> Path:
+    """Zip con manifest.json en la raíz, en orden fijo y sin archivos ocultos."""
+    import json
+    import zipfile
+
+    version = json.loads((origen / "manifest.json").read_text(encoding="utf-8"))["version"]
+    destino.mkdir(parents=True, exist_ok=True)
+    salida = destino / f"asistente-postulacion-{version}.zip"
+    archivos = sorted(
+        p for p in origen.rglob("*")
+        if p.is_file() and not any(parte.startswith(".") for parte in p.relative_to(origen).parts)
+    )  # fmt: skip
+    with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as z:
+        for archivo in archivos:
+            info = zipfile.ZipInfo(archivo.relative_to(origen).as_posix(), (2026, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, archivo.read_bytes())
+    return salida
 
 
 def ejecutar(args: argparse.Namespace) -> int:
+    if args.accion == "empaquetar-extension":
+        salida = empaquetar_extension(cfg.RAIZ / "extension", Path(args.destino))
+        print(f"Paquete listo: {salida}")
+        return 0
     try:
         from buscador_vacantes.asistente import cifrado
         from buscador_vacantes.asistente.datos import BaseAsistente

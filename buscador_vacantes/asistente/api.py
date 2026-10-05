@@ -166,6 +166,53 @@ unos segundos.</p>
 el código <code>{visible}</code> (vence en 10 minutos).</p>
 </body></html>"""
 
+PAGINA_PRIVACIDAD = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad · Asistente de postulación</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;
+color:#1f2937;line-height:1.55}h1{color:#1f3a5f;font-size:1.5rem}h2{color:#1f3a5f;
+font-size:1.1rem;margin-top:1.8em}</style></head>
+<body><h1>Política de privacidad de la extensión «Asistente de postulación»</h1>
+<p>Última actualización: 4 de octubre de 2026.</p>
+<p>La extensión es parte de un asistente privado para los miembros del canal de Telegram
+«JOBS - PRÁCTICAS/APRENDIZ». Postula a vacantes de Computrabajo y Magneto desde el navegador
+del propio usuario, con su sesión, cuando el usuario lo pide desde el bot de Telegram.</p>
+<h2>Qué datos usa la extensión</h2>
+<ul>
+<li><b>Token del navegador</b>: un código aleatorio que se guarda en el navegador para
+identificarlo ante el servidor del asistente. El servidor solo guarda su huella (hash).</li>
+<li><b>Estado de los portales</b>: si hay una sesión iniciada en Computrabajo o Magneto y el
+correo de esa cuenta, para no postular con la cuenta de otra persona.</li>
+<li><b>Preguntas de los formularios de postulación</b>: su texto y opciones se envían al
+servidor para obtener las respuestas del perfil del usuario.</li>
+<li><b>Registro de cada paso</b> y, si algo falla, el HTML del formulario <b>con los valores
+escritos borrados</b>, para corregir el asistente.</li>
+</ul>
+<h2>Qué datos NO usa</h2>
+<ul>
+<li>No lee ni envía contraseñas, cookies, ni el almacenamiento de los portales.</li>
+<li>No lee el historial de navegación ni ninguna página fuera de Computrabajo, Magneto y el
+servidor del asistente.</li>
+<li>No toma capturas de pantalla ni graba lo que el usuario hace.</li>
+<li>No descarga ni ejecuta código remoto: solo recibe datos (selectores y respuestas).</li>
+<li>No vende ni comparte datos con terceros, ni muestra publicidad.</li>
+</ul>
+<h2>Dónde se guardan</h2>
+<p>En el servidor privado del asistente (un equipo del administrador), en una base de datos
+local. Los correos de las cuentas de los portales y las claves de IA se guardan cifrados. El
+servidor nunca recibe contraseñas ni sesiones de los portales.</p>
+<h2>Cuánto tiempo</h2>
+<p>El registro de las postulaciones se conserva 90 días y la evidencia de errores 30 días.
+Una cuenta sin uso durante 12 meses se elimina.</p>
+<h2>Tus derechos</h2>
+<p>Puedes ver tus datos con <code>/perfil</code> e <code>/historial</code> en el bot, revocar
+un navegador con <code>/navegadores</code> y borrar todos tus datos en cualquier momento con
+<code>/borrarme</code>. Al desinstalar la extensión se borra todo lo que guardó en el
+navegador.</p>
+<h2>Contacto</h2>
+<p>Escribe al administrador del canal por Telegram o al bot del asistente.</p>
+</body></html>"""
+
 
 # --- aplicación -----------------------------------------------------------------------------
 
@@ -208,6 +255,10 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             visible=html.escape(vinculos.mostrar_codigo(codigo)),
             api=html.escape(nucleo.config.api.url_publica + PREFIJO),
         )
+
+    @app.get(PREFIJO + "/privacidad", response_class=HTMLResponse)
+    async def privacidad():
+        return PAGINA_PRIVACIDAD
 
     @app.post(PREFIJO + "/vincular")
     async def vincular(cuerpo: Vincular, request: Request):
