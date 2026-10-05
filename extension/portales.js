@@ -1,6 +1,6 @@
 // Datos fijos de la extensión: no los cambia el servidor.
 
-export const SERVIDOR_DEFECTO = "https://fedora.tailf6cdf1.ts.net";
+export const SERVIDOR_DEFECTO = "https://postulador.tailf6cdf1.ts.net";
 
 // Dominios en los que el motor puede operar, por plataforma
 export const DOMINIOS = {

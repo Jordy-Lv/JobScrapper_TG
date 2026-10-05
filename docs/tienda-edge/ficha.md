@@ -12,8 +12,8 @@ con `uv run --group asistente buscador.py asistente empaquetar-extension` →
 ## Propiedades
 
 - **Categoría:** Productividad.
-- **Política de privacidad:** sí, `https://fedora.tailf6cdf1.ts.net/api/v1/privacidad`
-- **Sitio web:** `https://fedora.tailf6cdf1.ts.net/api/v1/privacidad`
+- **Política de privacidad:** sí, `https://postulador.tailf6cdf1.ts.net/api/v1/privacidad`
+- **Sitio web:** `https://postulador.tailf6cdf1.ts.net/api/v1/privacidad`
 - **Contacto de soporte:** el correo de la cuenta de Partner Center.
 - **Contenido para adultos:** no.
 
@@ -60,7 +60,7 @@ private job-offers channel in Colombia. It only works after the user links it fr
 
 What it does: when the user taps "Apply" on a job in the Telegram channel, the extension opens
 that job page on computrabajo.com or magneto365.com in a background tab, reads the form
-questions, sends them to the bot's server (fedora.tailf6cdf1.ts.net) to get the user's own
+questions, sends them to the bot's server (postulador.tailf6cdf1.ts.net) to get the user's own
 answers, fills the form, attaches the user's CV (PDF) and submits it.
 
 Permissions:
@@ -73,4 +73,4 @@ Permissions:
 
 No remote code: the server only sends data (CSS selectors and texts as JSON), interpreted by
 the bundled scripts. No passwords, cookies, history or screenshots are collected. Privacy
-policy: https://fedora.tailf6cdf1.ts.net/api/v1/privacidad
+policy: https://postulador.tailf6cdf1.ts.net/api/v1/privacidad

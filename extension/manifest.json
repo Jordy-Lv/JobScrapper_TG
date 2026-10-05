@@ -14,7 +14,7 @@
   "host_permissions": [
     "https://*.computrabajo.com/*",
     "https://*.magneto365.com/*",
-    "https://fedora.tailf6cdf1.ts.net/*"
+    "https://postulador.tailf6cdf1.ts.net/*"
   ],
   "optional_host_permissions": [
     "https://*.ts.net/*"
@@ -40,5 +40,5 @@
     "48": "iconos/48.png",
     "128": "iconos/128.png"
   },
-  "homepage_url": "https://fedora.tailf6cdf1.ts.net/api/v1/privacidad"
+  "homepage_url": "https://postulador.tailf6cdf1.ts.net/api/v1/privacidad"
 }

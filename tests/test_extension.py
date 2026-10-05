@@ -288,7 +288,7 @@ def test_manifiesto_con_permisos_minimos():
     assert set(manifiesto["permissions"]) == {"storage", "tabs", "alarms", "scripting"}
     for origen in manifiesto["host_permissions"]:
         assert origen.startswith(("https://*.computrabajo.com", "https://*.magneto365.com",
-                                  "https://fedora."))  # fmt: skip
+                                  "https://postulador."))  # fmt: skip
     todo = json.dumps(manifiesto)
     for prohibido in ("<all_urls>", "cookies", "history", "webRequest", "*://*/*"):
         assert prohibido not in todo
