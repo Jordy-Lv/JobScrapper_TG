@@ -220,6 +220,7 @@ class AsistenteExtension(Modelo):
 
 class AsistenteGrupo(Modelo):
     chat_id: str = ""  # vacío: el TELEGRAM_CHAT_ID del buscador
+    enlace: str = ""  # invitación al grupo; vacío: enlace t.me/c al chat (abre para miembros)
     comprobar_cada_h: float = Field(24, gt=0)
     cache_min: float = Field(10, ge=0)
 

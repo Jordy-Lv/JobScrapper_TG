@@ -275,9 +275,118 @@ h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 
 /* --- pie ------------------------------------------------------------------------------- */
 
-.pie { margin-top: 12px; padding: 0 2px; font-size: 11px; color: var(--tenue); }
+.pie { margin-top: 12px; padding: 0 52px 0 2px; font-size: 11px; color: var(--tenue); }
 .pie p { margin: 0 0 6px; }
 .ultima { color: var(--suave); }
 .ultima:empty { display: none; }
 .pie a { color: var(--suave); text-decoration: none; }
 .pie a:hover { color: var(--texto); }
+
+/* --- botón de chat (bot y grupo de Telegram) -------------------------------------------- */
+
+.boton-chat {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #3ea6f7, #2c8fe8);
+  box-shadow: 0 6px 18px rgba(44, 143, 232, 0.45);
+  transition: transform 0.12s, box-shadow 0.15s;
+}
+.boton-chat:hover { box-shadow: 0 8px 22px rgba(44, 143, 232, 0.65); }
+.boton-chat:active { transform: scale(0.93); }
+.boton-chat svg { width: 19px; height: 19px; fill: #fff; }
+
+/* --- panel: cubre el popup con el fondo difuminado y la tarjeta encima --------------------- */
+
+.panel-chat { position: fixed; inset: 0; z-index: 10; }
+
+.fondo-chat {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 8, 16, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.tarjeta-chat {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #121a2e;
+  border: 1px solid var(--borde);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+}
+
+.cab-chat { display: flex; align-items: center; gap: 9px; }
+
+.ico-tg {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #3ea6f7, #2c8fe8);
+  flex-shrink: 0;
+}
+.ico-tg svg { width: 15px; height: 15px; fill: #fff; }
+
+.tit-chat { flex: 1; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+
+#cerrar-chat {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--suave);
+  font-size: 12px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+#cerrar-chat:hover { background: rgba(255, 255, 255, 0.12); color: var(--texto); }
+
+.sub-chat { margin: 10px 0 8px; font-size: 12px; color: var(--suave); }
+
+.fila-chat {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  border-radius: 12px;
+  border: 1px solid var(--borde);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 7px;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+.fila-chat:last-of-type { margin-bottom: 0; }
+.fila-chat:hover { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.16); }
+
+.ico-fila {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.ico-fila.bot { background: rgba(251, 191, 36, 0.14); }
+.ico-fila.grupo { background: rgba(167, 139, 250, 0.16); }
+
+.info-fila { flex: 1; min-width: 0; }
+.info-fila b { display: block; font-size: 12.5px; }
+.info-fila small { display: block; font-size: 11px; color: var(--suave); margin-top: 1px; }
+
+.accion-fila { flex-shrink: 0; font-size: 11.5px; font-weight: 700; color: var(--azul); }

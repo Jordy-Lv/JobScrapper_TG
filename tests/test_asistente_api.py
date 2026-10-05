@@ -262,3 +262,27 @@ def test_token_revocado(entorno):
 def test_sin_valores():
     texto = sin_valores('<input type="text" value="secreto"><textarea id=x>dato</textarea>')
     assert "secreto" not in texto and "dato" not in texto
+
+
+def test_latido_entrega_los_enlaces_del_bot_y_el_grupo(entorno):
+    nucleo, cliente = entorno
+    nucleo.enlace_grupo = "https://t.me/c/4429829042/1"
+    cab = vincular(nucleo, cliente)
+    r = cliente.post("/api/v1/latido", headers=cab, json={"version": "1.0.0"}).json()
+    assert r["enlaces"]["grupo"] == "https://t.me/c/4429829042/1"
+    bot = nucleo.config.bot_usuario
+    assert r["enlaces"]["bot"] == (f"https://t.me/{bot}" if bot else None)
+
+
+def test_enlace_del_grupo():
+    from buscador_vacantes.asistente.servicio import enlace_grupo
+
+    config = cargar_configuracion().asistente
+    secretos = type("S", (), {"telegram_chat_id": "-1004429829042"})()
+    assert enlace_grupo(config, secretos) == "https://t.me/c/4429829042/1"
+    con_invitacion = config.model_copy(
+        update={"grupo": config.grupo.model_copy(update={"enlace": "https://t.me/+abc"})}
+    )
+    assert enlace_grupo(con_invitacion, secretos) == "https://t.me/+abc"
+    secretos.telegram_chat_id = "@canal"
+    assert enlace_grupo(config, secretos) is None

@@ -56,9 +56,23 @@ def construir_nucleo(configuracion: cfg.Configuracion, secretos: cfg.Secretos) -
     detalles = Detalles(base, ro, asistente.detalle, configuracion.red)
     gemini = ClienteGemini(asistente.gemini, base, asistente.topes.ia_usuario_dia)
     nucleo = Nucleo(configuracion, base, indice, detalles, gemini, cifrador, archivos)
+    nucleo.enlace_grupo = enlace_grupo(asistente, secretos)
     sembrar_banco(base, ahora_utc())
     nucleo.cargar_selectores()
     return nucleo
+
+
+def enlace_grupo(asistente: cfg.Asistente, secretos: cfg.Secretos) -> str | None:
+    """Enlace al grupo de vacantes para la extensión.
+
+    Sin invitación configurada se usa t.me/c/<id>, que Telegram abre solo a los miembros.
+    """
+    if asistente.grupo.enlace:
+        return asistente.grupo.enlace
+    chat = str(asistente.grupo.chat_id or secretos.telegram_chat_id or "")
+    if chat.startswith("-100") and chat[4:].isdigit():
+        return f"https://t.me/c/{chat[4:]}/1"
+    return None
 
 
 class Servicio:

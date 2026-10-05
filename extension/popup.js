@@ -175,5 +175,32 @@ $("pausar").addEventListener("click", async () => {
   pintar();
 });
 
+// Botón de chat: accesos al bot y al grupo de Telegram (los enlaces los da el servidor)
+const ENLACES_DEFECTO = { bot: "https://t.me/PostuladorJobs_Bot", grupo: null };
+
+async function enlaces() {
+  const { enlaces: guardados = {} } = await chrome.storage.local.get("enlaces");
+  return { ...ENLACES_DEFECTO, ...Object.fromEntries(Object.entries(guardados).filter(([, v]) => v)) };
+}
+
+function alternarPanel(abrir) {
+  const panel = $("panel-chat");
+  const mostrar = abrir ?? panel.hidden;
+  panel.hidden = !mostrar;
+  $("boton-chat").setAttribute("aria-expanded", String(mostrar));
+}
+
+$("boton-chat").addEventListener("click", async () => {
+  $("ir-grupo").hidden = !(await enlaces()).grupo;
+  alternarPanel(true);
+});
+$("cerrar-chat").addEventListener("click", () => alternarPanel(false));
+document.querySelector(".fondo-chat").addEventListener("click", () => alternarPanel(false));
+$("ir-bot").addEventListener("click", async () => chrome.tabs.create({ url: (await enlaces()).bot }));
+$("ir-grupo").addEventListener("click", async () => chrome.tabs.create({ url: (await enlaces()).grupo }));
+document.addEventListener("keydown", (evento) => {
+  if (evento.key === "Escape") alternarPanel(false);
+});
+
 chrome.storage.onChanged.addListener(pintar);
 pintar();

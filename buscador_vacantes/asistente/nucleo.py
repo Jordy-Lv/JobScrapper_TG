@@ -98,6 +98,7 @@ class Nucleo:
         self.gemini = gemini
         self.cifrador = cifrador
         self.archivos = archivos
+        self.enlace_grupo: str | None = None  # lo fija servicio.construir_nucleo
         self.reloj = reloj
         self.cola = Cola(base, self.config)
         self.cuentas = CuentasPortal(base, cifrador)

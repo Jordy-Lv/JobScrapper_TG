@@ -350,6 +350,13 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             "selectores": selectores,
             "cuentas": cuentas_ok,
             "latido_s": nucleo.config.extension.latido_s,
+            # Accesos del botón de chat del popup
+            "enlaces": {
+                "bot": f"https://t.me/{nucleo.config.bot_usuario}"
+                if nucleo.config.bot_usuario
+                else None,
+                "grupo": getattr(nucleo, "enlace_grupo", None),
+            },
         }
 
     @app.get(PREFIJO + "/selectores/{plataforma}")

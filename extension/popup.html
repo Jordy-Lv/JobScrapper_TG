@@ -41,6 +41,30 @@
     <p class="nota">Inicias sesión en la página de cada portal; la extensión nunca ve tu contraseña.</p>
     <a href="opciones.html" target="_blank">Opciones</a>
   </footer>
+  <button id="boton-chat" class="boton-chat" type="button" title="Telegram" aria-label="Abrir el bot o el grupo de Telegram" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.9 4.3 3.3 11.6c-1 .4-1 1.9.1 2.2l4.3 1.3 1.6 5.1c.3.9 1.4 1.1 2 .4l2.4-2.6 4.5 3.3c.8.6 2 .2 2.2-.8l3-14.2c.3-1.2-1-2.1-2.1-1.7z"/></svg>
+  </button>
+  <div id="panel-chat" class="panel-chat" hidden>
+    <div class="fondo-chat"></div>
+    <div class="tarjeta-chat" role="dialog" aria-label="Comunidad de Telegram">
+      <div class="cab-chat">
+        <span class="ico-tg"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.9 4.3 3.3 11.6c-1 .4-1 1.9.1 2.2l4.3 1.3 1.6 5.1c.3.9 1.4 1.1 2 .4l2.4-2.6 4.5 3.3c.8.6 2 .2 2.2-.8l3-14.2c.3-1.2-1-2.1-2.1-1.7z"/></svg></span>
+        <span class="tit-chat">Comunidad de Telegram</span>
+        <button id="cerrar-chat" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <p class="sub-chat">Acceso oficial a Telegram:</p>
+      <button id="ir-bot" class="fila-chat" type="button">
+        <span class="ico-fila bot">🤖</span>
+        <span class="info-fila"><b>Bot del asistente</b><small>Vincular navegador y subir CV</small></span>
+        <span class="accion-fila">Abrir ↗</span>
+      </button>
+      <button id="ir-grupo" class="fila-chat" type="button">
+        <span class="ico-fila grupo">📣</span>
+        <span class="info-fila"><b>Grupo de vacantes</b><small>Canal oficial de vacantes TI y prácticas</small></span>
+        <span class="accion-fila">Unirse ↗</span>
+      </button>
+    </div>
+  </div>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

@@ -901,6 +901,7 @@ asistente:
     navegador_caido_min: 2
   grupo:
     chat_id: ""              # vacío: el TELEGRAM_CHAT_ID del buscador (el grupo privado)
+    enlace: ""               # invitación al grupo para la extensión; vacío: t.me/c/<id>
     comprobar_cada_h: 24
     cache_min: 10
   politica:

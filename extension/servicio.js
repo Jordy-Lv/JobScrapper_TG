@@ -86,7 +86,7 @@ async function enviarLatido(portales) {
   }
   try {
     const r = await llamar("POST", "/latido", cuerpo);
-    await chrome.storage.local.set({ selectores_version: r.selectores || {} });
+    await chrome.storage.local.set({ selectores_version: r.selectores || {}, enlaces: r.enlaces || {} });
     await guardarEstado({
       en_linea: true, ultimo_latido: Date.now(), actualizar: r.actualizar,
       version_minima: r.version_minima, cuentas: r.cuentas, error: null,
