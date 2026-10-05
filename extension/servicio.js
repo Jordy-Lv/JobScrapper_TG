@@ -81,7 +81,8 @@ async function latidoUnico({ forzarRevision = false } = {}) {
 async function enviarLatido(portales) {
   const cuerpo = { version: version(), portales: {} };
   for (const [plataforma, p] of Object.entries(portales)) {
-    cuerpo.portales[plataforma] = { estado: p.estado, correo: p.correo || null };
+    cuerpo.portales[plataforma] = { estado: p.estado, correo: p.correo || null,
+      pagina_correo: p.pagina_correo || null };
   }
   try {
     const r = await llamar("POST", "/latido", cuerpo);
@@ -139,32 +140,59 @@ async function estadoPortales(forzar, soloPlataforma = null) {
   return portales;
 }
 
-// Abre la página de la cuenta del portal en segundo plano y lee sesión, correo y perfil
+// Revisa el portal en una ventana minimizada: primero la sesión en la página principal (donde
+// el botón "Ingresar" delata que no hay sesión) y luego el correo de la cuenta, en las páginas
+// de cuenta conocidas o siguiendo los enlaces "Mi cuenta", "Mi perfil"… del propio portal.
+const MAX_PAGINAS_CORREO = 5;
+
 async function revisarPortal(plataforma) {
   const sel = await selectores(plataforma);
-  const urls = [sel.cuenta && sel.cuenta.url, sel.perfil && sel.perfil.url]
-    .filter((u, i, lista) => u && lista.indexOf(u) === i);
-  if (!urls.length) throw new Error(`sin página de cuenta para ${plataforma}`);
-  const pestana = await abrirPestana(urls[0]);
+  const sesion = sel.sesion || {};
+  const cuenta = sel.cuenta || {};
+  const inicio = sesion.url || cuenta.url || (cuenta.urls || [])[0];
+  if (!inicio) throw new Error(`sin página para revisar ${plataforma}`);
+  const pestana = await abrirPestana(inicio);
   try {
-    let resultado = null;
-    for (const [i, url] of urls.entries()) {
-      if (i > 0) await navegar(pestana.id, url);
-      const tab = await chrome.tabs.get(pestana.id);
-      if (plataformaDeUrl(tab.url) !== plataforma) return { estado: "sin_sesion", correo: null };
+    let tab = await chrome.tabs.get(pestana.id);
+    if (plataformaDeUrl(tab.url) !== plataforma) return { estado: "sin_sesion", correo: null };
+    await inyectar(pestana.id, plataforma);
+    const s = await enPestana(
+      pestana.id, (ss) => globalThis.__asistente.revisar(ss, { secciones: false }), sel,
+    );
+    if (s.estado === "sin_sesion") return { estado: "sin_sesion", correo: null };
+    let correo = s.correo;
+    let origen = correo ? tab.url : null;
+    const pendientes = [...(cuenta.urls || (cuenta.url ? [cuenta.url] : []))];
+    pendientes.push(...(await enPestana(
+      pestana.id, (ss) => globalThis.__asistente.enlacesCuenta(ss), sel,
+    )));
+    const vistas = new Set([tab.url.split("#")[0]]);
+    for (let i = 0; !correo && i < pendientes.length && vistas.size <= MAX_PAGINAS_CORREO; i++) {
+      const url = pendientes[i].split("#")[0];
+      if (vistas.has(url) || !paginaPermitida(url, plataforma)) continue;
+      vistas.add(url);
+      try {
+        await navegar(pestana.id, url);
+      } catch (error) {
+        continue;
+      }
+      tab = await chrome.tabs.get(pestana.id);
+      if (!paginaPermitida(tab.url, plataforma)) continue;
       await inyectar(pestana.id, plataforma);
-      const parcial = await enPestana(pestana.id, (s) => globalThis.__asistente.revisar(s), sel);
-      if (parcial.estado === "sin_sesion") return { estado: "sin_sesion", correo: null };
-      resultado = resultado
-        ? { ...resultado, correo: resultado.correo || parcial.correo,
-            secciones: { ...resultado.secciones, ...parcial.secciones } }
-        : parcial;
+      const r = await enPestana(pestana.id, (ss) => globalThis.__asistente.buscarCorreo(ss), sel);
+      if (r.sin_sesion) return { estado: "sin_sesion", correo: null };
+      if (r.correo) {
+        correo = r.correo;
+        origen = tab.url;
+      } else {
+        pendientes.push(...r.enlaces);
+      }
     }
-    const incompleto = Object.values(resultado.secciones || {}).some((ok) => !ok);
-    return { estado: incompleto ? "incompleto" : "listo", correo: resultado.correo,
-      secciones: resultado.secciones };
+    // Dónde se encontró el correo (solo la ruta): sirve para fijar el selector en el servidor
+    const pagina_correo = origen ? new URL(origen).pathname : null;
+    return { estado: "listo", correo: correo || null, pagina_correo };
   } finally {
-    chrome.tabs.remove(pestana.id).catch(() => {});
+    cerrarPestana(pestana);
   }
 }
 
@@ -172,15 +200,29 @@ async function revisarPortal(plataforma) {
 
 // Pestaña en segundo plano: se crea vacía y luego navega, así la carga es igual a cualquier
 // navegación posterior (y las pruebas pueden servir las páginas del portal)
+// Se abre en una ventana minimizada aparte para no mover las pestañas del usuario; si el
+// portal pide una verificación, esa ventana se muestra (ver esperarVerificacion).
 async function abrirPestana(url) {
-  const pestana = await chrome.tabs.create({ url: "about:blank", active: false });
+  let pestana;
+  try {
+    const ventana = await chrome.windows.create({
+      url: "about:blank", focused: false, state: "minimized",
+    });
+    pestana = ventana.tabs[0];
+  } catch (error) {
+    pestana = await chrome.tabs.create({ url: "about:blank", active: false });
+  }
   try {
     await navegar(pestana.id, url);
   } catch (error) {
-    chrome.tabs.remove(pestana.id).catch(() => {});
+    cerrarPestana(pestana);
     throw error;
   }
   return pestana;
+}
+
+function cerrarPestana(pestana) {
+  chrome.tabs.remove(pestana.id).catch(() => {});
 }
 
 async function navegar(tabId, url) {
@@ -197,8 +239,10 @@ function esperarCargaNueva(tabId, ms = CARGA_MS) {
       chrome.tabs.onUpdated.removeListener(oyente);
       rechazar(new Error("la página no cargó"));
     }, ms);
-    function oyente(id, cambio) {
+    function oyente(id, cambio, tab) {
       if (id !== tabId) return;
+      // La carga inicial de una ventana o pestaña nueva (about:blank) no cuenta
+      if (tab && tab.url === "about:blank") return;
       if (cambio.status === "loading") cargando = true;
       if (cargando && cambio.status === "complete") {
         clearTimeout(fin);
@@ -271,7 +315,7 @@ async function ejecutar(trabajo) {
     await terminar(id, "fallida", { motivo: String(error.message || error).slice(0, 400) });
   } finally {
     await guardarEstado({ trabajo_actual: null });
-    if (cerrar) chrome.tabs.remove(pestana.id).catch(() => {});
+    if (cerrar) cerrarPestana(pestana);
   }
 }
 
@@ -409,7 +453,7 @@ async function esperarVerificacion(tabId, id, sel, plataforma) {
   const { sondeo_captcha_ms, verificacion_max_ms } = await opciones();
   await llamar("POST", `/postulaciones/${id}/verificacion`, { estado: "pendiente" }).catch(() => {});
   const tab = await chrome.tabs.update(tabId, { active: true });
-  chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  chrome.windows.update(tab.windowId, { state: "normal", focused: true }).catch(() => {});
   const limite = Date.now() + verificacion_max_ms;
   while (Date.now() < limite) {
     await new Promise((r) => setTimeout(r, sondeo_captcha_ms));

@@ -1,5 +1,5 @@
 {
-  "version": "2026.10.04-1",
+  "version": "2026.10.05-1",
   "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (clase applyButton_apply-btn, módulos CSS con sufijo variable) y enlace a login.magneto365.com. Las páginas con sesión (formulario, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1).",
   "verificado": {
     "vacante": true,
@@ -18,16 +18,21 @@
         "texto": "ingresa a tu cuenta"
       }
     ],
-    "iniciada": []
+    "iniciada": [],
+    "url": "https://www.magneto365.com/co"
   },
   "cuenta": {
-    "url": "https://www.magneto365.com/co/perfil",
+    "urls": [
+      "https://www.magneto365.com/co/mi-cuenta",
+      "https://www.magneto365.com/co/perfil"
+    ],
     "correo": [
       "input[type='email']",
       "input[name*='mail' i]",
       "[class*='email' i]",
       "[class*='mail' i]"
-    ]
+    ],
+    "nota": "si ninguna URL muestra el correo, la extensión sigue los enlaces 'Mi cuenta', 'Mi perfil'… del portal y reporta en qué ruta lo encontró (pagina_correo) para fijarla aquí"
   },
   "perfil": {
     "url": "https://www.magneto365.com/co/perfil",

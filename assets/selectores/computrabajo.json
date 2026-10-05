@@ -1,5 +1,5 @@
 {
-  "version": "2026.10.04-1",
+  "version": "2026.10.05-1",
   "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1).",
   "verificado": {
     "vacante": true,
@@ -16,17 +16,22 @@
       "a.js_login[data-access-menu]",
       "a[href*='candidato.co.computrabajo.com/acceso']"
     ],
-    "iniciada": []
+    "iniciada": [],
+    "url": "https://co.computrabajo.com/"
   },
   "cuenta": {
-    "url": "https://candidato.co.computrabajo.com/candidate/configuration/",
+    "urls": [
+      "https://candidato.co.computrabajo.com/candidate/home",
+      "https://candidato.co.computrabajo.com/candidate/configuration/"
+    ],
     "correo": [
       "[data-candidate-email]",
       "input[type='email']",
       "input[name*='mail' i]",
       ".email",
       "[class*='mail']"
-    ]
+    ],
+    "nota": "si ninguna URL muestra el correo, la extensión sigue los enlaces 'Mi cuenta', 'Mi perfil'… del portal y reporta en qué ruta lo encontró (pagina_correo) para fijarla aquí"
   },
   "perfil": {
     "url": "https://candidato.co.computrabajo.com/candidate/cv/",

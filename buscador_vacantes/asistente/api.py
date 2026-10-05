@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import re
 import secrets
 import time
@@ -29,6 +30,8 @@ from buscador_vacantes.asistente.cuentas_portal import CuentasPortal, EstadoCuen
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.respuestas import Pregunta, Respuesta
 from buscador_vacantes.estado import a_texto
+
+log = logging.getLogger(__name__)
 
 PREFIJO = "/api/v1"
 MAX_CUERPO = 512 * 1024
@@ -80,6 +83,7 @@ class Vincular(BaseModel):
 class Portal(BaseModel):
     estado: str = Field(pattern="^(sin_sesion|incompleto|listo)$")
     correo: str | None = Field(None, max_length=254)
+    pagina_correo: str | None = Field(None, max_length=300)  # ruta donde se leyó el correo
 
 
 class Latido(BaseModel):
@@ -289,6 +293,9 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             if portal.estado == "sin_sesion":
                 cuentas_ok[plataforma] = False
                 continue
+            if portal.pagina_correo:
+                # Solo la ruta, sin el correo: indica qué página fijar en los selectores
+                log.info("Correo de %s leído en %s", plataforma, portal.pagina_correo)
             verificacion = nucleo.cuentas.verificar(
                 nav.usuario_id, plataforma, portal.correo, ahora
             )

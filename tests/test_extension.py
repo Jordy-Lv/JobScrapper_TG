@@ -188,6 +188,9 @@ MATCH = "https://candidato.co.computrabajo.com/match/?oi=PRUEBA&p=57&idb=1&d=33"
 CUENTA_CT = "https://candidato.co.computrabajo.com/candidate/configuration/"
 PERFIL_CT = "https://candidato.co.computrabajo.com/candidate/cv/"
 CUENTA_MG = "https://www.magneto365.com/co/perfil"
+INICIO_CT = "https://co.computrabajo.com/"
+INICIO_MG = "https://www.magneto365.com/co"
+MI_CUENTA_CT = "https://candidato.co.computrabajo.com/candidate/micuenta/"
 
 
 class Navegador:
@@ -254,6 +257,8 @@ def portales_listos() -> Portales:
     p.poner(CUENTA_CT, "ct_cuenta.html")
     p.poner(PERFIL_CT, "ct_cuenta.html")
     p.poner(CUENTA_MG, "mg_sin_sesion.html")  # Magneto: sin sesión
+    p.poner(INICIO_CT, "ct_cuenta.html")
+    p.poner(INICIO_MG, "mg_sin_sesion.html")
     return p
 
 
@@ -351,7 +356,8 @@ def test_latido_informa_sesion_y_correo_de_cada_portal(tmp_path, api):
 
     correr(flujo())
     portales = api.de("latido")[-1]["portales"]
-    assert portales["computrabajo"] == {"estado": "listo", "correo": "ana.perez@gmail.com"}
+    assert portales["computrabajo"]["estado"] == "listo"
+    assert portales["computrabajo"]["correo"] == "ana.perez@gmail.com"
     assert portales["magneto"]["estado"] == "sin_sesion"
 
 
@@ -623,3 +629,26 @@ def test_si_la_verificacion_falla_se_postula_con_el_existente(tmp_path, api):
                     existentes=["MiHojaVieja.pdf"], actualiza=False)  # fmt: skip
     assert "cv_verificar_fallo" in [p["paso"] for p in api.de("paso")]
     assert api.de("resultado")[0]["estado"] == "enviada"
+
+
+def test_el_correo_se_busca_siguiendo_mi_cuenta(tmp_path, api):
+    """Sin el correo en la página principal, se sigue el enlace "Mi cuenta" del portal; el
+    correo de soporte del portal no se confunde con el del usuario."""
+    portales = portales_listos()
+    portales.poner(INICIO_CT, "ct_home_sesion.html")
+    portales.poner(MI_CUENTA_CT, "ct_cuenta.html")
+    portales.paginas.pop(CUENTA_CT)  # la página de cuenta conocida no tiene el correo
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    ct = api.de("latido")[-1]["portales"]["computrabajo"]
+    assert ct["estado"] == "listo"
+    assert ct["correo"] == "ana.perez@gmail.com"
+    assert ct["pagina_correo"] == "/candidate/micuenta/"
+

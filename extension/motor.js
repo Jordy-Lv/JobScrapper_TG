@@ -420,12 +420,8 @@
     }
     const resultado = { estado: "listo", correo: null, secciones: {} };
     const cuenta = sel.cuenta || {};
-    if (cuenta.correo) {
-      const el = await esperar(cuenta.correo, 5000, { ocultos: true });
-      const texto = el ? (el.value || el.getAttribute("content") || el.textContent) : "";
-      const m = String(texto).match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/);
-      resultado.correo = m ? m[0].toLowerCase() : null;
-    }
+    if (cuenta.correo) await esperar(cuenta.correo, 3000, { ocultos: true });
+    resultado.correo = buscarCorreo(sel).correo || null;
     for (const [nombre, seccion] of Object.entries((sel.perfil || {}).secciones || {})) {
       if (datos.secciones === false) break;
       if (seccion.url && !location.href.startsWith(seccion.url)) continue;
@@ -434,6 +430,58 @@
       resultado.secciones[nombre] = completa && !vacia;
     }
     return resultado;
+  }
+
+  // --- correo de la cuenta ----------------------------------------------------------------
+
+  const CORREO = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/g;
+  // Correos del propio portal o de soporte, que no son del usuario
+  const AJENOS = /^(no-?reply|noreply|info|soporte|support|contacto|ayuda|help|servicio|atencion|privacidad|privacy|notificaciones|empleo|empresas)@/i;
+  const ENLACES_CUENTA = /mi cuenta|cuenta|configuraci|ajustes|datos de acceso|datos personales|mi perfil|perfil|hoja de vida|mi cv|account|settings|profile/;
+
+  function dominioPortal() {
+    return location.hostname.split(".").slice(-2).join(".");
+  }
+
+  function correoValido(c) {
+    const correo = c.toLowerCase();
+    return !AJENOS.test(correo) && !correo.endsWith("@" + dominioPortal())
+      && !/\.(png|jpe?g|gif|svg|webp)$/.test(correo);
+  }
+
+  function buscarCorreo(sel) {
+    if (sinSesion(sel)) return { sin_sesion: true };
+    const candidatos = [];
+    const el = buscar((sel.cuenta || {}).correo || [], { ocultos: true });
+    if (el) candidatos.push(el.value || el.getAttribute("content") || el.textContent || "");
+    document.querySelectorAll("input[type='email'], input[name*='mail' i], input[id*='mail' i]")
+      .forEach((i) => candidatos.push(i.value || ""));
+    candidatos.push(document.body ? document.body.innerText : "");
+    for (const texto of candidatos) {
+      const correo = (String(texto).match(CORREO) || []).find(correoValido);
+      if (correo) return { correo: correo.toLowerCase(), enlaces: [] };
+    }
+    return { correo: null, enlaces: enlacesCuenta() };
+  }
+
+  // Enlaces del mismo portal hacia la cuenta o el perfil del usuario
+  function enlacesCuenta() {
+    const salida = [];
+    for (const a of document.querySelectorAll("a[href]")) {
+      const texto = normalizar(a.textContent + " " + (a.getAttribute("title") || "") + " "
+        + (a.getAttribute("aria-label") || ""));
+      if (!ENLACES_CUENTA.test(texto)) continue;
+      let url;
+      try {
+        url = new URL(a.href, location.href);
+      } catch {
+        continue;
+      }
+      if (!url.hostname.endsWith(dominioPortal()) || url.protocol !== "https:") continue;
+      if (!salida.includes(url.href)) salida.push(url.href);
+      if (salida.length >= 8) break;
+    }
+    return salida;
   }
 
   const api = { buscar, esperar, visible, normalizar, hayTexto, htmlSinValores, leerCampos,
@@ -445,6 +493,8 @@
     },
     paso,
     revisar,
+    buscarCorreo,
+    enlacesCuenta,
     sesion: (sel) => ({ sin_sesion: sinSesion(sel), captcha: hayCaptcha(sel) }),
     html: () => htmlSinValores(),
     api,

@@ -40,9 +40,13 @@ async function pintarPortales(estado, portales, selectores_version, vinculado) {
       && (p === "computrabajo" || p === "magneto"));
     const info = portales[p];
     const li = document.createElement("li");
+    const logo = document.createElement("img");
+    logo.src = `logos/${p}.png`;
+    logo.alt = "";
+    logo.className = "logo";
     const nombre = document.createElement("b");
     nombre.textContent = NOMBRES[p];
-    li.append(nombre, " ");
+    li.append(logo, nombre, " ");
     if (!habilitada) {
       li.append(nota("próximamente"));
     } else if (!(await tienePermiso(p))) {
@@ -98,9 +102,12 @@ $("form-codigo").addEventListener("submit", async (evento) => {
 });
 
 $("revisar").addEventListener("click", async () => {
+  // La revisión abre cada portal en una ventana minimizada y tarda unos segundos
   $("revisar").disabled = true;
+  $("revisar").textContent = "Revisando…";
   await chrome.runtime.sendMessage({ tipo: "latido", revisar: true });
   $("revisar").disabled = false;
+  $("revisar").textContent = "Revisar portales";
   pintar();
 });
 
