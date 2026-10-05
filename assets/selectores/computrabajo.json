@@ -1,6 +1,6 @@
 {
-  "version": "2026.10.05-2",
-  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Con sesión (2026-10-05): [data-info-user] muestra el nombre del candidato; el correo está en candidato.co.computrabajo.com/candidate/home dentro de .header_popup strong; el enlace Ingresar (span.js_login) queda oculto.",
+  "version": "2026.10.05-3",
+  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Con sesión (2026-10-05): [data-info-user] muestra el nombre del candidato; el correo está en candidato.co.computrabajo.com/candidate/home dentro de .header_popup strong; el enlace Ingresar (span.js_login) queda oculto. Postulación real (2026-10-05, postulación 4): la página de 'Preguntas de selección' manda a un formulario en /candidate/kq (KillerQuestions[]) cuyo botón de envío es <input id=\"btnKiller\" type=\"submit\"> sin texto (motor.js no leía el value de los <input>, se corrigió); se agregó input#btnKiller como respaldo directo.",
   "verificado": {
     "vacante": true,
     "postulacion": false,
@@ -117,6 +117,7 @@
       "accion": "formulario",
       "contenedor": [
         "form#kqForm",
+        "form[action*='/candidate/kq']",
         "form[action*='match']",
         "main form",
         "form"
@@ -127,6 +128,7 @@
       "nombre": "enviar",
       "accion": "enviar",
       "selector": [
+        "input#btnKiller",
         {
           "css": "button, input[type='submit'], a.b_primary",
           "texto": "postularme"

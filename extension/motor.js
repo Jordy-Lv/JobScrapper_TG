@@ -28,6 +28,13 @@
     return el.getClientRects().length > 0;
   }
 
+  // Un <input> no tiene textContent: su texto visible (botones, submit) va en el atributo value
+  function textoVisible(el) {
+    if (!el) return "";
+    if (el.tagName === "INPUT" && el.value) return el.value;
+    return el.textContent || "";
+  }
+
   // Un selector es un string CSS o {css, texto} (el texto debe estar contenido, sin tildes)
   function candidatos(selector, raiz = document) {
     const def = typeof selector === "string" ? { css: selector } : selector;
@@ -39,7 +46,7 @@
     }
     if (def.texto) {
       const buscado = normalizar(def.texto);
-      lista = lista.filter((el) => normalizar(el.textContent).includes(buscado));
+      lista = lista.filter((el) => normalizar(textoVisible(el)).includes(buscado));
     }
     return lista;
   }
@@ -105,7 +112,7 @@
   // --- lectura de campos -----------------------------------------------------------------
 
   function textoDe(el) {
-    return el ? el.textContent.replace(/\s+/g, " ").trim() : "";
+    return el ? textoVisible(el).replace(/\s+/g, " ").trim() : "";
   }
 
   function etiqueta(el) {
