@@ -62,13 +62,25 @@ Durante el alta, el usuario SHALL enviar su CV en PDF (tamaño máximo configura
 - idiomas con su nivel;
 - certificaciones y enlaces (GitHub, portafolio, LinkedIn).
 
-El perfil extraído MUST mostrarse por secciones para que el usuario lo confirme o corrija con botones antes de guardarse. Un campo que el CV no trae MUST quedar vacío, nunca inventado.
+El perfil extraído MUST mostrarse en **un solo mensaje de resumen** con los datos de contacto encontrados (nombre, ciudad, correo, celular), formación, experiencia, proyectos, habilidades, idiomas y el enfoque propuesto, con dos botones: **Información correcta** y **Editar**.
+- Con **Información correcta**, el alta sigue sin ninguna pregunta más sobre el perfil.
+- Solo con **Editar** se revisa sección por sección, se ajusta el enfoque y se responde el cuestionario base completo.
+
+Un campo que el CV no trae MUST quedar vacío, nunca inventado.
 
 Si el archivo no es un PDF, supera el tamaño, no parece un CV o no se puede leer, el bot MUST explicarlo y pedir otro archivo. Si el usuario aún no tiene clave de Gemini, o la suya falla, MUST poder llenar el perfil a mano con preguntas guiadas.
 
 #### Scenario: CV legible
 - **WHEN** el usuario envía un PDF de 300 KB con su hoja de vida
-- **THEN** recibe su perfil por secciones con botones "Correcto" y "Corregir"
+- **THEN** recibe un solo resumen de su perfil con los botones "Información correcta" y "Editar"
+
+#### Scenario: Información correcta
+- **WHEN** el usuario pulsa "Información correcta"
+- **THEN** pasa al último paso del alta sin que se le pregunte nada más sobre su perfil
+
+#### Scenario: Editar
+- **WHEN** el usuario pulsa "Editar"
+- **THEN** revisa cada sección con "Correcto" o "Corregir", ajusta su enfoque y responde el cuestionario base
 
 #### Scenario: CV escaneado
 - **WHEN** el PDF es una imagen escaneada y el usuario confirma el envío del archivo completo
@@ -83,7 +95,7 @@ Si el archivo no es un PDF, supera el tamaño, no parece un CV o no se puede lee
 - **THEN** el bot ofrece llenar el perfil con preguntas guiadas
 
 ### Requirement: Datos de contacto y cuestionario base
-El perfil SHALL completarse con datos que el CV no siempre trae y que los formularios piden casi siempre:
+El perfil SHALL tomar del CV, sin preguntar, todo lo que este trae: nombre, ciudad, correo, celular, documento, si estudia actualmente y nivel de inglés. Lo que el CV no dice MUST NOT preguntarse durante el alta cuando el usuario confirma el resumen: se pregunta **una sola vez, cuando un formulario de postulación lo pida**, y queda guardado en su perfil para las siguientes. El cuestionario base completo se responde solo al elegir "Editar" o con `/cuestionario`. Los datos del cuestionario son los que los formularios piden casi siempre:
 - correo, teléfono y documento (opcional);
 - aspiración salarial;
 - disponibilidad de inicio y horario;
@@ -92,12 +104,16 @@ El perfil SHALL completarse con datos que el CV no siempre trae y que los formul
 - nivel de inglés;
 - equipo propio y conexión;
 - disponibilidad para trasladarse;
-- autorización para que el asistente actualice su hoja de vida en los portales con la versión adaptada a cada vacante (sí o no, modificable después en `/perfil`).
+- autorización para que el asistente actualice su hoja de vida en los portales con la versión adaptada a cada vacante (sí o no, modificable después en `/perfil`). Si el usuario no la ha dado, se le pregunta la primera vez que un portal la necesite.
 
 Cada pregunta del cuestionario MUST poder responderse con botones cuando tiene opciones cerradas. El cuestionario MUST poder retomarse donde quedó y editarse luego con `/cuestionario`.
 
+#### Scenario: Dato que el CV no trae
+- **WHEN** el usuario confirmó el resumen y un formulario pide la aspiración salarial
+- **THEN** el bot se la pregunta una sola vez, la guarda en su perfil y la siguiente postulación la usa sin preguntar
+
 #### Scenario: Cuestionario interrumpido
-- **WHEN** el usuario responde 4 de 10 preguntas y vuelve al día siguiente
+- **WHEN** el usuario eligió "Editar", respondió 4 preguntas y vuelve al día siguiente
 - **THEN** el bot retoma desde la quinta
 
 #### Scenario: Respuesta con botones
@@ -105,11 +121,11 @@ Cada pregunta del cuestionario MUST poder responderse con botones cuando tiene o
 - **THEN** el bot ofrece botones A1–C2 y "Ninguno"
 
 ### Requirement: Enfoque profesional del usuario
-El perfil SHALL incluir el enfoque del usuario: los roles que busca (por ejemplo desarrollo backend, soporte, datos), las tecnologías que quiere destacar y una frase sobre su objetivo. El enfoque MUST usarse para adaptar el CV y las respuestas. Gemini MUST poder proponerlo a partir del CV, y el usuario lo confirma o edita.
+El perfil SHALL incluir el enfoque del usuario: los roles que busca (por ejemplo desarrollo backend, soporte, datos), las tecnologías que quiere destacar y una frase sobre su objetivo. El enfoque MUST usarse para adaptar el CV y las respuestas. Gemini MUST poder proponerlo a partir del CV; el usuario lo confirma junto con el resumen del perfil o lo cambia al elegir "Editar".
 
 #### Scenario: Enfoque propuesto
 - **WHEN** termina la lectura del CV
-- **THEN** el bot propone un enfoque y el usuario lo confirma o lo cambia
+- **THEN** el enfoque propuesto aparece en el resumen y se confirma con "Información correcta"
 
 ### Requirement: Consulta, edición y baja
 El usuario SHALL poder:

@@ -49,6 +49,26 @@ log = logging.getLogger(__name__)
 Botones = list[list[tuple[str, str]]]  # (texto, "cb:…" o "url:…")
 
 
+def derivar_del_cv(
+    perfil: PerfilExtraido, locales: dict[str, str | None], cuestionario: dict[str, str]
+) -> dict[str, str]:
+    """Llena desde el CV lo que el cuestionario necesita, sin pisar lo que el usuario ya dio."""
+    nuevo = dict(cuestionario)
+    valores = dict(locales)
+    valores["nombre"] = perfil.nombre
+    valores["ciudad"] = perfil.ciudad
+    if perfil.formacion and perfil.formacion[0].estado:
+        en_curso = "curso" in perfil.formacion[0].estado.lower()
+        valores["estudia_actualmente"] = "Sí" if en_curso else "No"
+    for idioma in perfil.idiomas:
+        if idioma.idioma.lower().startswith(("ingl", "engl")) and idioma.nivel:
+            valores["ingles_nivel"] = idioma.nivel
+    for campo, valor in valores.items():
+        if valor and not nuevo.get(campo):
+            nuevo[campo] = valor
+    return nuevo
+
+
 class Salida(Protocol):
     async def enviar(
         self, chat_id: int, texto: str, botones: Botones | None = None
@@ -210,6 +230,8 @@ class Conversacion:
             )
         elif paso == "cv":
             await self._enviar(usuario, t.PEDIR_CV.format(max_mb=self.config.cv.max_mb))
+        elif paso == "resumen":
+            await self._mostrar_resumen(usuario)
         elif paso.startswith("revision:"):
             await self._mostrar_seccion(usuario, paso.split(":", 1)[1])
         elif paso == "enfoque":
@@ -311,21 +333,14 @@ class Conversacion:
             await self._perfil_manual(usuario, 0)
             return
         self.n.guardar_perfil(usuario.id, lectura.perfil)
-        cuestionario = (
-            self.n.datos_usuario(usuario.id).cuestionario
-            if self.n.datos_usuario(usuario.id)
-            else {}
+        datos = self.n.datos_usuario(usuario.id)
+        locales = {c: getattr(lectura.locales, c) for c in ("correo", "telefono", "documento")}
+        self.n.guardar_cuestionario(
+            usuario.id, derivar_del_cv(lectura.perfil, locales, datos.cuestionario)
         )
-        for campo in ("correo", "telefono", "documento"):
-            valor = getattr(lectura.locales, campo)
-            if valor and not cuestionario.get(campo):
-                cuestionario[f"sugerido_{campo}"] = valor
-        if lectura.perfil.nombre:
-            cuestionario.setdefault("nombre", lectura.perfil.nombre)
-        self.n.guardar_cuestionario(usuario.id, cuestionario)
         self._esperar(usuario, None)
         if usuario.estado == EstadoUsuario.ALTA:
-            await self._ir_a(usuario, f"revision:{SECCIONES[0]}")
+            await self._ir_a(usuario, "resumen")
         else:
             await self._enviar(
                 usuario, "✅ Perfil actualizado con tu nueva hoja de vida. Revísalo con /perfil."
@@ -341,6 +356,8 @@ class Conversacion:
             "Escribe tus habilidades técnicas separadas por coma (ej.: Python, SQL, Excel)",
         ),
         ("ciudad", "¿En qué ciudad vives?"),
+        ("correo", "¿Cuál es tu correo electrónico?"),
+        ("telefono", "¿Cuál es tu número de celular?"),
     )
 
     async def _perfil_manual(self, usuario: Usuario, indice: int, respuesta: str | None = None):
@@ -367,8 +384,11 @@ class Conversacion:
             ],
         )
         self.n.guardar_perfil(usuario.id, perfil)
+        datos = self.n.datos_usuario(usuario.id)
+        locales = {c: d.get(c) for c in ("correo", "telefono")}
+        self.n.guardar_cuestionario(usuario.id, derivar_del_cv(perfil, locales, datos.cuestionario))
         self._esperar(usuario, None)
-        await self._ir_a(usuario, f"revision:{SECCIONES[0]}")
+        await self._ir_a(usuario, "resumen")
 
     def _texto_seccion(self, perfil: PerfilExtraido, seccion: str) -> str:
         match seccion:
@@ -399,7 +419,7 @@ class Conversacion:
             return
         await self._enviar(
             usuario,
-            f"<b>Paso 4 de 6 · Revisa tu perfil</b>\n<b>{NOMBRE_SECCION[seccion]}</b>\n"
+            f"<b>Editar · {NOMBRE_SECCION[seccion]}</b>\n"
             + self._texto_seccion(datos.perfil, seccion),
             [
                 [
@@ -444,6 +464,43 @@ class Conversacion:
 
             perfil.proyectos = [Proyecto(nombre=linea) for linea in lineas]
 
+    async def _mostrar_resumen(self, usuario: Usuario) -> None:
+        """Un solo mensaje con todo lo que se sacó del CV: si está bien, no se pregunta nada."""
+        datos = self.n.datos_usuario(usuario.id)
+        if datos is None:
+            await self._ir_a(usuario, "cv")
+            return
+        c, p = datos.cuestionario, datos.perfil
+        contacto = [
+            f"{etiqueta}: {t.e(c.get(campo) or valor or '—')}"
+            for etiqueta, campo, valor in (
+                ("Nombre", "nombre", p.nombre),
+                ("Ciudad", "ciudad", p.ciudad),
+                ("Correo", "correo", None),
+                ("Celular", "telefono", None),
+            )
+        ]
+        partes = ["<b>Paso 4 de 5 · Revisa tu información</b>", "\n".join(contacto)]
+        for seccion in SECCIONES:
+            partes.append(f"<b>{NOMBRE_SECCION[seccion]}</b>\n{self._texto_seccion(p, seccion)}")
+        enfoque = p.enfoque
+        partes.append(
+            "<b>Enfoque</b>\n"
+            f"• Roles: {t.e(', '.join(enfoque.roles) or '—')}\n"
+            f"• Tecnologías a destacar: {t.e(', '.join(enfoque.tecnologias_destacar) or '—')}"
+        )
+        partes.append(
+            "Lo que tu CV no dice (aspiración salarial, disponibilidad…) te lo preguntaré una "
+            "sola vez, cuando un formulario lo pida."
+        )
+        botones = [
+            [
+                ("✅ Información correcta", cb("resumen", "ok")),
+                ("✏️ Editar", cb("resumen", "editar")),
+            ]
+        ]
+        await self._enviar(usuario, "\n\n".join(partes), botones)
+
     async def _mostrar_enfoque(self, usuario: Usuario) -> None:
         datos = self.n.datos_usuario(usuario.id)
         enfoque = datos.perfil.enfoque if datos else Enfoque()
@@ -477,7 +534,7 @@ class Conversacion:
         if item.opcional:
             botones.append([("Omitir", cb("cuest", indice, "omitir"))])
         self._esperar(usuario, {"tipo": "cuestionario", "indice": indice})
-        progreso = f"<b>Paso 5 de 6 · Pregunta {indice + 1} de {len(t.CUESTIONARIO)}</b>\n"
+        progreso = f"<b>Pregunta {indice + 1} de {len(t.CUESTIONARIO)}</b>\n"
         if usuario.estado != EstadoUsuario.ALTA:
             progreso = ""
         await self._enviar(usuario, progreso + t.e(item.pregunta), botones or None)
@@ -830,6 +887,11 @@ class Conversacion:
                     valor = item.opciones[int(eleccion)]
                 self._guardar_respuesta_cuestionario(usuario, indice, valor)
                 await self._siguiente_cuestionario(usuario, indice)
+            case "resumen":
+                if args[0] == "ok":
+                    await self._ir_a(usuario, "navegador")
+                else:
+                    await self._ir_a(usuario, f"revision:{SECCIONES[0]}")
             case "vincular":
                 await self._vincular(usuario)
             case "perfil":

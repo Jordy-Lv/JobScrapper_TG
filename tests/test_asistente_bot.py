@@ -118,29 +118,27 @@ def pdf_cv():
     return bytes(doc.output())
 
 
-async def alta_completa(m, tid, *, payload=None):
-    """Recorre el alta sin clave de Gemini (perfil manual) y sin navegador."""
+MANUAL = ("Ana Pérez", "Tecnólogo en ADSO", "SENA", "Python, SQL, Excel", "Bogotá",
+          "ana@gmail.com", "3105551234")  # fmt: skip
+
+
+async def hasta_resumen(m, tid, *, payload=None):
+    """Alta sin clave de Gemini (perfil con unas preguntas) hasta el resumen único."""
     c = m.c
     await c.al_iniciar(tid, "Ana", payload)
     await c.al_boton(tid, cb("politica", "si"))
     await c.al_boton(tid, cb("clave", "omitir"))
     await c.al_documento(tid, pdf_cv(), "cv.pdf")
-    for respuesta in ("Ana Pérez", "Tecnólogo en ADSO", "SENA", "Python, SQL, Excel", "Bogotá"):
+    for respuesta in MANUAL:
         await c.al_texto(tid, respuesta)
-    for seccion in ("formacion", "experiencia", "proyectos", "habilidades", "idiomas"):
-        await c.al_boton(tid, cb("seccion", seccion, "ok"))
-    await c.al_boton(tid, cb("enfoque", "ok"))
-    for indice, item in enumerate(t.CUESTIONARIO):
-        if item.opciones:
-            await c.al_boton(tid, cb("cuest", indice, 0))
-        elif item.opcional:
-            await c.al_boton(tid, cb("cuest", indice, "omitir"))
-        else:
-            valor = {"correo": "ana@gmail.com", "telefono": "3105551234",
-                     "salario": "1300000"}.get(item.clave, "Bogotá")  # fmt: skip
-            await c.al_texto(tid, valor)
-    await c.al_boton(tid, cb("alta", "fin"))
-    await c.esperar_tareas()
+
+
+async def alta_completa(m, tid, *, payload=None):
+    """Camino corto: "Información correcta" y vincular el navegador después."""
+    await hasta_resumen(m, tid, payload=payload)
+    await m.c.al_boton(tid, cb("resumen", "ok"))
+    await m.c.al_boton(tid, cb("alta", "fin"))
+    await m.c.esperar_tareas()
 
 
 def test_no_miembro_no_guarda_datos(mundo):
@@ -160,8 +158,40 @@ def test_alta_desde_el_enlace_retoma_la_vacante(mundo):
     assert "Practicante de sistemas" in mensajes and "Mensaje de presentación" in mensajes
     assert any(nombre.startswith("CV_") for _, nombre in mundo.s.documentos)
     datos = mundo.n.datos_usuario(usuario.id)
-    assert datos.cuestionario["salario"] == "1300000"
+    assert datos.cuestionario["correo"] == "ana@gmail.com"
     assert datos.perfil.habilidades_tecnicas == ["Python", "SQL", "Excel"]
+    # Lo que el CV no dice no se preguntó: la aspiración salarial queda para responder tú
+    assert "salario" not in datos.cuestionario
+    assert "responde tú" in mensajes
+
+
+def test_resumen_unico_con_dos_botones_y_sin_cuestionario(mundo):
+    correr(hasta_resumen(mundo, ANA))
+    _, texto, botones = mundo.s.ultimo(ANA)
+    assert "Revisa tu información" in texto
+    for dato in ("Ana Pérez", "ana@gmail.com", "3105551234", "Tecnólogo en ADSO", "Python"):
+        assert dato in texto
+    assert [b[1] for b in botones[0]] == [cb("resumen", "ok"), cb("resumen", "editar")]
+    correr(mundo.c.al_boton(ANA, cb("resumen", "ok")))
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == "navegador"
+    # Las del perfil manual (sin Gemini) se preguntan antes; las del cuestionario base, no
+    manuales = {"nombre", "correo", "telefono", "ciudad"}
+    preguntas = [i.pregunta for i in t.CUESTIONARIO if i.clave not in manuales]
+    assert not any(p in m for m in mundo.s.de(ANA) for p in preguntas)
+
+
+def test_editar_recorre_secciones_enfoque_y_cuestionario(mundo):
+    async def editar():
+        c = mundo.c
+        await hasta_resumen(mundo, ANA)
+        await c.al_boton(ANA, cb("resumen", "editar"))
+        for seccion in ("formacion", "experiencia", "proyectos", "habilidades", "idiomas"):
+            await c.al_boton(ANA, cb("seccion", seccion, "ok"))
+        await c.al_boton(ANA, cb("enfoque", "ok"))
+
+    correr(editar())
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == "cuestionario:0"
+    assert t.CUESTIONARIO[0].pregunta in mundo.s.de(ANA)[-1]
 
 
 @respx.mock
@@ -195,19 +225,14 @@ def test_no_acepta_la_politica_borra_todo(mundo):
 def test_cuestionario_se_retoma_tras_reinicio(mundo):
     async def hasta_pregunta_5():
         c = mundo.c
-        await c.al_iniciar(ANA, "Ana", None)
-        await c.al_boton(ANA, cb("politica", "si"))
-        await c.al_boton(ANA, cb("clave", "omitir"))
-        await c.al_documento(ANA, pdf_cv(), "cv.pdf")
-        for r in ("Ana", "ADSO", "SENA", "Python", "Bogotá"):
-            await c.al_texto(ANA, r)
+        await hasta_resumen(mundo, ANA)
+        await c.al_boton(ANA, cb("resumen", "editar"))
         for s in ("formacion", "experiencia", "proyectos", "habilidades", "idiomas"):
             await c.al_boton(ANA, cb("seccion", s, "ok"))
         await c.al_boton(ANA, cb("enfoque", "ok"))
-        for valor in ("ana@gmail.com", "3105551234"):
+        for valor in ("Ana Pérez", "ana@gmail.com", "3105551234"):
             await c.al_texto(ANA, valor)
-        await c.al_boton(ANA, cb("cuest", 2, "omitir"))
-        await c.al_texto(ANA, "Bogotá")
+        await c.al_boton(ANA, cb("cuest", 3, "omitir"))
 
     correr(hasta_pregunta_5())
     assert mundo.n.usuarios.obtener(ANA).paso_alta == "cuestionario:4"
@@ -215,6 +240,24 @@ def test_cuestionario_se_retoma_tras_reinicio(mundo):
     otra = Conversacion(mundo.n, mundo.s, mundo.comprobador)
     correr(otra.al_iniciar(ANA, "Ana", None))
     assert t.CUESTIONARIO[4].pregunta in mundo.s.de(ANA)[-1]
+
+
+def test_dato_pedido_por_un_formulario_queda_en_el_perfil(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    mundo.n.indice.indexar(T0)
+    p, _ = mundo.n.cola.encolar(usuario.id, id_corto("linkedin:1"), "computrabajo", T0)
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = 'esperando_usuario' WHERE id = ?", (p.id,))
+        cx.execute(
+            "INSERT INTO pendientes_usuario(usuario_id, postulacion_id, pregunta, pregunta_norm, "
+            "campo, creada) VALUES (?, ?, 'Pretensión salarial', 'pretension salarial', "
+            "'salario', 'x')",
+            (usuario.id, p.id),
+        )
+    correr(mundo.c.notificar({"tipo": "preguntas_pendientes", "usuario_id": usuario.id}))
+    correr(mundo.c.al_texto(ANA, "1300000"))
+    assert mundo.n.datos_usuario(usuario.id).cuestionario["salario"] == "1300000"
 
 
 def test_comando_de_admin_ajeno_es_desconocido(mundo):
@@ -233,11 +276,20 @@ def test_dueno_ve_usuarios_con_auditoria(mundo):
 @respx.mock
 def test_detalle_muestra_pasos_respuestas_y_cv(mundo):
     respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
-    correr(alta_completa(mundo, ANA, payload="v_" + id_corto("linkedin:1")))
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    datos = mundo.n.datos_usuario(usuario.id)
+    mundo.n.guardar_cuestionario(usuario.id, {**datos.cuestionario, "salario": "1300000"})
+
+    async def tocar():
+        await mundo.c.procesar_toque(usuario, id_corto("linkedin:1"))
+        await mundo.c.esperar_tareas()
+
+    correr(tocar())
     mundo.s.documentos.clear()
     correr(mundo.c.al_comando(ANA, "detalle", ["1"]))
     texto = mundo.s.de(ANA)[-1]
-    assert "Pasos" in texto and "aspiración salarial" in texto.lower()
+    assert "Pasos" in texto and "Preguntas y respuestas" in texto
     assert mundo.s.documentos and mundo.s.documentos[0][1].startswith("CV_")
 
 

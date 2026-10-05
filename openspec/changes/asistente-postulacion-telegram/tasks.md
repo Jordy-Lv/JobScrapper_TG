@@ -228,7 +228,8 @@
 - [x] 8.1 Crear `asistente/bot.py`:
   - `/start` con `v_` e `i_`;
   - comprobación de membresía antes de todo;
-  - alta guiada (política → clave con borrado del mensaje → CV → secciones → enfoque → cuestionario con botones y reanudable → instalar y vincular la extensión con guía → estado de cada portal: crear cuenta, completar perfil o listo);
+  - alta guiada (política → clave con borrado del mensaje → CV → **un solo resumen con "Información correcta" o "Editar"**; solo "Editar" recorre secciones, enfoque y cuestionario con botones y reanudable → instalar y vincular la extensión con guía → estado de cada portal: crear cuenta, completar perfil o listo);
+  - los datos que el CV no trae se preguntan una sola vez cuando un formulario los pide y quedan en el perfil;
   - respuesta en grupos;
   - límite de mensajes por minuto;
   - `Forbidden`.

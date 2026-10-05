@@ -18,7 +18,7 @@ from typing import Any
 from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.afinidad import Afinidad, calcular_afinidad, obtener_requisitos
 from buscador_vacantes.asistente.api import ResultadoFormulario
-from buscador_vacantes.asistente.campos import DatosUsuario
+from buscador_vacantes.asistente.campos import CAMPOS, DatosUsuario
 from buscador_vacantes.asistente.cifrado import Cifrador, ClaveInvalida
 from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal
@@ -392,6 +392,12 @@ class Nucleo:
         if not fila or fila["respondida_en"]:
             return False
         recordar(self.base, usuario_id, fila["pregunta"], respuesta, ahora)
+        if fila["campo"] in CAMPOS:
+            # Un dato del perfil (salario, disponibilidad…) sirve para cualquier redacción
+            datos = self.datos_usuario(usuario_id)
+            if datos is not None:
+                datos.cuestionario[fila["campo"]] = respuesta
+                self.guardar_cuestionario(usuario_id, datos.cuestionario)
         with self.base.transaccion() as cx:
             cx.execute(
                 "UPDATE pendientes_usuario SET respondida_en = ?, respuesta = ? "

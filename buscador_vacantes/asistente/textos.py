@@ -38,7 +38,7 @@ SUSPENDIDO = "Tu acceso al asistente está suspendido."
 EN_GRUPO = "Escríbeme en privado para usar el asistente: {enlace}"
 
 PEDIR_CLAVE = (
-    "<b>Paso 2 de 6 · Tu clave gratuita de Gemini</b>\n"
+    "<b>Paso 2 de 5 · Tu clave gratuita de Gemini</b>\n"
     "La IA usa <b>tu propia clave</b> (gratis):\n"
     "1. Entra a aistudio.google.com con tu cuenta de Google.\n"
     "2. Abre <b>Get API key</b> y pulsa <b>Crear clave de API</b>.\n"
@@ -46,7 +46,7 @@ PEDIR_CLAVE = (
     "Sin clave también funciona, pero sin CV adaptado ni redacción de respuestas abiertas."
 )
 PEDIR_CV = (
-    "<b>Paso 3 de 6 · Tu hoja de vida</b>\n"
+    "<b>Paso 3 de 5 · Tu hoja de vida</b>\n"
     "Envíame tu CV en <b>PDF</b> (máximo {max_mb:g} MB). Con él armo tu perfil."
 )
 CV_ESCANEADO = (
@@ -54,11 +54,11 @@ CV_ESCANEADO = (
     "completo a Gemini, <b>incluidos tus datos de contacto</b>. ¿Lo envío?"
 )
 PEDIR_ENFOQUE = (
-    "<b>Paso 5 de 6 · Tu enfoque</b>\nEsto propongo según tu CV:\n"
+    "<b>Editar · Tu enfoque</b>\nEsto propongo según tu CV:\n"
     "• Roles: {roles}\n• Tecnologías a destacar: {tecnologias}\n• Objetivo: {objetivo}"
 )
 NAVEGADOR = (
-    "<b>Paso 6 de 6 · Postulación automática</b>\n"
+    "<b>Paso 5 de 5 · Postulación automática</b>\n"
     "Para que yo postule por ti en Computrabajo y Magneto:\n"
     "1. Instala la extensión en <b>Edge</b>{tienda} (o en Chrome/Brave con el paquete que te "
     "envío con /vincular).\n"
@@ -130,6 +130,7 @@ class ItemCuestionario:
 
 
 CUESTIONARIO: tuple[ItemCuestionario, ...] = (
+    ItemCuestionario("nombre", "¿Cuál es tu nombre completo?"),
     ItemCuestionario("correo", "¿Cuál es tu correo electrónico?"),
     ItemCuestionario("telefono", "¿Cuál es tu número de celular?"),
     ItemCuestionario("documento", "Número de documento (opcional, algunos formularios lo piden)",
