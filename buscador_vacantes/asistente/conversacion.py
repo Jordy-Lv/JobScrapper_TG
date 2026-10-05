@@ -1557,6 +1557,12 @@ class Conversacion:
         if ev.tipo == "reencolada":
             return
         if ev.estado == E.ENVIADA:
+            # La ficha de éxito de una postulación automática se puede silenciar por portal
+            # (engranaje de la extensión); un toque ⚡ siempre avisa, porque el usuario lo espera
+            if p.origen == "automatico" and p.plataforma:
+                pref = self.n.preferencias.obtener(usuario.id, p.plataforma)
+                if not pref.avisar:
+                    return
             respuestas = self.n.base.cx.execute(
                 "SELECT pregunta, respuesta FROM respuestas WHERE postulacion_id = ?", (p.id,)
             ).fetchall()

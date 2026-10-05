@@ -273,7 +273,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
   transition: background 0.15s;
 }
 .abrir:hover { background: rgba(255, 255, 255, 0.18); }
-.abrir svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.abrir svg { width: 15px; height: 15px; fill: currentColor; }
 
 /* --- pie ------------------------------------------------------------------------------- */
 
@@ -392,3 +392,124 @@ h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 .info-fila small { display: block; font-size: 11px; color: var(--suave); margin-top: 1px; }
 
 .accion-fila { flex-shrink: 0; font-size: 11.5px; font-weight: 700; color: var(--azul); }
+
+/* --- vista de un portal (engranaje de la tarjeta) --------------------------------------- */
+
+.vista-portal {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  overflow-y: auto;
+  background: var(--fondo);
+  padding: 12px;
+}
+
+.vp-cab { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.vp-volver {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  border: 1px solid var(--borde);
+  background: rgba(255, 255, 255, 0.05);
+  display: grid;
+  place-items: center;
+  color: var(--texto);
+}
+.vp-volver svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+.vp-titulo { font-size: 13px; font-weight: 700; color: var(--suave); }
+
+.vp-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radio);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+  margin-bottom: 14px;
+}
+.vp-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
+}
+.vp-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.vp-info { min-width: 0; }
+.vp-info h2 { margin: 0 0 4px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+.vp-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill.info { color: #cbd5e1; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.14); }
+
+.vp-acciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.vp-accion {
+  padding: 9px 4px;
+  border-radius: 12px;
+  border: 1px solid var(--borde);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--texto);
+  font-size: 12px;
+  font-weight: 700;
+}
+.vp-accion.ambar { background: rgba(251, 191, 36, 0.14); border-color: rgba(251, 191, 36, 0.4); color: #fcd34d; }
+.vp-accion.ambar.pausado { background: rgba(52, 211, 153, 0.14); border-color: rgba(52, 211, 153, 0.4); color: #6ee7b7; }
+.vp-accion.rojo { background: rgba(255, 59, 107, 0.12); border-color: rgba(255, 59, 107, 0.4); color: #ff8fa8; }
+.vp-accion:disabled { opacity: 0.5; }
+
+.vp-detalle {
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 2px 12px;
+  margin-bottom: 16px;
+  background: var(--panel);
+}
+.vp-detalle summary { padding: 9px 0; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.vp-detalle .nota { margin: 0 0 10px; }
+
+.vp-sub { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tenue); margin: 0 0 8px; }
+
+.vp-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--borde);
+}
+.vp-fila:last-of-type { border-bottom: 0; }
+.vp-fila-texto b { display: block; font-size: 12.5px; }
+.vp-fila-texto small { display: block; font-size: 11px; color: var(--suave); margin-top: 1px; }
+.vp-fila select {
+  padding: 6px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--borde);
+  background: #0b1222;
+  color: var(--texto);
+  font: inherit;
+  font-size: 12px;
+}
+
+.interruptor { position: relative; width: 38px; height: 22px; flex-shrink: 0; }
+.interruptor input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.interruptor .pista {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #2a3348;
+  transition: background 0.15s;
+}
+.interruptor .pista::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.interruptor input:checked + .pista { background: var(--azul); }
+.interruptor input:checked + .pista::before { transform: translateX(16px); }

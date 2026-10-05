@@ -190,3 +190,43 @@ def test_modo_automatico_encola_por_umbral(mundo):
     nuevas = asyncio.run(mundo.nucleo.encolar_automaticos())
     assert [p.id_corto for p in nuevas] == [id_corto("computrabajo:1")]
     assert nuevas[0].origen == "automatico"
+
+
+def test_preferencia_apaga_el_modo_automatico_en_un_portal(mundo):
+    """El engranaje de la extensión puede excluir un portal del modo automático sin apagarlo
+    para los demás ni para el toque ⚡ manual."""
+    mundo.vincular()
+    mundo.nucleo.indice.indexar(T0)
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE usuarios SET automatico_umbral = 0")
+        cx.execute(
+            "UPDATE vacantes SET requisitos_json = ? WHERE plataforma = 'computrabajo'",
+            ('{"origen": "ia", "requisitos": {"obligatorios": ["Python"]}}',),
+        )
+    mundo.nucleo.preferencias.guardar(
+        mundo.usuario.id, "computrabajo", T0, automatico=False, umbral=None, avisar=True
+    )
+    mundo.base.kv_guardar("automatico_hasta", "2000-01-01T00:00:00+00:00")
+    nuevas = asyncio.run(mundo.nucleo.encolar_automaticos())
+    assert nuevas == []
+    # El toque manual (⚡) sigue funcionando normalmente en ese portal
+    toque = mundo.nucleo.tocar(mundo.usuario, id_corto("computrabajo:1"))
+    assert toque.camino == Camino.AUTOMATICA
+
+
+def test_preferencia_de_afinidad_propia_prevalece_sobre_la_del_usuario(mundo):
+    """Una afinidad mínima propia del portal reemplaza, solo ahí, la del usuario."""
+    mundo.vincular()
+    mundo.nucleo.indice.indexar(T0)
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE usuarios SET automatico_umbral = 90")  # no alcanza con el perfil
+        cx.execute(
+            "UPDATE vacantes SET requisitos_json = ? WHERE plataforma = 'computrabajo'",
+            ('{"origen": "ia", "requisitos": {"obligatorios": ["Python"]}}',),
+        )
+    mundo.nucleo.preferencias.guardar(
+        mundo.usuario.id, "computrabajo", T0, automatico=True, umbral=0, avisar=True
+    )
+    mundo.base.kv_guardar("automatico_hasta", "2000-01-01T00:00:00+00:00")
+    nuevas = asyncio.run(mundo.nucleo.encolar_automaticos())
+    assert [p.id_corto for p in nuevas] == [id_corto("computrabajo:1")]

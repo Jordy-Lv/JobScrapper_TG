@@ -475,3 +475,25 @@ def test_toque_en_el_canal_con_postulaciones_en_pausa(mundo):
     correr(mundo.c.al_comando(ANA, "pausa", []))
     r = correr(mundo.c.al_toque_canal(ANA, id_corto("linkedin:1")))
     assert r.alerta and "pausa" in r.texto
+
+
+def test_avisar_apagado_silencia_solo_la_automatica(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    mundo.n.indice.indexar(T0)
+    mundo.n.preferencias.guardar(
+        usuario.id, "computrabajo", T0, automatico=True, umbral=None, avisar=False
+    )
+    # Una postulación automática no avisa
+    auto, _ = mundo.n.cola.encolar(
+        usuario.id, id_corto("computrabajo:1"), "computrabajo", T0, origen="automatico"
+    )
+    antes = len(mundo.s.de(ANA))
+    correr(mundo.c.notificar(Evento("resultado", auto.id, usuario.id, E.ENVIADA)))
+    assert len(mundo.s.de(ANA)) == antes
+    # Un toque manual sigue avisando, aunque el portal tenga el aviso apagado
+    manual, _ = mundo.n.cola.encolar(
+        usuario.id, id_corto("computrabajo:2"), "computrabajo", T0, origen="boton"
+    )
+    correr(mundo.c.notificar(Evento("resultado", manual.id, usuario.id, E.ENVIADA)))
+    assert "Postulación enviada" in mundo.s.de(ANA)[-2]

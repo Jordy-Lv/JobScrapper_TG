@@ -33,17 +33,23 @@ function el(etiqueta, clase, texto) {
   return nodo;
 }
 
-function iconoAbrir() {
+function icono(trazos) {
   const svg = document.createElementNS(SVG, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("aria-hidden", "true");
-  for (const d of ["M14 4h6v6", "M20 4l-9 9", "M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"]) {
+  for (const d of trazos) {
     const ruta = document.createElementNS(SVG, "path");
     ruta.setAttribute("d", d);
     svg.append(ruta);
   }
   return svg;
 }
+
+const TRAZOS_ABRIR = ["M14 4h6v6", "M20 4l-9 9", "M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"];
+const TRAZOS_ENGRANAJE = [
+  "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z",
+  "M19.4 13.5a7.4 7.4 0 0 0 0-3l2-1.3-1.5-2.6-2.3.8a7.4 7.4 0 0 0-2.6-1.5l-.4-2.4h-3l-.4 2.4a7.4 7.4 0 0 0-2.6 1.5l-2.3-.8-1.5 2.6 2 1.3a7.4 7.4 0 0 0 0 3l-2 1.3 1.5 2.6 2.3-.8a7.4 7.4 0 0 0 2.6 1.5l.4 2.4h3l.4-2.4a7.4 7.4 0 0 0 2.6-1.5l2.3.8 1.5-2.6z",
+];
 
 function accion(texto, alHacer) {
   const b = el("button", "accion", texto);
@@ -110,15 +116,18 @@ async function tarjeta(p, { habilitada, vinculado, info, cuentaOk, vigilando }) 
   }
   if (pill) fila.append(pill);
   cuerpo.append(fila, sub);
+  li.append(logo, cuerpo);
 
-  const abrir = el("button", "abrir");
-  abrir.type = "button";
-  abrir.title = `Abrir ${NOMBRES[p]}`;
-  abrir.setAttribute("aria-label", abrir.title);
-  abrir.append(iconoAbrir());
-  abrir.addEventListener("click", () => chrome.tabs.create({ url: INICIO[p] }));
-
-  li.append(logo, cuerpo, abrir);
+  if (habilitada) {
+    // El engranaje abre la configuración de ese portal (automático, afinidad, avisos, cuenta)
+    const ajustar = el("button", "abrir");
+    ajustar.type = "button";
+    ajustar.title = `Configurar ${NOMBRES[p]}`;
+    ajustar.setAttribute("aria-label", ajustar.title);
+    ajustar.append(icono(TRAZOS_ENGRANAJE));
+    ajustar.addEventListener("click", () => abrirVistaPortal(p));
+    li.append(ajustar);
+  }
   return li;
 }
 
@@ -218,6 +227,113 @@ $("ir-bot").addEventListener("click", async () => chrome.tabs.create({ url: (awa
 $("ir-grupo").addEventListener("click", async () => chrome.tabs.create({ url: (await enlaces()).grupo }));
 document.addEventListener("keydown", (evento) => {
   if (evento.key === "Escape") alternarPanel(false);
+});
+
+// --- vista de un portal: el engranaje de su tarjeta ---------------------------------------
+
+const ESTADO_CUENTA = { pendiente: "Por confirmar", confirmada: "Confirmada" };
+
+function fecha(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+  } catch {
+    return null;
+  }
+}
+
+async function abrirVistaPortal(p) {
+  $("vp-titulo").textContent = NOMBRES[p];
+  $("vp-logo-img").src = `logos/${p}.png`;
+  $("vp-nombre").textContent = NOMBRES[p];
+  $("vp-mensaje").textContent = "";
+  $("vp-detalle-cuerpo").textContent = "Cargando…";
+  for (const id of ["vp-pausar", "vp-olvidar", "vp-automatico", "vp-umbral", "vp-avisar"]) {
+    $(id).disabled = true;
+  }
+  $("vista-portal").dataset.plataforma = p;
+  $("vista-portal").hidden = false;
+
+  const { portales = {} } = await chrome.storage.local.get("portales");
+  const info = portales[p];
+  const sesion = $("vp-sesion");
+  sesion.textContent = info && info.estado !== "sin_sesion" ? "Sesión activa" : "Sin sesión";
+  sesion.className = `pill ${info && info.estado !== "sin_sesion" ? "listo" : "pendiente"}`;
+  $("vp-abrir").onclick = () => chrome.tabs.create({ url: INICIO[p] });
+
+  const r = await chrome.runtime.sendMessage({ tipo: "preferenciasLeer", plataforma: p });
+  if (!r.ok) {
+    $("vp-detalle-cuerpo").textContent = "No se pudo consultar el servidor. Inténtalo de nuevo.";
+    $("vp-mensaje").textContent = "Sin conexión con el servidor.";
+    return;
+  }
+  const d = r.datos;
+  $("vp-automatico").checked = d.automatico;
+  $("vp-umbral").value = d.umbral == null ? "" : String(d.umbral);
+  $("vp-avisar").checked = d.avisar;
+  $("vp-pausar").textContent = d.automatico ? "Pausar" : "Reanudar";
+  $("vp-pausar").classList.toggle("pausado", !d.automatico);
+  if (d.cuenta) {
+    const partes = [`Cuenta: ${d.cuenta.correo}`, ESTADO_CUENTA[d.cuenta.estado] || d.cuenta.estado];
+    const f = fecha(d.cuenta.confirmada_en);
+    if (f) partes.push(`confirmada el ${f}`);
+    $("vp-detalle-cuerpo").textContent = partes.join(" · ");
+    $("vp-olvidar").disabled = false;
+  } else {
+    $("vp-detalle-cuerpo").textContent = "Todavía no hay una cuenta asociada en este portal.";
+    $("vp-olvidar").disabled = true;
+  }
+  for (const id of ["vp-pausar", "vp-automatico", "vp-umbral", "vp-avisar"]) $(id).disabled = false;
+}
+
+function cerrarVistaPortal() {
+  $("vista-portal").hidden = true;
+}
+
+async function guardarPreferenciasVista() {
+  const p = $("vista-portal").dataset.plataforma;
+  const automatico = $("vp-automatico").checked;
+  const umbral = $("vp-umbral").value === "" ? null : Number($("vp-umbral").value);
+  const avisar = $("vp-avisar").checked;
+  $("vp-mensaje").textContent = "Guardando…";
+  const r = await chrome.runtime.sendMessage({
+    tipo: "preferenciasGuardar", plataforma: p, datos: { automatico, umbral, avisar },
+  });
+  $("vp-mensaje").textContent = r.ok ? "" : "No se pudo guardar; inténtalo de nuevo.";
+  $("vp-pausar").textContent = automatico ? "Pausar" : "Reanudar";
+  $("vp-pausar").classList.toggle("pausado", !automatico);
+}
+
+$("vp-volver").addEventListener("click", cerrarVistaPortal);
+$("vp-automatico").addEventListener("change", guardarPreferenciasVista);
+$("vp-umbral").addEventListener("change", guardarPreferenciasVista);
+$("vp-avisar").addEventListener("change", guardarPreferenciasVista);
+$("vp-pausar").addEventListener("click", () => {
+  $("vp-automatico").checked = !$("vp-automatico").checked;
+  guardarPreferenciasVista();
+});
+// Confirmación en dos toques (un confirm() nativo puede cerrar el popup de la extensión)
+$("vp-olvidar").addEventListener("click", async () => {
+  const boton = $("vp-olvidar");
+  if (boton.dataset.confirmar !== "si") {
+    boton.dataset.confirmar = "si";
+    boton.textContent = "¿Seguro? Toca de nuevo";
+    setTimeout(() => {
+      if (boton.dataset.confirmar === "si") {
+        boton.dataset.confirmar = "";
+        boton.textContent = "Olvidar cuenta";
+      }
+    }, 4000);
+    return;
+  }
+  const p = $("vista-portal").dataset.plataforma;
+  boton.disabled = true;
+  boton.dataset.confirmar = "";
+  const r = await chrome.runtime.sendMessage({ tipo: "olvidarCuenta", plataforma: p });
+  boton.textContent = "Olvidar cuenta";
+  $("vp-mensaje").textContent = r.ok ? "Cuenta olvidada." : "No se pudo olvidar la cuenta.";
+  await chrome.runtime.sendMessage({ tipo: "latido", revisar: true });
+  if (r.ok) abrirVistaPortal(p);
 });
 
 chrome.storage.onChanged.addListener(pintar);

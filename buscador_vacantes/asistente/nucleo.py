@@ -28,6 +28,7 @@ from buscador_vacantes.asistente.cv_pdf import Contacto, generar_pdf, nombre_arc
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina
 from buscador_vacantes.asistente.gemini import ClaveGeminiInvalida, ClienteGemini
+from buscador_vacantes.asistente.preferencias import Preferencias
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
     Pregunta,
@@ -102,6 +103,7 @@ class Nucleo:
         self.reloj = reloj
         self.cola = Cola(base, self.config)
         self.cuentas = CuentasPortal(base, cifrador)
+        self.preferencias = Preferencias(base)
         self.usuarios = Usuarios(base, archivos)
         self.notificador: Callable[[Evento | dict], Awaitable[None]] | None = None
 
@@ -471,12 +473,21 @@ class Nucleo:
                     continue
                 if self.camino_automatico(u["id"], vacante) is not None:
                     continue
+                pref = (
+                    self.preferencias.obtener(u["id"], vacante.plataforma)
+                    if vacante.plataforma
+                    else None
+                )
+                if pref is not None and not pref.automatico:
+                    continue  # el usuario apagó la postulación sola en ese portal
                 requisitos = await obtener_requisitos(self.base, vacante.id_corto,
                                                       vacante.resumen)  # fmt: skip
                 afinidad = calcular_afinidad(requisitos, datos.perfil)
                 porcentaje = afinidad.porcentaje if afinidad else None
+                umbral_propio = pref.umbral if pref else None
+                umbral = umbral_propio if umbral_propio is not None else fila["automatico_umbral"]
                 if self.cola.debe_encolar_automatico(
-                    fila["automatico_umbral"], porcentaje, vacante.plataforma, u["id"], ahora
+                    umbral, porcentaje, vacante.plataforma, u["id"], ahora
                 ):
                     p, creada = self.cola.encolar(u["id"], vacante.id_corto, vacante.plataforma,
                                                   ahora, origen="automatico",

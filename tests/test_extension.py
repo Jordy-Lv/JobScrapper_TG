@@ -45,6 +45,8 @@ class ApiPrueba:
         self.trabajos: list[dict] = []
         self.respuestas = lambda campos: []
         self.ajustar = lambda plataforma, selectores: selectores
+        self.preferencias: dict[str, dict] = {}
+        self.cuentas: dict[str, dict] = {}
         self.app = self._app()
 
     def de(self, ruta: str) -> list[dict]:
@@ -82,6 +84,33 @@ class ApiPrueba:
                          for p in SELECTORES.glob("*.json")}  # fmt: skip
             return {"trabajo": trabajo, "version_minima": "1.0.0", "actualizar": False,
                     "selectores": versiones, "cuentas": cuentas, "latido_s": 30}  # fmt: skip
+
+        @app.get("/api/v1/preferencias/{plataforma}")
+        async def ver_preferencias(plataforma: str, request: Request):
+            if not autorizado(request):
+                return JSONResponse({"detail": "token"}, status_code=401)
+            api.llamadas.append(("preferencias_ver", {"plataforma": plataforma}))
+            datos = {"automatico": True, "umbral": None, "avisar": True,
+                     "cuenta": api.cuentas.get(plataforma)}  # fmt: skip
+            datos.update(api.preferencias.get(plataforma, {}))
+            return datos
+
+        @app.post("/api/v1/preferencias/{plataforma}")
+        async def guardar_preferencias(plataforma: str, request: Request):
+            if not autorizado(request):
+                return JSONResponse({"detail": "token"}, status_code=401)
+            cuerpo = await request.json()
+            api.llamadas.append(("preferencias_guardar", {"plataforma": plataforma, **cuerpo}))
+            api.preferencias[plataforma] = cuerpo
+            return {"ok": True}
+
+        @app.post("/api/v1/cuenta/{plataforma}/olvidar")
+        async def olvidar(plataforma: str, request: Request):
+            if not autorizado(request):
+                return JSONResponse({"detail": "token"}, status_code=401)
+            api.llamadas.append(("olvidar", {"plataforma": plataforma}))
+            api.cuentas.pop(plataforma, None)
+            return {"ok": True}
 
         @app.get("/api/v1/selectores/{plataforma}")
         async def selectores(plataforma: str):
@@ -717,3 +746,80 @@ def test_sin_confirmar_la_cuenta_el_popup_no_la_muestra_como_lista(tmp_path, api
     texto = correr(flujo())
     assert "Confírmala" in texto or "Esperando confirmación" in texto
     assert "Listo" not in texto
+
+
+# --- engranaje de la tarjeta: preferencias del portal --------------------------------------
+
+
+def test_engranaje_lee_y_guarda_las_preferencias_del_portal(tmp_path, api):
+    portales = portales_listos()
+    api.cuentas["computrabajo"] = {
+        "correo": "ana.perez@gmail.com", "estado": "confirmada",
+        "confirmada_en": "2026-10-05T10:00:00+00:00",
+    }  # fmt: skip
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+            id_extension = nav.worker.url.split("/")[2]
+            pagina = await nav.contexto.new_page()
+            await pagina.goto(f"chrome-extension://{id_extension}/popup.html")
+            await pagina.wait_for_timeout(300)
+            await pagina.click(".tarjeta.computrabajo .abrir")
+            await pagina.wait_for_function(
+                "document.getElementById('vp-detalle-cuerpo').textContent !== 'Cargando…'"
+            )
+            # <details> empieza cerrado: su contenido no se "ve", así que se lee con
+            # text_content (lo que hay en el DOM) en vez de inner_text (lo que se renderiza)
+            detalle = await pagina.text_content("#vp-detalle-cuerpo")
+            automatico_inicial = await pagina.is_checked("#vp-automatico")
+            # El usuario apaga "Postular automáticamente" y sube la afinidad mínima propia
+            # (se hace clic en la pista visible del interruptor, no en el checkbox oculto)
+            await pagina.click("label:has(#vp-automatico) .pista")
+            await pagina.select_option("#vp-umbral", "85")
+            await pagina.wait_for_timeout(300)
+            await pagina.close()
+            return detalle, automatico_inicial
+        finally:
+            await cerrar(nav)
+
+    detalle, automatico_inicial = correr(flujo())
+    assert "ana.perez@gmail.com" in detalle and "Confirmada" in detalle
+    assert automatico_inicial is True
+    guardados = api.de("preferencias_guardar")
+    assert guardados[-1] == {"plataforma": "computrabajo", "automatico": False, "umbral": 85,
+                             "avisar": True}  # fmt: skip
+
+
+def test_olvidar_cuenta_pide_confirmar_dos_veces(tmp_path, api):
+    portales = portales_listos()
+    api.cuentas["computrabajo"] = {
+        "correo": "ana.perez@gmail.com",
+        "estado": "confirmada",
+        "confirmada_en": None,
+    }
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+            id_extension = nav.worker.url.split("/")[2]
+            pagina = await nav.contexto.new_page()
+            await pagina.goto(f"chrome-extension://{id_extension}/popup.html")
+            await pagina.wait_for_timeout(300)
+            await pagina.click(".tarjeta.computrabajo .abrir")
+            await pagina.wait_for_timeout(300)
+            await pagina.click("#vp-olvidar")
+            texto_1 = await pagina.inner_text("#vp-olvidar")
+            await pagina.click("#vp-olvidar")
+            await pagina.wait_for_timeout(300)
+            await pagina.close()
+            return texto_1
+        finally:
+            await cerrar(nav)
+
+    texto_1 = correr(flujo())
+    assert "Seguro" in texto_1
+    assert api.de("olvidar") == [{"plataforma": "computrabajo"}]
+    assert "computrabajo" not in api.cuentas

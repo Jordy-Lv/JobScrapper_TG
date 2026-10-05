@@ -139,3 +139,27 @@ MUST NOT enviar capturas de pantalla ni datos personales del usuario. Si la pest
 #### Scenario: Formulario cambiado
 - **WHEN** un selector esperado no aparece
 - **THEN** el servidor recibe el paso, el error y el HTML sin valores, y el dueño recibe el aviso
+
+### Requirement: Preferencias por portal
+Cada tarjeta de portal en la extensión SHALL tener un botón de engranaje que abre la configuración de ese portal: estado de la sesión, acciones rápidas (pausar o reanudar el modo automático en ese portal, olvidar la cuenta asociada, abrir la web del portal), el detalle de la cuenta asociada (correo, estado y fecha de confirmación) y tres ajustes propios del portal, guardados en el servidor por usuario y plataforma:
+- **Postular automáticamente**: si está apagado, ese portal queda fuera del encolado automático por afinidad, sin afectar el toque ⚡ manual ni los demás portales;
+- **Afinidad mínima**: un umbral propio del portal que, si está definido, reemplaza ahí al umbral general del modo automático del usuario;
+- **Avisar en Telegram**: si está apagado, la ficha de éxito de las postulaciones automáticas de ese portal no se envía; los avisos que piden una acción (sesión, verificación, error) y el resultado de un toque ⚡ manual MUST enviarse siempre, sin importar este ajuste.
+
+Sin preferencias guardadas rigen los valores por defecto: participa del modo automático, sin afinidad propia y avisa por Telegram.
+
+#### Scenario: Apagar un portal del modo automático
+- **WHEN** el usuario apaga "Postular automáticamente" en Magneto
+- **THEN** las vacantes nuevas de Magneto no se encolan solas, pero el toque ⚡ y el modo automático de Computrabajo siguen igual
+
+#### Scenario: Afinidad propia de un portal
+- **WHEN** el usuario fija 85 % de afinidad mínima en Computrabajo, con un umbral general del 70 %
+- **THEN** en Computrabajo solo se encolan solas las vacantes con 85 % o más
+
+#### Scenario: Avisos apagados en un portal
+- **WHEN** el usuario apaga "Avisar en Telegram" en Computrabajo y una postulación automática ahí se envía
+- **THEN** no llega la ficha de "Postulación enviada", pero un toque ⚡ manual en Computrabajo sigue avisando igual
+
+#### Scenario: Olvidar la cuenta desde la extensión
+- **WHEN** el usuario toca "Olvidar cuenta" (con una segunda confirmación) en el engranaje de un portal
+- **THEN** la cuenta asociada se desasocia y la próxima sesión detectada vuelve a pedirse confirmar en el bot

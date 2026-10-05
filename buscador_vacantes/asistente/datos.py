@@ -77,6 +77,18 @@ CREATE TABLE IF NOT EXISTS cuentas_portal (
     PRIMARY KEY (usuario_id, plataforma)
 );
 
+-- Preferencias del usuario por portal (botón del engranaje en la extensión). Sin fila: valores
+-- por defecto (participa del modo automático, sin afinidad propia, avisa por Telegram).
+CREATE TABLE IF NOT EXISTS preferencias_portal (
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    plataforma TEXT NOT NULL,
+    automatico INTEGER NOT NULL DEFAULT 1,     -- participa del modo automático del usuario
+    umbral INTEGER,                            -- afinidad mínima propia; NULL: la del usuario
+    avisar INTEGER NOT NULL DEFAULT 1,         -- avisar por Telegram las postulaciones solas
+    actualizada TEXT,
+    PRIMARY KEY (usuario_id, plataforma)
+);
+
 -- Índice de vacantes publicadas (id corto del enlace) y caché de su detalle.
 CREATE TABLE IF NOT EXISTS vacantes (
     id_corto TEXT PRIMARY KEY,

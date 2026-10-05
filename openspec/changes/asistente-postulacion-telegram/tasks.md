@@ -227,6 +227,14 @@
   - el correo ajeno no se guarda en la base.
   Avance: el código del adaptador y sus pruebas sobre fixtures con el marcado público real están listos; falta verificar las páginas con sesión (3.1 y 3.2) para cerrarla.
 
+- [x] 7.8 Engranaje de cada portal en el popup: tabla `preferencias_portal`, endpoints
+  `GET/POST /api/v1/preferencias/<plataforma>` y `POST /api/v1/cuenta/<plataforma>/olvidar`,
+  y la vista en la extensión (sesión, acciones rápidas, detalle de la cuenta y los tres
+  ajustes: postular automáticamente, afinidad mínima propia y avisar en Telegram). Verificado
+  con pruebas de la API, del núcleo (`encolar_automaticos` respeta el apagado y la afinidad
+  propia por portal) y del bot (el aviso apagado silencia solo la ficha automática), más
+  pruebas `navegador` del engranaje end-to-end.
+
 ## 8. Bot asistente
 
 - [x] 8.1 Crear `asistente/bot.py`:

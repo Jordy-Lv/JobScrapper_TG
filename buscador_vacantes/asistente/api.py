@@ -28,6 +28,7 @@ from buscador_vacantes.asistente import vinculos
 from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal, EstadoCuenta
 from buscador_vacantes.asistente.datos import BaseAsistente
+from buscador_vacantes.asistente.preferencias import Preferencias
 from buscador_vacantes.asistente.respuestas import Pregunta, Respuesta
 from buscador_vacantes.estado import a_texto
 
@@ -55,6 +56,7 @@ class Nucleo(Protocol):
     base: BaseAsistente
     cola: Cola
     cuentas: CuentasPortal
+    preferencias: Preferencias
     config: cfg.Asistente
     archivos: Path
 
@@ -90,6 +92,12 @@ class Portal(BaseModel):
 class Latido(BaseModel):
     version: str = Field(max_length=20)
     portales: dict[str, Portal] = Field(default_factory=dict)
+
+
+class PreferenciasPortalCuerpo(BaseModel):
+    automatico: bool = True
+    umbral: int | None = Field(None, ge=0, le=100)
+    avisar: bool = True
 
 
 class Campo(BaseModel):
@@ -366,6 +374,43 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             raise HTTPException(404, "plataforma no soportada")
         version, contenido = datos_selectores
         return {"version": version, "selectores": contenido}
+
+    # --- engranaje de cada portal (preferencias y cuenta) ---
+
+    @app.get(PREFIJO + "/preferencias/{plataforma}")
+    async def ver_preferencias(
+        plataforma: str, nav: vinculos.Navegador = Depends(navegador_actual)
+    ):
+        if plataforma not in nucleo.config.plataformas:
+            raise HTTPException(404, "plataforma no soportada")
+        pref = nucleo.preferencias.obtener(nav.usuario_id, plataforma)
+        return {
+            "automatico": pref.automatico,
+            "umbral": pref.umbral,
+            "avisar": pref.avisar,
+            "cuenta": nucleo.cuentas.detalle(nav.usuario_id, plataforma),
+        }
+
+    @app.post(PREFIJO + "/preferencias/{plataforma}")
+    async def guardar_preferencias(
+        plataforma: str,
+        cuerpo: PreferenciasPortalCuerpo,
+        nav: vinculos.Navegador = Depends(navegador_actual),
+    ):
+        if plataforma not in nucleo.config.plataformas:
+            raise HTTPException(404, "plataforma no soportada")
+        nucleo.preferencias.guardar(
+            nav.usuario_id, plataforma, nucleo.ahora(),
+            automatico=cuerpo.automatico, umbral=cuerpo.umbral, avisar=cuerpo.avisar,
+        )  # fmt: skip
+        return {"ok": True}
+
+    @app.post(PREFIJO + "/cuenta/{plataforma}/olvidar")
+    async def olvidar_cuenta(plataforma: str, nav: vinculos.Navegador = Depends(navegador_actual)):
+        """Desasocia la cuenta de ese portal; la próxima sesión detectada vuelve a pedirse
+        confirmar en el bot, igual que "No es mía"."""
+        nucleo.cuentas.olvidar(nav.usuario_id, plataforma)
+        return {"ok": True}
 
     @app.post(PREFIJO + "/postulaciones/{pid}/tomar")
     async def tomar(pid: int, nav: vinculos.Navegador = Depends(navegador_actual)):

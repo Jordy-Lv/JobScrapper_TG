@@ -638,6 +638,26 @@ chrome.runtime.onMessage.addListener((mensaje, _remitente, responder) => {
       case "iniciarSesion":
         vigilarInicioSesion(mensaje.plataforma); // se deja corriendo; no bloquea la respuesta
         return { ok: true };
+      case "preferenciasLeer":
+        try {
+          return { ok: true, datos: await llamar("GET", `/preferencias/${mensaje.plataforma}`) };
+        } catch (error) {
+          return { ok: false };
+        }
+      case "preferenciasGuardar":
+        try {
+          await llamar("POST", `/preferencias/${mensaje.plataforma}`, mensaje.datos);
+          return { ok: true };
+        } catch (error) {
+          return { ok: false };
+        }
+      case "olvidarCuenta":
+        try {
+          await llamar("POST", `/cuenta/${mensaje.plataforma}/olvidar`);
+          return { ok: true };
+        } catch (error) {
+          return { ok: false };
+        }
       case "desvincular":
         await chrome.storage.local.set({ token: null, portales: {}, estado: {} });
         return { ok: true };

@@ -53,6 +53,21 @@ class CuentasPortal:
             return None
         return self.cifrador.descifrar(fila["correo_cifrado"]), fila["estado"]
 
+    def detalle(self, usuario_id: int, plataforma: str) -> dict | None:
+        """Para el panel "Detalles de la cuenta" del engranaje de la extensión."""
+        fila = self.base.cx.execute(
+            "SELECT correo_cifrado, estado, confirmada_en FROM cuentas_portal "
+            "WHERE usuario_id = ? AND plataforma = ?",
+            (usuario_id, plataforma),
+        ).fetchone()
+        if not fila:
+            return None
+        return {
+            "correo": self.cifrador.descifrar(fila["correo_cifrado"]),
+            "estado": fila["estado"],
+            "confirmada_en": fila["confirmada_en"],
+        }
+
     def todas(self, usuario_id: int) -> dict[str, tuple[str, str]]:
         filas = self.base.cx.execute(
             "SELECT plataforma FROM cuentas_portal WHERE usuario_id = ?", (usuario_id,)

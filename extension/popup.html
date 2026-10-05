@@ -65,6 +65,53 @@
       </button>
     </div>
   </div>
+  <div id="vista-portal" class="vista-portal" hidden>
+    <div class="vp-cab">
+      <button id="vp-volver" class="vp-volver" type="button" aria-label="Volver">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+      <span id="vp-titulo" class="vp-titulo">Portal</span>
+    </div>
+    <div id="vp-banner" class="vp-banner">
+      <div class="vp-logo"><img id="vp-logo-img" src="" alt=""></div>
+      <div class="vp-info">
+        <h2 id="vp-nombre"></h2>
+        <div class="vp-tags">
+          <span class="pill info">Portal de empleo</span>
+          <span id="vp-sesion" class="pill"></span>
+        </div>
+      </div>
+    </div>
+    <div class="vp-acciones">
+      <button id="vp-pausar" class="vp-accion ambar" type="button">Pausar</button>
+      <button id="vp-olvidar" class="vp-accion rojo" type="button">Olvidar cuenta</button>
+      <button id="vp-abrir" class="vp-accion" type="button">Abrir web</button>
+    </div>
+    <details id="vp-detalle" class="vp-detalle">
+      <summary>Detalles de la cuenta</summary>
+      <p id="vp-detalle-cuerpo" class="nota"></p>
+    </details>
+    <h3 class="vp-sub">Configuración del portal</h3>
+    <label class="vp-fila">
+      <span class="vp-fila-texto"><b>Postular automáticamente</b><small>Aplica sola cuando la vacante coincide</small></span>
+      <span class="interruptor"><input id="vp-automatico" type="checkbox"><span class="pista"></span></span>
+    </label>
+    <label class="vp-fila">
+      <span class="vp-fila-texto"><b>Afinidad mínima</b><small>Filtro propio de este portal</small></span>
+      <select id="vp-umbral">
+        <option value="">La general</option>
+        <option value="50">Baja (50 %+)</option>
+        <option value="70">Media (70 %+)</option>
+        <option value="85">Alta (85 %+)</option>
+      </select>
+    </label>
+    <label class="vp-fila">
+      <span class="vp-fila-texto"><b>Avisar en Telegram</b><small>Ficha de confirmación de cada envío</small></span>
+      <span class="interruptor"><input id="vp-avisar" type="checkbox"><span class="pista"></span></span>
+    </label>
+    <p id="vp-mensaje" class="nota"></p>
+    <p class="nota">La extensión nunca ve ni guarda tu contraseña.</p>
+  </div>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

@@ -19,6 +19,7 @@ from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa:
 from buscador_vacantes.asistente.cola import Cola, E  # noqa: E402
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal  # noqa: E402
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
+from buscador_vacantes.asistente.preferencias import Preferencias  # noqa: E402
 from buscador_vacantes.asistente.respuestas import Origen, Respuesta  # noqa: E402
 from buscador_vacantes.config import cargar_configuracion  # noqa: E402
 
@@ -33,6 +34,7 @@ class NucleoFalso:
         self.config = cargar_configuracion().asistente
         self.cola = Cola(self.base, self.config)
         self.cuentas = CuentasPortal(self.base, Cifrador(generar_clave()))
+        self.preferencias = Preferencias(self.base)
         self.archivos = tmp_path / "archivos"
         self.momento = T0
         self.eventos: list = []
@@ -286,3 +288,73 @@ def test_enlace_del_grupo():
     assert enlace_grupo(con_invitacion, secretos) == "https://t.me/+abc"
     secretos.telegram_chat_id = "@canal"
     assert enlace_grupo(config, secretos) is None
+
+
+# --- engranaje de cada portal: preferencias y cuenta ---------------------------------------
+
+
+def test_preferencias_por_defecto(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    r = cliente.get(f"/api/v1/preferencias/{CT}", headers=cab)
+    assert r.status_code == 200
+    datos = r.json()
+    assert datos["automatico"] is True
+    assert datos["umbral"] is None
+    assert datos["avisar"] is True
+    assert datos["cuenta"] is None
+
+
+def test_guardar_y_leer_preferencias(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    r = cliente.post(
+        f"/api/v1/preferencias/{CT}", headers=cab,
+        json={"automatico": False, "umbral": 85, "avisar": False},
+    )  # fmt: skip
+    assert r.status_code == 200
+    r = cliente.get(f"/api/v1/preferencias/{CT}", headers=cab)
+    datos = r.json()
+    assert datos == {
+        "automatico": False, "umbral": 85, "avisar": False, "cuenta": None,
+    }  # fmt: skip
+
+
+def test_preferencias_con_cuenta_confirmada_muestra_el_detalle(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    r = cliente.get(f"/api/v1/preferencias/{CT}", headers=cab)
+    cuenta = r.json()["cuenta"]
+    assert cuenta["correo"] == CORREO
+    assert cuenta["estado"] == "confirmada"
+    assert cuenta["confirmada_en"]
+
+
+def test_preferencias_plataforma_no_soportada_404(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    assert cliente.get("/api/v1/preferencias/elempleo", headers=cab).status_code == 404
+    assert cliente.post("/api/v1/preferencias/elempleo", headers=cab, json={}).status_code == 404
+
+
+def test_preferencias_umbral_fuera_de_rango_422(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    r = cliente.post(f"/api/v1/preferencias/{CT}", headers=cab, json={"umbral": 150})
+    assert r.status_code == 422
+
+
+def test_olvidar_cuenta(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    assert nucleo.cuentas.asociado(1, CT) is not None
+    r = cliente.post(f"/api/v1/cuenta/{CT}/olvidar", headers=cab)
+    assert r.status_code == 200
+    assert nucleo.cuentas.asociado(1, CT) is None
+
+
+def test_preferencias_sin_token_401(entorno):
+    _, cliente = entorno
+    assert cliente.get(f"/api/v1/preferencias/{CT}").status_code == 401
