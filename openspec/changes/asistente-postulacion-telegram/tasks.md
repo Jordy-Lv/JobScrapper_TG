@@ -162,7 +162,7 @@
 
 ## 7. Extensión
 
-- [ ] 7.1 Crear `extension/` (Manifest V3):
+- [x] 7.1 Crear `extension/` (Manifest V3):
   - `manifest.json` con los permisos mínimos del design 3;
   - service worker con alarma de 30 s y latido;
   - vinculación automática por la página del servidor y manual por código;
@@ -174,7 +174,7 @@
   - se vincula sola al abrir la página de vinculación;
   - el latido informa los portales con sesión según los fixtures;
   - la extensión no tiene permisos fuera de los dominios declarados.
-- [ ] 7.2 Crear `extension/motor.js`, un motor de pasos declarativos:
+- [x] 7.2 Crear `extension/motor.js`, un motor de pasos declarativos:
   - espera, clic y lectura de campos con etiqueta, tipo y opciones;
   - llenado con eventos nativos y pausas;
   - adjunto con `DataTransfer`;
@@ -191,7 +191,9 @@
 - [ ] 7.3 Crear `extension/adaptadores/computrabajo.js` con los selectores de `assets/selectores/computrabajo.json`. Verificar con pruebas `navegador` sobre los fixtures de 3.1 y 3.2:
   - la postulación completa llega a `enviada`;
   - detecta ya postulado, cerrada y sesión no iniciada.
+  Avance: el código del adaptador y sus pruebas sobre fixtures con el marcado público real están listos; falta verificar las páginas con sesión (3.1 y 3.2) para cerrarla.
 - [ ] 7.4 Crear `extension/adaptadores/magneto.js` con las mismas condiciones y pruebas que 7.3.
+  Avance: el código del adaptador y sus pruebas sobre fixtures con el marcado público real están listos; falta verificar las páginas con sesión (3.1 y 3.2) para cerrarla.
 - [ ] 7.5 Implementar la detección `sin_sesion`, `incompleto` y `listo` por portal y el trabajo `completar_perfil` en ambos adaptadores, más su encolado prioritario en `asistente/cola.py`:
   - carga del CV base;
   - datos personales, formación y experiencia desde el perfil;
@@ -203,7 +205,8 @@
   - una experiencia existente no se borra ni se modifica;
   - el motor se niega a operar en páginas prohibidas;
   - el bot envía la guía con el enlace de registro cuando el estado es `sin_sesion` sin cuenta.
-- [ ] 7.6 Implementar los pasos `cv_subir` y `cv_verificar` del motor según `cv.modo`, con el respeto de los CV del usuario en `perfil_multiple` y la autorización `actualizar_cv_portal` (pregunta en el alta y en `/perfil`). Verificar con pruebas `navegador` sobre fixtures de cada modo:
+  Avance: el código del adaptador y sus pruebas sobre fixtures con el marcado público real están listos; falta verificar las páginas con sesión (3.1 y 3.2) para cerrarla.
+- [x] 7.6 Implementar los pasos `cv_subir` y `cv_verificar` del motor según `cv.modo`, con el respeto de los CV del usuario en `perfil_multiple` y la autorización `actualizar_cv_portal` (pregunta en el alta y en `/perfil`). Verificar con pruebas `navegador` sobre fixtures de cada modo:
   - en `perfil_unico`, con autorización, el CV queda reemplazado antes del envío;
   - en `perfil_multiple`, con el límite alcanzado, solo se reemplaza el subido por el sistema;
   - sin autorización, no se toca el CV y el registro lo indica;
@@ -222,6 +225,7 @@
   - "Es mi cuenta nueva" reasocia y reencola;
   - sin correo legible da `formulario_desconocido`;
   - el correo ajeno no se guarda en la base.
+  Avance: el código del adaptador y sus pruebas sobre fixtures con el marcado público real están listos; falta verificar las páginas con sesión (3.1 y 3.2) para cerrarla.
 
 ## 8. Bot asistente
 

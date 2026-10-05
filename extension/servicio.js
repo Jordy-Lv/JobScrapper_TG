@@ -10,6 +10,7 @@ const CARGA_MS = 45000;
 const PREDETERMINADOS = { sondeo_captcha_ms: 10000, verificacion_max_ms: 2 * 60 * 60 * 1000 };
 
 let ocupado = false;
+let enCurso = null; // latido en curso: quien llama mientras tanto recibe el mismo
 
 // --- arranque y alarma ----------------------------------------------------------------------
 
@@ -36,9 +37,14 @@ async function opciones() {
 
 // --- latido -------------------------------------------------------------------------------
 
-async function latido({ forzarRevision = false } = {}) {
+function latido(opciones = {}) {
+  if (!enCurso) enCurso = latidoUnico(opciones).finally(() => (enCurso = null));
+  return enCurso;
+}
+
+async function latidoUnico({ forzarRevision = false } = {}) {
   const { token, pausado } = await ajustes();
-  if (!token || ocupado) return null;
+  if (!token) return null;
   ocupado = true;
   try {
     let portales = await estadoPortales(forzarRevision);
@@ -121,12 +127,11 @@ async function revisarPortal(plataforma) {
   const urls = [sel.cuenta && sel.cuenta.url, sel.perfil && sel.perfil.url]
     .filter((u, i, lista) => u && lista.indexOf(u) === i);
   if (!urls.length) throw new Error(`sin página de cuenta para ${plataforma}`);
-  const pestana = await chrome.tabs.create({ url: urls[0], active: false });
+  const pestana = await abrirPestana(urls[0]);
   try {
     let resultado = null;
     for (const [i, url] of urls.entries()) {
       if (i > 0) await navegar(pestana.id, url);
-      else await esperarCarga(pestana.id);
       const tab = await chrome.tabs.get(pestana.id);
       if (plataformaDeUrl(tab.url) !== plataforma) return { estado: "sin_sesion", correo: null };
       await inyectar(pestana.id, plataforma);
@@ -147,24 +152,17 @@ async function revisarPortal(plataforma) {
 
 // --- pestañas -----------------------------------------------------------------------------
 
-function esperarCarga(tabId, ms = CARGA_MS) {
-  return new Promise((resolver, rechazar) => {
-    const fin = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(oyente);
-      rechazar(new Error("la página no cargó"));
-    }, ms);
-    function oyente(id, cambio) {
-      if (id === tabId && cambio.status === "complete") {
-        clearTimeout(fin);
-        chrome.tabs.onUpdated.removeListener(oyente);
-        resolver();
-      }
-    }
-    chrome.tabs.onUpdated.addListener(oyente);
-    chrome.tabs.get(tabId).then((tab) => {
-      if (tab.status === "complete") oyente(tabId, { status: "complete" });
-    }).catch(() => {});
-  });
+// Pestaña en segundo plano: se crea vacía y luego navega, así la carga es igual a cualquier
+// navegación posterior (y las pruebas pueden servir las páginas del portal)
+async function abrirPestana(url) {
+  const pestana = await chrome.tabs.create({ url: "about:blank", active: false });
+  try {
+    await navegar(pestana.id, url);
+  } catch (error) {
+    chrome.tabs.remove(pestana.id).catch(() => {});
+    throw error;
+  }
+  return pestana;
 }
 
 async function navegar(tabId, url) {
@@ -224,11 +222,16 @@ async function ejecutar(trabajo) {
     await terminar(id, "formulario_desconocido", { motivo: `sin flujo de ${tipo} para ${plataforma}` });
     return;
   }
-  const pestana = await chrome.tabs.create({ url, active: false });
+  let pestana;
+  try {
+    pestana = await abrirPestana(url);
+  } catch (error) {
+    await terminar(id, "fallida", { motivo: "la página de la vacante no cargó" });
+    return;
+  }
   let cerrar = true;
   const contexto = { trabajo, sel, cv: null, cv_nombre: null };
   try {
-    await esperarCarga(pestana.id);
     await reportar(id, "abrir", trabajo.titulo || url);
     for (let i = 0; i < pasos.length; i++) {
       const paso = pasos[i];
@@ -328,6 +331,9 @@ async function ejecutarPaso(tabId, paso, contexto) {
   }
   if (paso.accion === "cv_verificar" && r.verificado === false) {
     await reportar(id, "cv_verificar_fallo", "se postula con el CV existente");
+  }
+  if (paso.accion === "cv_liberar" && r.liberado) {
+    await reportar(id, "cv_liberado", "se reemplaza un CV subido antes por el sistema");
   }
   if (paso.accion === "cv_liberar" && r.sin_espacio) {
     await reportar(id, "cv_sin_espacio", "límite de CV alcanzado sin CV propios del sistema");

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Mi hoja de vida</title></head>
+<body>
+<header><a class="logo" href="https://co.computrabajo.com">Computrabajo</a><span class="usuario">Ana</span></header>
+<main>
+  <h1>Archivos de hoja de vida</h1>
+  <ul id="lista">
+    <!--FILAS-->
+  </ul>
+  <label for="archivo">Subir hoja de vida</label>
+  <input id="archivo" type="file" accept=".pdf">
+  <button id="guardar" type="button">Guardar archivo</button>
+</main>
+<script>
+  const ACTUALIZA = document.body.dataset.actualiza !== "no";
+  document.querySelectorAll(".cv-item .borrar").forEach((b) => b.addEventListener("click", (e) => {
+    const fila = e.target.closest(".cv-item");
+    fetch("https://candidato.co.computrabajo.com/recibir", { method: "POST", body: "borrar:" + fila.querySelector(".cv-name").textContent });
+    fila.remove();
+  }));
+  document.getElementById("guardar").addEventListener("click", async () => {
+    const archivo = document.getElementById("archivo").files[0];
+    if (!archivo) return;
+    const datos = new FormData();
+    datos.append("cv", archivo);
+    await fetch("https://candidato.co.computrabajo.com/recibir", { method: "POST", body: datos });
+    if (!ACTUALIZA) return;
+    if (document.body.dataset.modo === "unico") document.getElementById("lista").replaceChildren();
+    const li = document.createElement("li");
+    li.className = "cv-item";
+    li.innerHTML = '<span class="cv-name"></span>';
+    li.firstChild.textContent = archivo.name;
+    document.getElementById("lista").append(li);
+  });
+</script>
+</body></html>

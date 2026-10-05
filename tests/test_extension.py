@@ -44,6 +44,7 @@ class ApiPrueba:
         self.llamadas: list[tuple[str, dict]] = []
         self.trabajos: list[dict] = []
         self.respuestas = lambda campos: []
+        self.ajustar = lambda plataforma, selectores: selectores
         self.app = self._app()
 
     def de(self, ruta: str) -> list[dict]:
@@ -85,6 +86,7 @@ class ApiPrueba:
         @app.get("/api/v1/selectores/{plataforma}")
         async def selectores(plataforma: str):
             contenido = json.loads((SELECTORES / f"{plataforma}.json").read_text(encoding="utf-8"))
+            contenido = api.ajustar(plataforma, contenido)
             return {"version": contenido["version"], "selectores": contenido}
 
         @app.post("/api/v1/postulaciones/{pid}/{accion}")
@@ -134,6 +136,7 @@ def api(servidor):
     servidor.llamadas.clear()
     servidor.trabajos.clear()
     servidor.respuestas = lambda campos: []
+    servidor.ajustar = lambda plataforma, selectores: selectores
     return servidor
 
 
@@ -206,7 +209,8 @@ class Navegador:
         )
 
     async def latido(self):
-        return await self.evaluar("asistente.latido()")
+        # Si ya hay un latido en curso (el de la instalación), se espera y se hace uno nuevo
+        return await self.evaluar("asistente.latido().then(() => asistente.latido())")
 
 
 def correr(corutina):
@@ -227,8 +231,10 @@ async def abrir(tmp_path: Path, url_api: str, portales: Portales, *, vinculado=T
     await contexto.route("https://*.computrabajo.com/**", portales.atender)
     await contexto.route("https://*.magneto365.com/**", portales.atender)
     await contexto.route("https://www.google.com/**", portales.atender)
-    worker = contexto.service_workers[0] if contexto.service_workers else (
-        await contexto.wait_for_event("serviceworker")
+    worker = (
+        contexto.service_workers[0]
+        if contexto.service_workers
+        else (await contexto.wait_for_event("serviceworker"))
     )
     nav = Navegador(contexto, worker, portales)
     await nav.evaluar(f"chrome.storage.local.set({{servidor: '{url_api}'}})")
@@ -268,7 +274,8 @@ def respuestas_ana(campos: list[dict]) -> list[dict]:
         elif nombre == "acepta":
             salida.append({"indice": i, "valor": None, "opcion": 0})
         elif nombre == "motivo":
-            salida.append({"indice": i, "valor": "Quiero aprender en un equipo real.", "opcion": None})
+            texto = "Quiero aprender en un equipo real."
+            salida.append({"indice": i, "valor": texto, "opcion": None})
     return salida
 
 
@@ -379,7 +386,8 @@ def test_postulacion_completa_llena_todos_los_campos(tmp_path, api):
     assert next(c for c in campos if c["nombre"] == "nombre_completo")["obligatoria"]
     # El portal recibió todos los valores y el PDF adjunto
     enviado = portales.recibido[0].decode("latin-1")
-    for valor in ("Ana P", "ana@example.com", "1300000", "med", "Quiero aprender", "CV_Ana_Perez.pdf"):
+    esperados = ("Ana P", "ana@example.com", "1300000", "med", "Quiero aprender", "CV_Ana_P")
+    for valor in esperados:
         assert valor in enviado, valor
     assert 'name="modalidad"\r\n\r\nh' in enviado
     assert 'name="acepta"\r\n\r\nsi' in enviado
@@ -442,8 +450,9 @@ def test_vacante_cerrada(tmp_path, api):
 def test_selector_ausente_reporta_formulario_desconocido_sin_valores(tmp_path, api):
     portales = portales_listos()
     portales.poner(VACANTE, "ct_vacante.html")
-    portales.poner(MATCH, "ct_match.html",
-                   {'<button type="submit" class="b_primary">Postularme</button>': ""})
+    portales.poner(
+        MATCH, "ct_match.html", {'<button type="submit" class="b_primary">Postularme</button>': ""}
+    )
     api.trabajos = [trabajo()]
     api.respuestas = respuestas_ana
 
@@ -467,9 +476,11 @@ def test_selector_ausente_reporta_formulario_desconocido_sin_valores(tmp_path, a
 def test_captcha_detiene_y_continua_al_resolverse(tmp_path, api):
     portales = portales_listos()
     portales.poner(VACANTE, "ct_vacante.html")
-    reto = ('<iframe id="reto" src="https://www.google.com/recaptcha/api2/bframe?k=1" '
-            'width="300" height="300"></iframe><script>setTimeout(() => '
-            'document.getElementById("reto").remove(), 2500)</script>')
+    reto = (
+        '<iframe id="reto" src="https://www.google.com/recaptcha/api2/bframe?k=1" '
+        'width="300" height="300"></iframe><script>setTimeout(() => '
+        'document.getElementById("reto").remove(), 2500)</script>'
+    )
     portales.poner(MATCH, "ct_match.html", {"<!--CAPTCHA-->": reto})
     api.trabajos = [trabajo()]
     api.respuestas = respuestas_ana
@@ -505,3 +516,105 @@ def test_el_motor_no_opera_fuera_del_portal(tmp_path, api):
     assert "no permitida" in resultado["motivo"]
     assert not api.de("envio")
 
+
+# --- 7.6: CV del perfil del portal ------------------------------------------------------------
+
+
+def con_pasos_de_cv(modo: str, limite: int = 3):
+    def ajustar(plataforma, sel):
+        sel = json.loads(json.dumps(sel))
+        sel["cv"] = {"modo": modo}
+        sel["postular"] = [
+            {"nombre": "cv_liberar", "accion": "cv_liberar", "url": PERFIL_CT,
+             "item": [".cv-item"], "nombre_cv": [".cv-name"], "eliminar": [".borrar"],
+             "limite": limite},
+            {"nombre": "cv_subir", "accion": "cv_subir", "url": PERFIL_CT,
+             "selector": ["#archivo"], "guardar": ["#guardar"]},
+            {"nombre": "cv_verificar", "accion": "cv_verificar", "ms": 3000},
+            {**sel["postular"][0], "url": "$vacante"},
+            *sel["postular"][1:],
+        ]  # fmt: skip
+        return sel
+
+    return ajustar
+
+
+def filas(*nombres: str) -> str:
+    return "".join(
+        f'<li class="cv-item"><span class="cv-name">{n}</span>'
+        '<button class="borrar" type="button">Eliminar</button></li>'
+        for n in nombres
+    )
+
+
+def postular_con_cv(tmp_path, api, *, modo, autorizado, existentes, actualiza=True):
+    portales = portales_listos()
+    portales.poner(VACANTE, "ct_vacante.html")
+    portales.poner(MATCH, "ct_match.html")
+    reemplazos = {"<!--FILAS-->": filas(*existentes),
+                  "<body>": f'<body data-modo="{modo.removeprefix("perfil_")}">'}  # fmt: skip
+    if not actualiza:
+        reemplazos["<body>"] = reemplazos["<body>"].replace("<body", '<body data-actualiza="no"')
+    portales.poner(PERFIL_CT, "ct_perfil_cv.html", reemplazos)
+    api.trabajos = [{**trabajo(), "actualizar_cv_portal": autorizado}]
+    api.respuestas = respuestas_ana
+    api.ajustar = con_pasos_de_cv(modo)
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    return portales
+
+
+def test_perfil_unico_reemplaza_el_cv_antes_de_enviar(tmp_path, api):
+    portales = postular_con_cv(tmp_path, api, modo="perfil_unico", autorizado=True,
+                               existentes=["MiHojaVieja.pdf"])  # fmt: skip
+    recibido = [r.decode("latin-1") for r in portales.recibido]
+    # Primero se sube el CV adaptado al perfil y después se envía la postulación
+    assert "CV_Ana_Perez.pdf" in recibido[0]
+    assert "nombre_completo" in recibido[-1]
+    assert not any(r.startswith("borrar:") for r in recibido)  # perfil único: no se borra
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert "cv_subir" in pasos and "cv_verificar_fallo" not in pasos
+    assert api.de("resultado")[0]["estado"] == "enviada"
+
+
+def test_perfil_multiple_solo_reemplaza_el_cv_del_sistema(tmp_path, api):
+    portales = postular_con_cv(
+        tmp_path, api, modo="perfil_multiple", autorizado=True,
+        existentes=["Personal.pdf", "CV_Ana_Perez.pdf", "Otro.pdf"],
+    )  # fmt: skip
+    borrados = [r.decode() for r in portales.recibido if r.startswith(b"borrar:")]
+    assert borrados == ["borrar:CV_Ana_Perez.pdf"]
+    assert api.de("resultado")[0]["estado"] == "enviada"
+
+
+def test_perfil_multiple_sin_cv_propio_no_borra_nada(tmp_path, api):
+    portales = postular_con_cv(
+        tmp_path, api, modo="perfil_multiple", autorizado=True,
+        existentes=["Personal.pdf", "Otro.pdf", "Tercero.pdf"],
+    )  # fmt: skip
+    assert not [r for r in portales.recibido if r.startswith(b"borrar:")]
+    assert "cv_sin_espacio" in [p["paso"] for p in api.de("paso")]
+
+
+def test_sin_autorizacion_no_se_toca_el_cv(tmp_path, api):
+    portales = postular_con_cv(tmp_path, api, modo="perfil_unico", autorizado=False,
+                               existentes=["MiHojaVieja.pdf"])  # fmt: skip
+    # Solo llegó la postulación (con el PDF adjunto al formulario), nada al perfil
+    assert len(portales.recibido) == 1
+    assert "nombre_completo" in portales.recibido[0].decode("latin-1")
+    assert "cv_sin_autorizacion" in [p["paso"] for p in api.de("paso")]
+    assert api.de("resultado")[0]["estado"] == "enviada"
+
+
+def test_si_la_verificacion_falla_se_postula_con_el_existente(tmp_path, api):
+    postular_con_cv(tmp_path, api, modo="perfil_unico", autorizado=True,
+                    existentes=["MiHojaVieja.pdf"], actualiza=False)  # fmt: skip
+    assert "cv_verificar_fallo" in [p["paso"] for p in api.de("paso")]
+    assert api.de("resultado")[0]["estado"] == "enviada"

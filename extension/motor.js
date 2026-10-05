@@ -356,7 +356,7 @@
         return { ok: true, escritos: await llenar(datos.respuestas || [], datos.cv) };
       case "cv_liberar": {
         // perfil_multiple: si se alcanzó el límite, borra solo un CV subido por el sistema
-        const filas = candidatos(paso.item).filter(visible);
+        const filas = [].concat(paso.item || []).flatMap((x) => candidatos(x)).filter(visible);
         if (filas.length < (paso.limite || 1)) return { ok: true, liberado: false };
         const propia = filas.find((f) => {
           const nombre = textoDe(buscar(paso.nombre_cv, { raiz: f }) || f);

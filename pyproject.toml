@@ -1,7 +1,7 @@
 [project]
 name = "buscador-vacantes"
 version = "0.1.0"
-description = "Buscador de vacantes de prácticas, aprendiz y junior TI que publica en Telegram"
+description = "APOLO TI: Radar de vacantes TI y copiloto autónomo de postulación en 1 toque"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
