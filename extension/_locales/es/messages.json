@@ -1,0 +1,11 @@
+{
+  "nombre": {
+    "message": "Asistente de postulación"
+  },
+  "nombre_corto": {
+    "message": "Postulación"
+  },
+  "descripcion": {
+    "message": "Postula desde tu navegador, con tu propia sesión, a las vacantes del canal JOBS - PRÁCTICAS/APRENDIZ."
+  }
+}

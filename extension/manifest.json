@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Asistente de postulación",
-  "short_name": "Postulación",
+  "name": "__MSG_nombre__",
+  "short_name": "__MSG_nombre_corto__",
   "version": "1.0.0",
-  "description": "Postula desde tu navegador, con tu propia sesión, a las vacantes del canal JOBS - PRÁCTICAS/APRENDIZ.",
+  "default_locale": "es",
+  "description": "__MSG_descripcion__",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
