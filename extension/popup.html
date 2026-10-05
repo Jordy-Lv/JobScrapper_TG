@@ -3,32 +3,44 @@
 <head>
 <meta charset="utf-8">
 <title>Asistente de postulación</title>
-<link rel="stylesheet" href="estilos.css">
+<link rel="stylesheet" href="popup.css">
 </head>
-<body class="popup">
-  <header><img src="iconos/32.png" alt="" width="24" height="24"><h1>Asistente de postulación</h1></header>
-  <section id="sin-vincular" hidden>
-    <p>Este navegador no está vinculado. En el bot toca <b>Vincular mi navegador</b> o escribe aquí el código que te dio:</p>
-    <form id="form-codigo">
-      <input id="codigo" maxlength="9" placeholder="ABCD-2345" autocomplete="off" required>
+<body>
+  <header class="cabecera">
+    <div class="marca"><img src="iconos/48.png" alt=""></div>
+    <div class="titulo">
+      <h1>Asistente</h1>
+      <p id="linea" class="linea"><span class="punto"></span><span id="linea-texto">Sin vincular</span></p>
+    </div>
+    <button id="pausar" class="neon" type="button" hidden>
+      <svg class="icono-pausa" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="4" width="4" height="16" rx="2"/><rect x="14.5" y="4" width="4" height="16" rx="2"/></svg>
+      <svg class="icono-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.6v14.8a1 1 0 0 0 1.53.85l11.8-7.4a1 1 0 0 0 0-1.7L8.53 3.75A1 1 0 0 0 7 4.6z"/></svg>
+    </button>
+  </header>
+
+  <section id="sin-vincular" class="bloque" hidden>
+    <p>Vincula este navegador desde el bot con <b>/vincular</b>, o escribe aquí el código que te dio:</p>
+    <form id="form-codigo" class="codigo">
+      <input id="codigo" maxlength="9" placeholder="ABCD-2345" autocomplete="off" spellcheck="false" required>
       <button type="submit">Vincular</button>
     </form>
-    <p id="mensaje-codigo" class="nota"></p>
+    <p id="mensaje-codigo" class="mensaje"></p>
   </section>
-  <section id="vinculado" hidden>
-    <p id="linea"></p>
-    <p id="actual" class="nota"></p>
-    <p id="ultima" class="nota"></p>
-    <p id="actualizar" class="error" hidden>Hay una versión nueva de la extensión. Actualízala para seguir postulando (el bot te explica cómo).</p>
-    <div class="botones">
-      <button id="revisar" type="button">Revisar portales</button>
-      <button id="pausar" type="button"></button>
-    </div>
-  </section>
-  <h2>Portales</h2>
+
+  <p id="actual" class="aviso trabajando" hidden></p>
+  <p id="actualizar" class="aviso alerta" hidden>Hay una versión nueva de la extensión. Actualízala para seguir postulando.</p>
+
+  <div class="seccion">
+    <span>Portales</span>
+    <button id="revisar" class="enlace" type="button" hidden>Revisar</button>
+  </div>
   <ul id="portales" class="portales"></ul>
-  <p class="nota">Inicia sesión en cada portal en su propia página; la extensión lo detecta sola y nunca ve tu contraseña.</p>
-  <footer><a href="opciones.html" target="_blank">Opciones</a></footer>
+
+  <footer class="pie">
+    <p id="ultima" class="ultima"></p>
+    <p class="nota">Inicias sesión en la página de cada portal; la extensión nunca ve tu contraseña.</p>
+    <a href="opciones.html" target="_blank">Opciones</a>
+  </footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

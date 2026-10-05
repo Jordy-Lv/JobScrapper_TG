@@ -18,7 +18,7 @@ export const NOMBRES = {
   elempleo: "elempleo",
   getonboard: "GetOnBoard",
   linkedin: "LinkedIn",
-  spe: "Servicio Público de Empleo",
+  spe: "Servicio de Empleo",
 };
 
 // Página oficial de ingreso de cada portal: el usuario inicia sesión ahí, nunca en la extensión
@@ -28,6 +28,16 @@ export const INGRESO = {
   elempleo: "https://www.elempleo.com/co/",
   getonboard: "https://www.getonbrd.com/",
   linkedin: "https://www.linkedin.com/login",
+  spe: "https://www.buscadordeempleo.gov.co/",
+};
+
+// Página principal de cada portal (botón "abrir" del popup)
+export const INICIO = {
+  computrabajo: "https://co.computrabajo.com/",
+  magneto: "https://www.magneto365.com/co",
+  elempleo: "https://www.elempleo.com/co/",
+  getonboard: "https://www.getonbrd.com/",
+  linkedin: "https://www.linkedin.com/jobs/",
   spe: "https://www.buscadordeempleo.gov.co/",
 };
 
