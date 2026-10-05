@@ -145,3 +145,61 @@ def test_40_vacantes_se_dividen_sin_cortar_fichas():
 def test_longitud_cuenta_emojis_como_dos():
     assert longitud("🔔") == 2
     assert longitud("abc") == 3
+
+
+# --- Enlace ⚡ Postularme del asistente ---
+
+from buscador_vacantes.asistente.enlaces import bot_para_enlaces, enlace, id_corto  # noqa: E402
+from buscador_vacantes.config import cargar_configuracion  # noqa: E402
+
+
+def test_id_corto_estable_y_de_12_caracteres():
+    assert id_corto("linkedin:1") == id_corto("linkedin:1")
+    assert id_corto("linkedin:1") != id_corto("linkedin:2")
+    assert len(id_corto("computrabajo:ABC")) == 12
+    assert id_corto("x").isalnum() and id_corto("x").islower()
+
+
+def test_enlace_cabe_en_el_parametro_start():
+    url = enlace("PostuladorBot", "computrabajo:" + "F" * 32)
+    parametro = url.split("start=")[1]
+    assert len(parametro) <= 64
+    assert parametro.startswith("v_")
+
+
+def test_ficha_sin_bot_queda_identica():
+    assert ficha(vac(), AHORA) == ficha(vac(), AHORA, None)
+    assert "Postularme" not in ficha(vac(), AHORA)
+
+
+def test_ficha_con_bot_termina_en_el_enlace():
+    texto = ficha(vac(), AHORA, "PostuladorBot")
+    ultima = texto.split("\n")[-1]
+    destino = enlace("PostuladorBot", vac().clave)
+    assert ultima == f'⚡ <a href="{destino}">Postularme</a>'
+    html_valido(texto)
+
+
+def test_componer_con_enlace_respeta_el_limite():
+    vacantes = [
+        vac(i, f"Practicante de Desarrollo de Software número {i} con título largo",
+            dias=i % 10, salario="1 SMMLV + auxilio de transporte",
+            empresa=f"Empresa Grande {i} S.A.S.", ubicacion="Bogotá, D.C., Colombia")
+        for i in range(40)
+    ]  # fmt: skip
+    mensajes = componer(vacantes, AHORA, bot_asistente="PostuladorBot")
+    for mensaje in mensajes:
+        assert longitud(mensaje.texto) <= LIMITE_TELEGRAM
+        html_valido(mensaje.texto)
+        assert mensaje.texto.count("Postularme</a>") == len(mensaje.claves)
+    assert sum(len(m.claves) for m in mensajes) == 40
+
+
+def test_bot_para_enlaces_segun_configuracion():
+    config = cargar_configuracion()
+    assert bot_para_enlaces(config) is None  # desactivado por defecto
+    config.asistente.activo = True
+    config.asistente.bot_usuario = "PostuladorBot"
+    assert bot_para_enlaces(config) is None  # falta enlace_canal
+    config.asistente.enlace_canal = True
+    assert bot_para_enlaces(config) == "PostuladorBot"

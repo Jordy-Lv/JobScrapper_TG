@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from buscador_vacantes import config as cfg
+from buscador_vacantes.asistente.enlaces import dato_boton
 from buscador_vacantes.estado import Estado
 from buscador_vacantes.fechas import ZONA
 from buscador_vacantes.formato import componer
@@ -50,6 +51,16 @@ def _debe_enviar_banner(banner: cfg.Banner, estado: Estado, hoy: str, prueba: bo
     return estado.kv_obtener(_clave_banner(prueba)) != hoy
 
 
+LARGO_BOTON = 48
+
+
+def etiqueta_boton(vacante: Vacante) -> str:
+    titulo = " ".join(vacante.titulo.split())
+    if len(titulo) > LARGO_BOTON:
+        titulo = titulo[: LARGO_BOTON - 1].rstrip() + "…"
+    return f"⚡ {titulo}"
+
+
 def publicar(
     candidatas: list[tuple[Vacante, str]],
     notificador: Notificador,
@@ -61,6 +72,7 @@ def publicar(
     prueba: bool = False,
     raiz: Path = Path("."),
     dormir: Callable[[float], None] = time.sleep,
+    bot_asistente: str | None = None,
 ) -> ResultadoPublicacion:
     """Envía las vacantes (con su huella). Cada vacante se marca solo si su mensaje se confirma.
 
@@ -83,11 +95,17 @@ def publicar(
             log.warning("No se pudo enviar el banner: %s", envio.error)
             resultado.error_banner = envio.error
 
+    # Con el asistente activo, cada mensaje lleva un botón ⚡ por vacante. El toque le llega al
+    # bot asistente con el usuario que lo pulsó, que se postula sin salir del canal.
     mensajes = componer([v for v, _ in candidatas], ahora)
     for numero, mensaje in enumerate(mensajes):
         if numero or resultado.banner_enviado:
             dormir(PAUSA_ENTRE_MENSAJES_S)
-        envio = notificador.enviar_mensaje(chat_id, mensaje.texto)
+        if bot_asistente:
+            botones = [(etiqueta_boton(por_clave[c][0]), dato_boton(c)) for c in mensaje.claves]
+            envio = notificador.enviar_mensaje(chat_id, mensaje.texto, botones=botones)
+        else:
+            envio = notificador.enviar_mensaje(chat_id, mensaje.texto)
         if envio.ok:
             resultado.mensajes_enviados += 1
             for clave in mensaje.claves:

@@ -7,6 +7,8 @@ from buscador_vacantes.config import RAIZ, ErrorConfiguracion, cargar_configurac
 from buscador_vacantes.modelo import Categoria
 
 VARIABLES = (
+    "ASISTENTE_BOT_TOKEN",
+    "ASISTENTE_CLAVE_CIFRADO",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
     "TELEGRAM_CHAT_PRUEBA",
@@ -228,3 +230,85 @@ def test_resumen_no_exige_healthcheck(tmp_path, config):
     with pytest.raises(ErrorConfiguracion, match="HEALTHCHECK_URL"):
         cargar_secretos(config, ruta)
     assert cargar_secretos(config, ruta, exigir_salud=False).healthcheck_url is None
+
+
+# --- Asistente de postulación ---
+
+
+def test_asistente_por_defecto_desactivado(config):
+    asistente = config.asistente
+    assert asistente is not None
+    assert asistente.activo is False
+    assert asistente.enlace_canal is False
+    assert set(asistente.plataformas) == {"computrabajo", "magneto"}
+    assert set(asistente.gemini.tareas) == {
+        "leer_cv",
+        "requisitos",
+        "adaptar_cv",
+        "carta",
+        "responder",
+        "clasificar_pregunta",
+    }
+
+
+def test_asistente_tope_negativo(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["asistente"]["topes"].update(usuario_dia=-1))
+    with pytest.raises(ErrorConfiguracion, match="asistente.topes.usuario_dia"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_tarea_gemini_sin_modelo(tmp_path):
+    ruta = escribir_config(
+        tmp_path, lambda d: d["asistente"]["gemini"]["tareas"]["carta"].pop("modelo")
+    )
+    with pytest.raises(ErrorConfiguracion, match="asistente.gemini.tareas.carta.modelo"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_tarea_gemini_faltante(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["asistente"]["gemini"]["tareas"].pop("leer_cv"))
+    with pytest.raises(ErrorConfiguracion, match="leer_cv"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_enlace_sin_activo(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["asistente"].update(enlace_canal=True))
+    with pytest.raises(ErrorConfiguracion, match="enlace_canal requiere activo"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_activo_exige_bot_y_dueno(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["asistente"].update(activo=True))
+    with pytest.raises(ErrorConfiguracion, match="bot_usuario"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_pausa_invertida(tmp_path):
+    ruta = escribir_config(
+        tmp_path,
+        lambda d: d["asistente"]["ejecucion"].update(pausa_s={"min": 100, "max": 10}),
+    )
+    with pytest.raises(ErrorConfiguracion, match="asistente.ejecucion.pausa_s"):
+        cargar_configuracion(ruta)
+
+
+def test_secretos_del_asistente(tmp_path, config):
+    env = escribir_env(tmp_path, ASISTENTE_BOT_TOKEN="123:abc", ASISTENTE_CLAVE_CIFRADO="k" * 44)
+    secretos = cargar_secretos(config, env, exigir_envio=False)
+    assert secretos.asistente_bot_token == "123:abc"
+    assert "123:abc" in secretos.valores()
+
+
+def test_config_local_reemplaza_solo_lo_que_trae(tmp_path, monkeypatch):
+    ruta = escribir_config(tmp_path, lambda d: None)
+    (tmp_path / "config.local.yaml").write_text(
+        "asistente:\n  bot_usuario: MiBot\n  api:\n    url_publica: https://x.ts.net\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("BUSCADOR_SIN_CONFIG_LOCAL", raising=False)
+    config = cargar_configuracion(ruta)
+    assert config.asistente.bot_usuario == "MiBot"
+    assert config.asistente.api.url_publica == "https://x.ts.net"
+    assert config.asistente.api.puerto == 8787  # lo demás sigue igual
+    monkeypatch.setenv("BUSCADOR_SIN_CONFIG_LOCAL", "1")
+    assert cargar_configuracion(ruta).asistente.bot_usuario == ""

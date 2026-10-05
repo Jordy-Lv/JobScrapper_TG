@@ -200,6 +200,141 @@ class Operacion(Modelo):
     timeout_corrida_min: float = Field(25, gt=0)
 
 
+TareaGemini = Literal[
+    "leer_cv", "requisitos", "adaptar_cv", "carta", "responder", "clasificar_pregunta"
+]
+
+
+class AsistenteApi(Modelo):
+    host: str = "127.0.0.1"
+    puerto: int = Field(8787, ge=1, le=65535)
+    url_publica: str = ""  # URL de Tailscale Funnel, sin barra final
+
+
+class AsistenteExtension(Modelo):
+    url_edge: str = ""  # enlace de la tienda de complementos de Edge
+    version_minima: str = Field("1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+    latido_s: int = Field(30, ge=30)
+    navegador_caido_min: float = Field(2, gt=0)
+
+
+class AsistenteGrupo(Modelo):
+    chat_id: str = ""  # vacío: el TELEGRAM_CHAT_ID del buscador
+    enlace: str = ""  # invitación al grupo; vacío: enlace t.me/c al chat (abre para miembros)
+    comprobar_cada_h: float = Field(24, gt=0)
+    cache_min: float = Field(10, ge=0)
+
+
+class AsistentePolitica(Modelo):
+    version: int = Field(1, ge=1)
+    texto: str = Field(min_length=1)
+
+
+class AsistenteCV(Modelo):
+    max_mb: float = Field(5, gt=0)
+    max_paginas: int = Field(10, ge=1)
+
+
+class AsistenteTopes(Modelo):
+    usuario_dia: int = Field(15, ge=0)
+    ia_usuario_dia: int = Field(60, ge=0)
+    mensajes_min: int = Field(30, ge=1)
+
+
+class RangoPausa(Modelo):
+    min: float = Field(45, ge=0)
+    max: float = Field(120, ge=0)
+
+    @model_validator(mode="after")
+    def _orden(self) -> RangoPausa:
+        if self.max < self.min:
+            raise ValueError("max debe ser mayor o igual que min")
+        return self
+
+
+class AsistenteEjecucion(Modelo):
+    pausa_s: RangoPausa = Field(default_factory=RangoPausa)
+    espera_navegador_h: float = Field(24, gt=0)
+    espera_usuario_h: float = Field(12, gt=0)
+    espera_sesion_h: float = Field(24, gt=0)
+    espera_verificacion_h: float = Field(2, gt=0)
+
+
+class AsistentePlataforma(Modelo):
+    automatica: bool = True
+
+
+class AsistenteAutomatico(Modelo):
+    umbral_defecto: int = Field(70, ge=0, le=100)
+
+
+class AsistenteDetalle(Modelo):
+    intervalo_dominio_s: float = Field(5, ge=0)
+    timeout_s: float = Field(15, gt=0)
+    cache_h: float = Field(24, gt=0)
+
+
+class TareaIA(Modelo):
+    modelo: str = Field(min_length=1)
+    temperatura: float = Field(0.3, ge=0, le=2)
+    max_tokens: int = Field(800, gt=0)
+    # Nivel de razonamiento de los modelos que "piensan" (thinkingLevel); None: el del modelo
+    pensamiento: Literal["low", "medium", "high"] | None = "low"
+    # Modelos de respaldo si el principal está saturado, sin cuota o retirado (en orden)
+    respaldo: list[str] = Field(default_factory=list)
+
+
+class AsistenteGemini(Modelo):
+    base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    timeout_s: float = Field(60, gt=0)
+    tareas: dict[TareaGemini, TareaIA]
+
+    @model_validator(mode="after")
+    def _todas_las_tareas(self) -> AsistenteGemini:
+        faltantes = sorted(set(TareaGemini.__args__) - set(self.tareas))
+        if faltantes:
+            raise ValueError(f"faltan tareas de Gemini: {', '.join(faltantes)}")
+        return self
+
+
+class Asistente(Modelo):
+    activo: bool = False
+    enlace_canal: bool = False  # mostrar ⚡ Postularme en las fichas del canal
+    bot_usuario: str = Field("", pattern=r"^[A-Za-z0-9_]*$")  # sin @
+    dueno_telegram_id: int = Field(0, ge=0)
+    base_datos: Path = Path("data/asistente.db")
+    archivos: Path = Path("data/asistente")
+    # vacantes.db del buscador (solo lectura); vacío: rutas.base_datos
+    vacantes_db: Path | None = None
+    api: AsistenteApi = Field(default_factory=AsistenteApi)
+    extension: AsistenteExtension = Field(default_factory=AsistenteExtension)
+    grupo: AsistenteGrupo = Field(default_factory=AsistenteGrupo)
+    politica: AsistentePolitica
+    cv: AsistenteCV = Field(default_factory=AsistenteCV)
+    topes: AsistenteTopes = Field(default_factory=AsistenteTopes)
+    ejecucion: AsistenteEjecucion = Field(default_factory=AsistenteEjecucion)
+    plataformas: dict[str, AsistentePlataforma] = Field(default_factory=dict)
+    automatico_usuario: AsistenteAutomatico = Field(default_factory=AsistenteAutomatico)
+    carta_max_caracteres: int = Field(1000, ge=100)
+    recordatorio_dias: float = Field(2, gt=0)
+    inactividad_meses: int = Field(12, ge=1)
+    retencion_dias: int = Field(90, ge=1)
+    evidencia_dias: int = Field(30, ge=1)
+    detalle: AsistenteDetalle = Field(default_factory=AsistenteDetalle)
+    preguntas_tipicas: dict[str, list[str]] = Field(default_factory=dict)
+    gemini: AsistenteGemini
+
+    @model_validator(mode="after")
+    def _activo_completo(self) -> Asistente:
+        if self.enlace_canal and not self.activo:
+            raise ValueError("enlace_canal requiere activo: true")
+        if self.activo and not self.bot_usuario:
+            raise ValueError("bot_usuario es obligatorio con activo: true")
+        if self.activo and not self.dueno_telegram_id:
+            raise ValueError("dueno_telegram_id es obligatorio con activo: true")
+        return self
+
+
 class Configuracion(Modelo):
     zona_horaria: str = "America/Bogota"
     rutas: Rutas = Field(default_factory=Rutas)
@@ -218,6 +353,7 @@ class Configuracion(Modelo):
     estado: Estado = Field(default_factory=Estado)
     salud: Salud = Field(default_factory=Salud)
     operacion: Operacion = Field(default_factory=Operacion)
+    asistente: Asistente | None = None
 
     @property
     def usa_ia(self) -> bool:
@@ -230,6 +366,8 @@ class Secretos(BaseModel):
     telegram_chat_prueba: str | None = None
     deepseek_api_key: str | None = None
     healthcheck_url: str | None = None
+    asistente_bot_token: str | None = None
+    asistente_clave_cifrado: str | None = None
 
     def valores(self) -> list[str]:
         """Valores de secretos presentes, para enmascararlos en los logs."""
@@ -244,8 +382,18 @@ def _formatear_errores(error: ValidationError) -> str:
     return "\n".join(lineas)
 
 
-def cargar_configuracion(ruta: Path | str = RAIZ / "config.yaml") -> Configuracion:
-    ruta = Path(ruta)
+def _combinar(base: dict, extra: dict) -> dict:
+    """Mezcla recursiva: los valores de ``extra`` reemplazan a los de ``base``."""
+    resultado = dict(base)
+    for clave, valor in extra.items():
+        if isinstance(valor, dict) and isinstance(resultado.get(clave), dict):
+            resultado[clave] = _combinar(resultado[clave], valor)
+        else:
+            resultado[clave] = valor
+    return resultado
+
+
+def _leer_yaml(ruta: Path) -> dict:
     try:
         datos = yaml.safe_load(ruta.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -254,6 +402,20 @@ def cargar_configuracion(ruta: Path | str = RAIZ / "config.yaml") -> Configuraci
         raise ErrorConfiguracion(f"{ruta} no es YAML válido: {exc}") from exc
     if not isinstance(datos, dict):
         raise ErrorConfiguracion(f"{ruta} debe contener un diccionario en la raíz")
+    return datos
+
+
+def cargar_configuracion(ruta: Path | str = RAIZ / "config.yaml") -> Configuracion:
+    """Lee config.yaml y, si existe a su lado, config.local.yaml (fuera de git), que reemplaza
+    solo los valores que trae: lo propio de cada PC, como el bot o la URL pública.
+
+    BUSCADOR_SIN_CONFIG_LOCAL=1 lo ignora (las pruebas usan solo config.yaml).
+    """
+    ruta = Path(ruta)
+    datos = _leer_yaml(ruta)
+    local = ruta.with_name("config.local.yaml")
+    if local.is_file() and not os.environ.get("BUSCADOR_SIN_CONFIG_LOCAL"):
+        datos = _combinar(datos, _leer_yaml(local))
     try:
         return Configuracion.model_validate(datos)
     except ValidationError as exc:
@@ -299,6 +461,8 @@ def cargar_secretos(
         telegram_chat_prueba=leer("TELEGRAM_CHAT_PRUEBA"),
         deepseek_api_key=leer("DEEPSEEK_API_KEY"),
         healthcheck_url=leer("HEALTHCHECK_URL"),
+        asistente_bot_token=leer("ASISTENTE_BOT_TOKEN"),
+        asistente_clave_cifrado=leer("ASISTENTE_CLAVE_CIFRADO"),
     )
     if not secretos.telegram_bot_token and config.telegram.token_hermes:
         secretos.telegram_bot_token = _leer_token_hermes(config.telegram.token_hermes)

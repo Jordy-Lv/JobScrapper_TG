@@ -879,3 +879,133 @@ salud:
 
 operacion:
   timeout_corrida_min: 25
+
+# Asistente de postulación (bot asistente, API para la extensión y CV adaptado).
+# Plan: openspec/changes/asistente-postulacion-telegram. Desactivado hasta el piloto.
+asistente:
+  activo: false
+  enlace_canal: false        # mostrar "⚡ Postularme" en las fichas (requiere activo)
+  bot_usuario: ""            # @usuario del bot asistente, sin @
+  dueno_telegram_id: 0       # id de Telegram del administrador
+  base_datos: data/asistente.db
+  archivos: data/asistente   # CV, PDF generados y evidencia (permisos 700)
+  vacantes_db: null          # vacantes.db del buscador (solo lectura); null: rutas.base_datos
+  api:
+    host: 127.0.0.1
+    puerto: 8787
+    url_publica: ""          # https://<equipo>.<tailnet>.ts.net (Tailscale Funnel)
+  extension:
+    url_edge: ""             # enlace de la tienda de complementos de Edge
+    version_minima: "1.0.0"
+    latido_s: 30
+    navegador_caido_min: 2
+  grupo:
+    chat_id: ""              # vacío: el TELEGRAM_CHAT_ID del buscador (el grupo privado)
+    enlace: ""               # invitación al grupo para la extensión; vacío: t.me/c/<id>
+    comprobar_cada_h: 24
+    cache_min: 10
+  politica:
+    version: 1
+    # Borrador de la tarea 2.2: el administrador debe revisarlo y aprobarlo antes del piloto.
+    # Cambiar el texto exige subir la versión: todos los usuarios lo aceptan de nuevo.
+    texto: |-
+      AUTORIZACIÓN DE TRATAMIENTO DE DATOS PERSONALES
+      Asistente de postulación del grupo JOBS - PRÁCTICAS/APRENDIZ
+
+      Responsable: el administrador del grupo, quien opera este asistente en su propio
+      servidor sin ánimo de lucro (Ley 1581 de 2012 y Decreto 1377 de 2013).
+
+      1. Qué datos guardamos: tu id y nombre de Telegram; tu hoja de vida y el perfil que
+      se arma con ella (formación, experiencia, proyectos, habilidades, idiomas); tus datos
+      de contacto (correo, teléfono y, si lo das, tu documento); tus respuestas al
+      cuestionario; el correo de tus cuentas de Computrabajo y Magneto; tu clave de Gemini
+      (cifrada); y el historial de tus postulaciones con las respuestas enviadas.
+
+      2. Para qué: solo para preparar y enviar las postulaciones que tú pidas tocando
+      "Postularme" (o las de tu modo automático, si lo activas), adaptar levemente tu hoja
+      de vida a cada vacante y mostrarte el resultado. No vendemos ni compartimos tus datos.
+
+      3. Inteligencia artificial: usamos Gemini de Google con TU propia clave. En su plan
+      gratuito, Google puede usar el contenido enviado para mejorar sus modelos. Por eso
+      nunca enviamos tu documento, teléfono, correo ni dirección; solo tu formación,
+      experiencia, habilidades y la vacante. Si tu hoja de vida es escaneada, te pediremos
+      permiso antes de enviarla completa.
+
+      4. Postulación desde tu navegador: la extensión postula desde tu computador, con tu
+      sesión y tu conexión. Nunca recibimos tus contraseñas ni tus sesiones. Si lo
+      autorizas, actualizará la hoja de vida de tus perfiles en los portales con la versión
+      adaptada a cada vacante; una empresa a la que te postulaste antes podría ver la
+      versión más reciente.
+
+      5. Riesgo: los portales de empleo pueden restringir el uso automatizado de las
+      cuentas. Para reducirlo postulamos con pausas, con un tope diario y nos detenemos ante
+      cualquier verificación, pero no podemos garantizar que el portal no tome medidas.
+
+      6. Tus derechos: conocer, actualizar, rectificar y suprimir tus datos y revocar esta
+      autorización. Puedes ver y editar tu perfil con /perfil y borrar todo con /borrarme.
+      Si dejas el grupo, tu acceso se suspende; si no usas el asistente en 12 meses, te
+      avisaremos y luego borraremos tus datos.
+
+      Al pulsar "Acepto" autorizas este tratamiento.
+  cv:
+    max_mb: 5
+    max_paginas: 10
+  topes:
+    usuario_dia: 15          # postulaciones por usuario y día
+    ia_usuario_dia: 60       # llamadas a Gemini por usuario y día
+    mensajes_min: 30         # antiabuso
+  ejecucion:
+    pausa_s: {min: 45, max: 120}
+    espera_navegador_h: 24
+    espera_usuario_h: 12
+    espera_sesion_h: 24
+    espera_verificacion_h: 2
+  plataformas:
+    computrabajo: {automatica: true}
+    magneto: {automatica: true}
+  automatico_usuario:
+    umbral_defecto: 70
+  carta_max_caracteres: 1000
+  recordatorio_dias: 2
+  inactividad_meses: 12
+  retencion_dias: 90
+  evidencia_dias: 30
+  detalle:
+    intervalo_dominio_s: 5
+    timeout_s: 15
+    cache_h: 24
+  # Preguntas típicas por fuente para el paquete de respaldo (se completan en la tarea 3.1)
+  preguntas_tipicas:
+    otras:
+      - ¿Cuál es tu aspiración salarial?
+      - ¿Cuál es tu disponibilidad para iniciar?
+      - ¿Por qué te interesa esta vacante?
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    timeout_s: 60
+    # Verificado el 2026-10-04 con GET /v1beta/models (tarea 4.1): los gemini-2.5-* ya no
+    # están disponibles para cuentas nuevas (404). Se usan los alias -latest, que Google
+    # mantiene apuntando al modelo vigente, con razonamiento "low" (thinkingLevel).
+    # Modelos con generateContent en esa fecha: gemini-flash-latest, gemini-flash-lite-latest,
+    # gemini-3.8-flash, gemini-3.5-flash, gemini-3.5-flash-lite, gemini-3.1-flash-lite.
+    # Respaldo verificado el 2026-10-04: gemini-flash-latest (3.8) respondía 503 por alta
+    # demanda mientras gemini-3.5-flash y los lite respondían bien.
+    tareas:
+      leer_cv:
+        {modelo: gemini-flash-latest, temperatura: 0.1, max_tokens: 6000,
+         respaldo: [gemini-3.5-flash, gemini-flash-lite-latest]}
+      requisitos:
+        {modelo: gemini-flash-lite-latest, temperatura: 0.1, max_tokens: 1500,
+         respaldo: [gemini-3.1-flash-lite, gemini-3.5-flash-lite]}
+      adaptar_cv:
+        {modelo: gemini-flash-latest, temperatura: 0.3, max_tokens: 2500,
+         respaldo: [gemini-3.5-flash, gemini-flash-lite-latest]}
+      carta:
+        {modelo: gemini-flash-latest, temperatura: 0.5, max_tokens: 1500,
+         respaldo: [gemini-3.5-flash, gemini-flash-lite-latest]}
+      responder:
+        {modelo: gemini-flash-lite-latest, temperatura: 0.3, max_tokens: 1000,
+         respaldo: [gemini-3.1-flash-lite, gemini-3.5-flash-lite]}
+      clasificar_pregunta:
+        {modelo: gemini-flash-lite-latest, temperatura: 0, max_tokens: 600,
+         respaldo: [gemini-3.1-flash-lite, gemini-3.5-flash-lite]}

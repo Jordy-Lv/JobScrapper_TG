@@ -19,10 +19,12 @@ class NotificadorFalso:
         self.fallar_mensajes = set(fallar_mensajes)
         self.fallar_foto = fallar_foto
         self.envios = []
+        self.botones = []
 
-    def enviar_mensaje(self, chat_id, texto):
+    def enviar_mensaje(self, chat_id, texto, botones=None):
         numero = sum(1 for tipo, *_ in self.envios if tipo == "mensaje")
         self.envios.append(("mensaje", chat_id, texto))
+        self.botones.append(botones)
         if numero in self.fallar_mensajes:
             return ResultadoEnvio(False, codigo=400, error="Bad Request: can't parse entities")
         return ResultadoEnvio(True, message_id=numero)
@@ -157,3 +159,34 @@ def test_chat_de_prueba_no_marca_enviadas_al_canal(estado, banner):
     vacante, h = candidatas(1)[0]
     assert estado.ya_vista(vacante.clave, h, prueba=True)
     assert not estado.ya_vista(vacante.clave, h)
+
+
+def test_con_asistente_cada_vacante_lleva_su_boton(estado, banner):
+    from buscador_vacantes.asistente.enlaces import dato_boton
+
+    notificador = NotificadorFalso()
+    lista = candidatas(3)
+    publicar_con(notificador, estado, banner, lista, bot_asistente="PostuladorBot")
+    botones = [b for b in notificador.botones if b]
+    assert len(botones) == 1 and len(botones[0]) == 3
+    texto, dato = botones[0][0]
+    assert texto.startswith("⚡ Practicante de Sistemas")
+    assert dato == dato_boton(lista[0][0].clave) and len(dato.encode()) <= 64
+    # La ficha ya no lleva el enlace de texto: el botón lo reemplaza
+    assert all(
+        "Postularme</a>" not in envio[2] for envio in notificador.envios if envio[0] == "mensaje"
+    )
+
+
+def test_sin_asistente_no_hay_botones(estado, banner):
+    notificador = NotificadorFalso()
+    publicar_con(notificador, estado, banner, candidatas(2))
+    assert not any(notificador.botones)
+
+
+def test_etiqueta_del_boton_se_recorta():
+    from buscador_vacantes.publicacion import LARGO_BOTON, etiqueta_boton
+
+    vacante = candidatas(1, largo=True)[0][0]
+    etiqueta = etiqueta_boton(vacante)
+    assert etiqueta.endswith("…") and len(etiqueta) <= LARGO_BOTON + 2
