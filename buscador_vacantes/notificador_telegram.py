@@ -28,8 +28,14 @@ class ResultadoEnvio:
     error: str | None = None  # descripción apta para el log y el incidente
 
 
+# Botones de un mensaje: (texto, callback_data), uno por fila
+Botones = list[tuple[str, str]]
+
+
 class Notificador(Protocol):
-    def enviar_mensaje(self, chat_id: str, texto_html: str) -> ResultadoEnvio: ...
+    def enviar_mensaje(
+        self, chat_id: str, texto_html: str, botones: Botones | None = None
+    ) -> ResultadoEnvio: ...
 
     def enviar_foto(self, chat_id: str, ruta: Path) -> ResultadoEnvio: ...
 
@@ -91,16 +97,20 @@ class NotificadorBotAPI:
             self.dormir(espera)
         return resultado
 
-    def enviar_mensaje(self, chat_id: str, texto_html: str) -> ResultadoEnvio:
-        return self._enviar(
-            "sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": texto_html,
-                "parse_mode": "HTML",
-                "link_preview_options": {"is_disabled": True},
-            },
-        )
+    def enviar_mensaje(
+        self, chat_id: str, texto_html: str, botones: Botones | None = None
+    ) -> ResultadoEnvio:
+        cuerpo = {
+            "chat_id": chat_id,
+            "text": texto_html,
+            "parse_mode": "HTML",
+            "link_preview_options": {"is_disabled": True},
+        }
+        if botones:
+            cuerpo["reply_markup"] = {
+                "inline_keyboard": [[{"text": t, "callback_data": d}] for t, d in botones]
+            }
+        return self._enviar("sendMessage", json=cuerpo)
 
     def enviar_foto(self, chat_id: str, ruta: Path) -> ResultadoEnvio:
         try:
@@ -142,8 +152,10 @@ class NotificadorHermesCLI:
             False, codigo=proceso.returncode, error=f"{self.comando} send falló: {salida}"
         )
 
-    def enviar_mensaje(self, chat_id: str, texto_html: str) -> ResultadoEnvio:
-        return self._ejecutar(chat_id, texto_html)
+    def enviar_mensaje(
+        self, chat_id: str, texto_html: str, botones: Botones | None = None
+    ) -> ResultadoEnvio:
+        return self._ejecutar(chat_id, texto_html)  # Hermes no envía botones
 
     def enviar_foto(self, chat_id: str, ruta: Path) -> ResultadoEnvio:
         return self._ejecutar(chat_id, f"MEDIA:{ruta}")

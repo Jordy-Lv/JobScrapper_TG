@@ -19,6 +19,7 @@ from telegram.ext import (
 
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.conversacion import Bloqueado, Botones, Conversacion
+from buscador_vacantes.asistente.enlaces import PREFIJO_BOTON
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +111,15 @@ def crear_aplicacion(token: str, conversacion_de, max_mb: float, bot_usuario: st
 
     async def boton(update: Update, contexto: ContextTypes.DEFAULT_TYPE) -> None:
         consulta = update.callback_query
-        respuesta = await conv(contexto).al_boton(update.effective_user.id, consulta.data or "")
+        dato = consulta.data or ""
+        if dato.startswith(PREFIJO_BOTON):
+            # Botón ⚡ de un mensaje del canal: se postula sin salir del canal
+            r = await conv(contexto).al_toque_canal(
+                update.effective_user.id, dato.removeprefix(PREFIJO_BOTON)
+            )
+            await consulta.answer(r.texto or None, show_alert=r.alerta, url=r.url)
+            return
+        respuesta = await conv(contexto).al_boton(update.effective_user.id, dato)
         await consulta.answer(respuesta)
 
     async def en_grupo(update: Update, contexto: ContextTypes.DEFAULT_TYPE) -> None:

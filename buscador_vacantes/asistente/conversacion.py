@@ -31,6 +31,7 @@ from buscador_vacantes.asistente.cv_lectura import (
     leer_cv,
     validar_archivo,
 )
+from buscador_vacantes.asistente.enlaces import PREFIJO_VACANTE
 from buscador_vacantes.asistente.gemini import ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Paquete
@@ -99,6 +100,15 @@ NOMBRE_SECCION = {
 
 def cb(*partes: object) -> str:
     return "cb:" + ":".join(str(p) for p in partes)
+
+
+@dataclass
+class RespuestaToque:
+    """Aviso del botón ⚡ del canal (answerCallbackQuery)."""
+
+    texto: str
+    url: str | None = None  # abre el bot con la vacante en lugar de postular
+    alerta: bool = False  # ventana con botón Aceptar en lugar de un aviso fugaz
 
 
 @dataclass
@@ -671,21 +681,22 @@ class Conversacion:
     # --- toque de ⚡ ----------------------------------------------------------------
 
     async def procesar_toque(self, usuario: Usuario, id_corto: str, *, origen: str = "boton"):
+        """Encola la vacante. Devuelve el toque, o None si las postulaciones están en pausa."""
         async with self._candados[usuario.id]:
             if usuario.pausado:
                 await self._enviar(
                     usuario, "Tus postulaciones están en pausa. Usa /pausa para reanudarlas."
                 )
-                return
+                return None
             toque = self.n.tocar(usuario, id_corto, origen=origen)
         if toque.camino == Camino.NO_DISPONIBLE:
             await self._enviar(usuario, "Esa vacante ya no está disponible en el asistente.")
-            return
+            return toque
         titulo = t.e(toque.vacante.titulo)
         if toque.camino == Camino.YA_EXISTE:
             estado = t.ESTADOS.get(toque.postulacion.estado, toque.postulacion.estado)
             await self._enviar(usuario, f"<b>{titulo}</b>\nYa la tienes: {estado}.")
-            return
+            return toque
         if toque.camino == Camino.AUTOMATICA:
             mensaje = await self._enviar(
                 usuario, f"<b>{titulo}</b>\n⏳ En cola. Te aviso el resultado."
@@ -697,7 +708,7 @@ class Conversacion:
                         (mensaje, toque.postulacion.id),
                     )
             self._en_segundo_plano(self._preparar(usuario, toque))
-            return
+            return toque
         await self._enviar(
             usuario,
             f"<b>{titulo}</b>\n📋 No puedo postularla sola: "
@@ -705,6 +716,54 @@ class Conversacion:
             "Preparo tu paquete para que lo hagas en un minuto…",
         )
         self._en_segundo_plano(self._enviar_paquete(usuario, toque.postulacion.id, toque.motivo))
+        return toque
+
+    async def al_toque_canal(self, tid: int, id_corto: str) -> RespuestaToque:
+        """Botón ⚡ de un mensaje del canal: Telegram dice quién lo tocó y se postula ahí mismo.
+
+        La respuesta es el aviso corto que ve el usuario sobre el canal. Si aún no terminó su
+        registro, se le abre el bot con la vacante para que el alta continúe con ella.
+        """
+        registro = f"https://t.me/{self.config.bot_usuario}?start={PREFIJO_VACANTE}{id_corto}"
+        if not self._permitir(tid):
+            return RespuestaToque("Vas muy rápido; intenta de nuevo en un minuto.", alerta=True)
+        usuario = self.n.usuarios.obtener(tid)
+        if (
+            usuario is None
+            or usuario.estado == EstadoUsuario.ALTA
+            or self.n.usuarios.requiere_politica(usuario, self.config.politica.version)
+        ):
+            return RespuestaToque("", url=registro)
+        ahora = self.n.ahora()
+        usuario = await self.comprobador.comprobar(usuario, ahora)
+        if usuario.estado == EstadoUsuario.SUSPENDIDO:
+            return RespuestaToque(t.SUSPENDIDO, alerta=True)
+        self.n.usuarios.tocar_actividad(usuario, ahora)
+        if usuario.estado == EstadoUsuario.INACTIVO:
+            with self.n.base.transaccion() as cx:
+                cx.execute(
+                    "UPDATE usuarios SET estado = 'activo', motivo_estado = NULL WHERE id = ?",
+                    (usuario.id,),
+                )
+        toque = await self.procesar_toque(usuario, id_corto, origen="canal")
+        if toque is None:
+            return RespuestaToque(
+                "⏸️ Tus postulaciones están en pausa. Reanúdalas con /pausa en el bot.", alerta=True
+            )
+        titulo = (toque.vacante.titulo or "la vacante") if toque.vacante else "la vacante"
+        if toque.camino == Camino.AUTOMATICA:
+            return RespuestaToque(
+                f"⚡ Postulando a {titulo[:120]}. Te aviso el resultado en el bot."
+            )
+        if toque.camino == Camino.YA_EXISTE:
+            estado = t.ESTADOS.get(toque.postulacion.estado, toque.postulacion.estado)
+            return RespuestaToque(f"Ya la tienes: {estado}.", alerta=True)
+        if toque.camino == Camino.RESPALDO:
+            return RespuestaToque(
+                "📋 Esta no la puedo enviar sola: te mandé al bot el paquete para postularte.",
+                alerta=True,
+            )
+        return RespuestaToque("Esa vacante ya no está disponible.", alerta=True)
 
     async def _preparar(self, usuario: Usuario, toque) -> None:
         try:

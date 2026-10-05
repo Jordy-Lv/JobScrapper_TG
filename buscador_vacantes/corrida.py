@@ -661,9 +661,12 @@ def _correr(
     programada = modo.envia
     salud = Salud(secretos.healthcheck_url, activo=config.salud.activo and programada,
                   timeout_s=config.salud.timeout_s)  # fmt: skip
-    notificador = (
-        crear_notificador(config.telegram, secretos.telegram_bot_token) if modo.envia else None
-    )
+    # Con el botón ⚡ del canal activo, la corrida publica con el bot asistente: Telegram solo
+    # le avisa los toques de un botón al bot que envió el mensaje.
+    token = secretos.telegram_bot_token
+    if bot_para_enlaces(config) and secretos.asistente_bot_token:
+        token = secretos.asistente_bot_token
+    notificador = crear_notificador(config.telegram, token) if modo.envia else None
     ia = None
     if modo.envia and config.usa_ia and secretos.deepseek_api_key:
         ia = ClienteIA(config.ia, secretos.deepseek_api_key, estado, secretos=secretos.valores())

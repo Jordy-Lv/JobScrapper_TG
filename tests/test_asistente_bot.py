@@ -434,3 +434,43 @@ def test_gemini_saturado_reintenta_solo_el_cv(mundo):
     assert 120 in esperas
     assert mundo.n.usuarios.obtener(ANA).paso_alta == "resumen"
     assert "Revisa tu información" in mensajes[-1]
+
+
+# --- botón ⚡ en los mensajes del canal ----------------------------------------------------
+
+
+def test_toque_en_el_canal_postula_al_usuario_registrado(mundo):
+    correr(alta_completa(mundo, ANA))
+    mundo.n.indice.indexar(T0)
+
+    async def tocar():
+        r = await mundo.c.al_toque_canal(ANA, id_corto("linkedin:1"))
+        await mundo.c.esperar_tareas()
+        return r
+
+    r = correr(tocar())
+    usuario = mundo.n.usuarios.obtener(ANA)
+    fila = mundo.base.cx.execute(
+        "SELECT id_corto FROM postulaciones WHERE usuario_id = ?", (usuario.id,)
+    ).fetchone()
+    assert fila["id_corto"] == id_corto("linkedin:1")
+    assert r.url is None and r.texto  # aviso sobre el canal, sin abrir el bot
+    # Un segundo toque no duplica: avisa que ya la tiene
+    r2 = correr(mundo.c.al_toque_canal(ANA, id_corto("linkedin:1")))
+    assert r2.texto.startswith("Ya la tienes")
+    total = mundo.base.cx.execute("SELECT COUNT(*) FROM postulaciones").fetchone()[0]
+    assert total == 1
+
+
+def test_toque_en_el_canal_sin_registro_abre_el_bot_con_la_vacante(mundo):
+    r = correr(mundo.c.al_toque_canal(ANA, id_corto("linkedin:1")))
+    assert r.url.endswith(f"?start=v_{id_corto('linkedin:1')}")
+    assert not mundo.base.cx.execute("SELECT COUNT(*) FROM postulaciones").fetchone()[0]
+
+
+def test_toque_en_el_canal_con_postulaciones_en_pausa(mundo):
+    correr(alta_completa(mundo, ANA))
+    mundo.n.indice.indexar(T0)
+    correr(mundo.c.al_comando(ANA, "pausa", []))
+    r = correr(mundo.c.al_toque_canal(ANA, id_corto("linkedin:1")))
+    assert r.alerta and "pausa" in r.texto

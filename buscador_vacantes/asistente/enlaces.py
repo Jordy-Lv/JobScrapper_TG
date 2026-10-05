@@ -12,6 +12,7 @@ from buscador_vacantes import config as cfg
 
 LARGO_ID = 12
 PREFIJO_VACANTE = "v_"
+PREFIJO_BOTON = "pv:"  # callback_data del botón ⚡ en los mensajes del canal
 
 
 def id_corto(clave: str) -> str:
@@ -22,6 +23,11 @@ def id_corto(clave: str) -> str:
 
 def enlace(bot_usuario: str, clave: str) -> str:
     return f"https://t.me/{bot_usuario}?start={PREFIJO_VACANTE}{id_corto(clave)}"
+
+
+def dato_boton(clave: str) -> str:
+    """callback_data del botón ⚡ de una vacante (Telegram admite hasta 64 bytes)."""
+    return f"{PREFIJO_BOTON}{id_corto(clave)}"
 
 
 def bot_para_enlaces(config: cfg.Configuracion) -> str | None:

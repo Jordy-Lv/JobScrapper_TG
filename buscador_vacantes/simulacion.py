@@ -74,8 +74,9 @@ class NotificadorConsola:
     def __init__(self, salida: Callable[[str], None] = print) -> None:
         self.salida = salida
 
-    def enviar_mensaje(self, chat_id: str, texto_html: str) -> ResultadoEnvio:
-        self.salida(f"--- mensaje para {chat_id} ---\n{texto_html}\n")
+    def enviar_mensaje(self, chat_id: str, texto_html: str, botones=None) -> ResultadoEnvio:
+        extra = "".join(f"\n[{texto}]" for texto, _ in botones or [])
+        self.salida(f"--- mensaje para {chat_id} ---\n{texto_html}{extra}\n")
         return ResultadoEnvio(True)
 
     def enviar_foto(self, chat_id, ruta) -> ResultadoEnvio:
