@@ -20,3 +20,4 @@ button:disabled { opacity: .5; }
 .ok { color: var(--verde); }
 footer { margin-top: 10px; font-size: 12px; }
 footer a { color: var(--gris); }
+button.enlace { padding: 0; border: 0; background: none; color: var(--azul); text-decoration: underline; }

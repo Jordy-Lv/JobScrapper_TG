@@ -175,7 +175,8 @@ font-size:1.1rem;margin-top:1.8em}</style></head>
 <body><h1>Política de privacidad de la extensión «Asistente de postulación»</h1>
 <p>Última actualización: 4 de octubre de 2026.</p>
 <p>La extensión es parte de un asistente privado para los miembros del canal de Telegram
-«JOBS - PRÁCTICAS/APRENDIZ». Postula a vacantes de Computrabajo y Magneto desde el navegador
+«JOBS - PRÁCTICAS/APRENDIZ». Postula a vacantes de Computrabajo y Magneto (y, si el usuario las
+activa, de elempleo, GetOnBoard, LinkedIn y el Servicio Público de Empleo) desde el navegador
 del propio usuario, con su sesión, cuando el usuario lo pide desde el bot de Telegram.</p>
 <h2>Qué datos usa la extensión</h2>
 <ul>
@@ -191,8 +192,8 @@ escritos borrados</b>, para corregir el asistente.</li>
 <h2>Qué datos NO usa</h2>
 <ul>
 <li>No lee ni envía contraseñas, cookies, ni el almacenamiento de los portales.</li>
-<li>No lee el historial de navegación ni ninguna página fuera de Computrabajo, Magneto y el
-servidor del asistente.</li>
+<li>No lee el historial de navegación ni ninguna página fuera de los portales de empleo
+activados y el servidor del asistente.</li>
 <li>No toma capturas de pantalla ni graba lo que el usuario hace.</li>
 <li>No descarga ni ejecuta código remoto: solo recibe datos (selectores y respuestas).</li>
 <li>No vende ni comparte datos con terceros, ni muestra publicidad.</li>

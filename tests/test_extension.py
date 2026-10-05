@@ -293,6 +293,11 @@ def test_manifiesto_con_permisos_minimos():
     for prohibido in ("<all_urls>", "cookies", "history", "webRequest", "*://*/*"):
         assert prohibido not in todo
     assert "content_security_policy" not in manifiesto  # sin relajar la política por defecto
+    # Las demás plataformas del buscador quedan como permisos opcionales: se activan desde el
+    # popup cuando el servidor las habilita, sin publicar otra versión
+    opcionales = set(manifiesto["optional_host_permissions"])
+    for dominio in ("elempleo.com", "getonbrd.com", "linkedin.com", "buscadordeempleo.gov.co"):
+        assert f"https://*.{dominio}/*" in opcionales
 
 
 def test_sin_codigo_remoto():

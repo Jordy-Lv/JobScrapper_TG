@@ -18,6 +18,10 @@
     "https://postulador.tailf6cdf1.ts.net/*"
   ],
   "optional_host_permissions": [
+    "https://*.elempleo.com/*",
+    "https://*.getonbrd.com/*",
+    "https://*.linkedin.com/*",
+    "https://*.buscadordeempleo.gov.co/*",
     "https://*.ts.net/*"
   ],
   "background": {

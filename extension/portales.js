@@ -6,7 +6,35 @@ export const SERVIDOR_DEFECTO = "https://postulador.tailf6cdf1.ts.net";
 export const DOMINIOS = {
   computrabajo: ["computrabajo.com"],
   magneto: ["magneto365.com"],
+  elempleo: ["elempleo.com"],
+  getonboard: ["getonbrd.com"],
+  linkedin: ["linkedin.com"],
+  spe: ["buscadordeempleo.gov.co"],
 };
+
+export const NOMBRES = {
+  computrabajo: "Computrabajo",
+  magneto: "Magneto",
+  elempleo: "elempleo",
+  getonboard: "GetOnBoard",
+  linkedin: "LinkedIn",
+  spe: "Servicio Público de Empleo",
+};
+
+// Plataformas con código propio en adaptadores/; las demás funcionan solo con los datos
+// (selectores y flujo) que entrega el servidor, sin publicar otra versión de la extensión.
+export const ADAPTADORES = ["computrabajo", "magneto"];
+
+// Permiso de cada plataforma. Las que no vienen de fábrica son permisos opcionales que el
+// usuario activa desde el popup cuando el servidor habilita esa plataforma.
+export function origenes(plataforma) {
+  return (DOMINIOS[plataforma] || []).map((d) => `https://*.${d}/*`);
+}
+
+export async function tienePermiso(plataforma) {
+  const lista = origenes(plataforma);
+  return lista.length > 0 && chrome.permissions.contains({ origins: lista });
+}
 
 // Páginas que el motor nunca toca, aunque los selectores lo pidan: contraseña, correo de
 // acceso, privacidad, notificaciones y borrado de la cuenta.

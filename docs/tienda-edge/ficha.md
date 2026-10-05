@@ -68,8 +68,11 @@ Permissions:
 - tabs, scripting: open the job page in a background tab and run the bundled form-filler
   (motor.js) on it.
 - alarms: heartbeat every 30 s to fetch the user's queue.
-- host permissions: only computrabajo.com, magneto365.com and the bot server. Optional
-  *.ts.net only if the administrator moves the server (asked to the user in Options).
+- host permissions: only computrabajo.com, magneto365.com and the bot server.
+- optional host permissions: elempleo.com, getonbrd.com, linkedin.com and
+  buscadordeempleo.gov.co (other Colombian job boards the bot publishes). They are requested
+  only when the server enables that job board and the user taps "Activar" in the popup.
+  Optional *.ts.net only if the administrator moves the server (asked in Options).
 
 No remote code: the server only sends data (CSS selectors and texts as JSON), interpreted by
 the bundled scripts. No passwords, cookies, history or screenshots are collected. Privacy

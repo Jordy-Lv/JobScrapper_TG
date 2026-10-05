@@ -2,7 +2,7 @@
 // Coordina el flujo entre páginas; cada paso lo ejecuta motor.js dentro de la pestaña.
 
 import { ajustes, llamar, version, vincular, ErrorApi } from "./api.js";
-import { DOMINIOS, paginaPermitida, plataformaDeUrl } from "./portales.js";
+import { ADAPTADORES, paginaPermitida, plataformaDeUrl, tienePermiso } from "./portales.js";
 
 const ALARMA = "latido";
 const REVISION_MAX_MS = 6 * 60 * 60 * 1000; // estado de los portales: se revisa cada 6 h
@@ -50,6 +50,15 @@ async function latidoUnico({ forzarRevision = false } = {}) {
     let portales = await estadoPortales(forzarRevision);
     let respuesta = await enviarLatido(portales);
     if (!respuesta) return null;
+    // Plataforma recién habilitada en el servidor: se revisa ya, sin esperar al próximo latido
+    const nuevas = [];
+    for (const p of Object.keys(respuesta.selectores || {})) {
+      if (!portales[p] && (await tienePermiso(p))) nuevas.push(p);
+    }
+    if (nuevas.length) {
+      portales = await estadoPortales(false);
+      respuesta = (await enviarLatido(portales)) || respuesta;
+    }
     if (respuesta.trabajo && !pausado && !respuesta.actualizar) {
       // Antes de cada trabajo se relee la sesión y el correo de la cuenta del portal
       const plataforma = respuesta.trabajo.plataforma;
@@ -106,7 +115,16 @@ async function selectores(plataforma) {
 
 async function estadoPortales(forzar, soloPlataforma = null) {
   const { portales = {} } = await chrome.storage.local.get("portales");
-  for (const plataforma of Object.keys(DOMINIOS)) {
+  // Solo las plataformas que el servidor habilitó (tienen selectores) y con permiso del usuario
+  const { selectores_version = {} } = await chrome.storage.local.get("selectores_version");
+  for (const plataforma of Object.keys(portales)) {
+    if (!(plataforma in selectores_version)) delete portales[plataforma];
+  }
+  for (const plataforma of Object.keys(selectores_version)) {
+    if (!(await tienePermiso(plataforma))) {
+      delete portales[plataforma];
+      continue;
+    }
     const previo = portales[plataforma];
     const vencido = !previo || Date.now() - previo.revisado > REVISION_MAX_MS;
     if (soloPlataforma ? plataforma === soloPlataforma : forzar || vencido) {
@@ -195,7 +213,7 @@ function esperarCargaNueva(tabId, ms = CARGA_MS) {
 async function inyectar(tabId, plataforma) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["motor.js", `adaptadores/${plataforma}.js`],
+    files: ADAPTADORES.includes(plataforma) ? ["motor.js", `adaptadores/${plataforma}.js`] : ["motor.js"],
   });
 }
 
