@@ -110,5 +110,9 @@ class DatosUsuario:
     def para_ia(self) -> dict:
         """Perfil y cuestionario sin datos de contacto, para las tareas de redacción."""
         perfil = self.perfil.model_dump(exclude={"es_cv", "nombre", "enlaces"})
-        cuestionario = {k: v for k, v in self.cuestionario.items() if k not in CONTACTO}
+        cuestionario = {
+            k: v
+            for k, v in self.cuestionario.items()
+            if k not in CONTACTO and not k.startswith(("_", "sugerido_"))
+        }
         return {"perfil": perfil, "cuestionario": cuestionario}

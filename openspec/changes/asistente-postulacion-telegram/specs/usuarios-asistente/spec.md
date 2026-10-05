@@ -63,7 +63,7 @@ Durante el alta, el usuario SHALL enviar su CV en PDF (tamaño máximo configura
 - certificaciones y enlaces (GitHub, portafolio, LinkedIn).
 
 El perfil extraído MUST mostrarse en **un solo mensaje de resumen** con los datos de contacto encontrados (nombre, ciudad, correo, celular), formación, experiencia, proyectos, habilidades, idiomas y el enfoque propuesto, con dos botones: **Información correcta** y **Editar**.
-- Con **Información correcta**, el alta sigue sin ninguna pregunta más sobre el perfil.
+- Con **Información correcta**, no se vuelve a preguntar nada de lo que el CV ya dice: el alta sigue con las preguntas del cuestionario base que el CV no responde.
 - Solo con **Editar** se revisa sección por sección, se ajusta el enfoque y se responde el cuestionario base completo.
 
 Un campo que el CV no trae MUST quedar vacío, nunca inventado.
@@ -76,7 +76,7 @@ Si el archivo no es un PDF, supera el tamaño, no parece un CV o no se puede lee
 
 #### Scenario: Información correcta
 - **WHEN** el usuario pulsa "Información correcta"
-- **THEN** pasa al último paso del alta sin que se le pregunte nada más sobre su perfil
+- **THEN** el bot hace solo las preguntas del cuestionario base que el CV no responde (por ejemplo aspiración salarial y disponibilidad) y no repite las que ya respondió el CV (nombre, correo, celular, ciudad)
 
 #### Scenario: Editar
 - **WHEN** el usuario pulsa "Editar"
@@ -95,7 +95,7 @@ Si el archivo no es un PDF, supera el tamaño, no parece un CV o no se puede lee
 - **THEN** el bot ofrece llenar el perfil con preguntas guiadas
 
 ### Requirement: Datos de contacto y cuestionario base
-El perfil SHALL tomar del CV, sin preguntar, todo lo que este trae: nombre, ciudad, correo, celular, documento, si estudia actualmente y nivel de inglés. Lo que el CV no dice MUST NOT preguntarse durante el alta cuando el usuario confirma el resumen: se pregunta **una sola vez, cuando un formulario de postulación lo pida**, y queda guardado en su perfil para las siguientes. El cuestionario base completo se responde solo al elegir "Editar" o con `/cuestionario`. Los datos del cuestionario son los que los formularios piden casi siempre:
+El perfil SHALL tomar del CV, sin preguntar, todo lo que este trae: nombre, ciudad, correo, celular, documento, si estudia actualmente y nivel de inglés. Durante el alta, tras confirmar el resumen, el bot MUST preguntar **solo** los datos del cuestionario base que el CV no respondió, que son los que los formularios de las vacantes suelen pedir. El cuestionario completo, incluidas las preguntas que el CV respondió, se recorre solo al elegir "Editar" o con `/cuestionario`. Si más adelante un formulario pide un dato que aún falta, se pregunta una sola vez y queda guardado. Los datos del cuestionario son:
 - correo, teléfono y documento (opcional);
 - aspiración salarial;
 - disponibilidad de inicio y horario;
@@ -109,8 +109,12 @@ El perfil SHALL tomar del CV, sin preguntar, todo lo que este trae: nombre, ciud
 Cada pregunta del cuestionario MUST poder responderse con botones cuando tiene opciones cerradas. El cuestionario MUST poder retomarse donde quedó y editarse luego con `/cuestionario`.
 
 #### Scenario: Dato que el CV no trae
-- **WHEN** el usuario confirmó el resumen y un formulario pide la aspiración salarial
-- **THEN** el bot se la pregunta una sola vez, la guarda en su perfil y la siguiente postulación la usa sin preguntar
+- **WHEN** el CV no dice la aspiración salarial y el usuario confirma el resumen
+- **THEN** el bot se la pregunta durante el alta y queda guardada para todas las postulaciones
+
+#### Scenario: Dato que falta al postular
+- **WHEN** un formulario pide un dato que todavía no está en el perfil
+- **THEN** el bot lo pregunta una sola vez, lo guarda en el perfil y la siguiente postulación lo usa sin preguntar
 
 #### Scenario: Cuestionario interrumpido
 - **WHEN** el usuario eligió "Editar", respondió 4 preguntas y vuelve al día siguiente

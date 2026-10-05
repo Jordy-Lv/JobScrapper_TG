@@ -240,6 +240,8 @@ class Conversacion:
             await self._mostrar_enfoque(usuario)
         elif paso.startswith("cuestionario:"):
             await self._preguntar_cuestionario(usuario, int(paso.split(":", 1)[1]))
+        elif paso.startswith("faltantes:"):
+            await self._preguntar_faltante(usuario, int(paso.split(":", 1)[1]))
         elif paso == "navegador":
             await self._mostrar_navegador(usuario, al_terminar_alta=True)
 
@@ -555,7 +557,9 @@ class Conversacion:
             [[("✅ Correcto", cb("enfoque", "ok")), ("✏️ Cambiar", cb("enfoque", "cambiar"))]],
         )
 
-    async def _preguntar_cuestionario(self, usuario: Usuario, indice: int) -> None:
+    async def _preguntar_cuestionario(
+        self, usuario: Usuario, indice: int, *, restantes: int | None = None, modo: str = "todo"
+    ) -> None:
         if indice >= len(t.CUESTIONARIO):
             await self._ir_a(usuario, "navegador")
             return
@@ -574,11 +578,40 @@ class Conversacion:
             botones.append([(f"Usar {sugerido}", cb("cuest", indice, "sug"))])
         if item.opcional:
             botones.append([("Omitir", cb("cuest", indice, "omitir"))])
-        self._esperar(usuario, {"tipo": "cuestionario", "indice": indice})
+        self._esperar(usuario, {"tipo": "cuestionario", "indice": indice, "modo": modo})
         progreso = f"<b>Pregunta {indice + 1} de {len(t.CUESTIONARIO)}</b>\n"
+        if restantes is not None:
+            progreso = f"<b>Faltan {restantes}</b>\n" if restantes > 1 else "<b>Última</b>\n"
         if usuario.estado != EstadoUsuario.ALTA:
             progreso = ""
         await self._enviar(usuario, progreso + t.e(item.pregunta), botones or None)
+
+    def _faltantes(self, usuario: Usuario) -> list[int]:
+        """Índices del cuestionario que el CV no respondió ni el usuario contestó todavía."""
+        datos = self.n.datos_usuario(usuario.id)
+        cuestionario = datos.cuestionario if datos else {}
+        fila = self.n.base.cx.execute(
+            "SELECT actualizar_cv_portal FROM usuarios WHERE id = ?", (usuario.id,)
+        ).fetchone()
+        faltan = []
+        for indice, item in enumerate(t.CUESTIONARIO):
+            if item.clave == "actualizar_cv_portal":
+                if fila["actualizar_cv_portal"] is None:
+                    faltan.append(indice)
+            elif not cuestionario.get(item.clave) and item.clave not in cuestionario.get(
+                "_omitidos", ""
+            ):
+                faltan.append(indice)
+        return faltan
+
+    async def _preguntar_faltante(self, usuario: Usuario, desde: int) -> None:
+        pendientes = [i for i in self._faltantes(usuario) if i >= desde]
+        if not pendientes:
+            await self._ir_a(usuario, "navegador")
+            return
+        await self._preguntar_cuestionario(
+            usuario, pendientes[0], restantes=len(pendientes), modo="faltantes"
+        )
 
     def _guardar_respuesta_cuestionario(self, usuario: Usuario, indice: int, valor: str) -> None:
         item = t.CUESTIONARIO[indice]
@@ -592,11 +625,16 @@ class Conversacion:
                 )
         if valor:
             cuestionario[item.clave] = valor
+        elif item.opcional:  # omitida: no se vuelve a preguntar en el alta
+            cuestionario["_omitidos"] = cuestionario.get("_omitidos", "") + f" {item.clave}"
         cuestionario.pop(f"sugerido_{item.clave}", None)
         self.n.guardar_cuestionario(usuario.id, cuestionario)
 
     async def _siguiente_cuestionario(self, usuario: Usuario, indice: int) -> None:
-        if usuario.estado == EstadoUsuario.ALTA:
+        modo = (self._esperando(usuario) or {}).get("modo")
+        if usuario.estado == EstadoUsuario.ALTA and modo == "faltantes":
+            await self._ir_a(usuario, f"faltantes:{indice + 1}")
+        elif usuario.estado == EstadoUsuario.ALTA:
             await self._ir_a(usuario, f"cuestionario:{indice + 1}")
         elif indice + 1 < len(t.CUESTIONARIO) and (self._esperando(usuario) or {}).get("todo"):
             await self._preguntar_cuestionario(usuario, indice + 1)
@@ -930,7 +968,12 @@ class Conversacion:
                 await self._siguiente_cuestionario(usuario, indice)
             case "resumen":
                 if args[0] == "ok":
-                    await self._ir_a(usuario, "navegador")
+                    await self._enviar(
+                        usuario,
+                        "Ahora unas preguntas rápidas que suelen pedir los formularios de las "
+                        "vacantes y que tu CV no responde. Casi todas son con botones.",
+                    )
+                    await self._ir_a(usuario, "faltantes:0")
                 else:
                     await self._ir_a(usuario, f"revision:{SECCIONES[0]}")
             case "vincular":

@@ -133,10 +133,27 @@ async def hasta_resumen(m, tid, *, payload=None):
         await c.al_texto(tid, respuesta)
 
 
+async def responder_faltantes(m, tid):
+    """Responde las preguntas que el CV no cubrió: botones o texto (salario)."""
+    for _ in range(len(t.CUESTIONARIO)):
+        usuario = m.n.usuarios.obtener(tid)
+        if not (usuario.paso_alta or "").startswith("faltantes:"):
+            return
+        indice = m.c._esperando(usuario)["indice"]
+        item = t.CUESTIONARIO[indice]
+        if item.opciones:
+            await m.c.al_boton(tid, cb("cuest", indice, 0))
+        elif item.opcional:
+            await m.c.al_boton(tid, cb("cuest", indice, "omitir"))
+        else:
+            await m.c.al_texto(tid, "1300000")
+
+
 async def alta_completa(m, tid, *, payload=None):
-    """Camino corto: "Información correcta" y vincular el navegador después."""
+    """Camino corto: "Información correcta", solo las preguntas que faltan y navegador después."""
     await hasta_resumen(m, tid, payload=payload)
     await m.c.al_boton(tid, cb("resumen", "ok"))
+    await responder_faltantes(m, tid)
     await m.c.al_boton(tid, cb("alta", "fin"))
     await m.c.esperar_tareas()
 
@@ -160,9 +177,8 @@ def test_alta_desde_el_enlace_retoma_la_vacante(mundo):
     datos = mundo.n.datos_usuario(usuario.id)
     assert datos.cuestionario["correo"] == "ana@gmail.com"
     assert datos.perfil.habilidades_tecnicas == ["Python", "SQL", "Excel"]
-    # Lo que el CV no dice no se preguntó: la aspiración salarial queda para responder tú
-    assert "salario" not in datos.cuestionario
-    assert "responde tú" in mensajes
+    # La aspiración salarial no estaba en el CV: se preguntó una vez al inicio
+    assert datos.cuestionario["salario"] == "1300000"
 
 
 def test_resumen_unico_con_dos_botones_y_sin_cuestionario(mundo):
@@ -172,12 +188,19 @@ def test_resumen_unico_con_dos_botones_y_sin_cuestionario(mundo):
     for dato in ("Ana Pérez", "ana@gmail.com", "3105551234", "Tecnólogo en ADSO", "Python"):
         assert dato in texto
     assert [b[1] for b in botones[0]] == [cb("resumen", "ok"), cb("resumen", "editar")]
+    antes = len(mundo.s.de(ANA))
     correr(mundo.c.al_boton(ANA, cb("resumen", "ok")))
+    correr(responder_faltantes(mundo, ANA))
     assert mundo.n.usuarios.obtener(ANA).paso_alta == "navegador"
-    # Las del perfil manual (sin Gemini) se preguntan antes; las del cuestionario base, no
-    manuales = {"nombre", "correo", "telefono", "ciudad"}
-    preguntas = [i.pregunta for i in t.CUESTIONARIO if i.clave not in manuales]
-    assert not any(p in m for m in mundo.s.de(ANA) for p in preguntas)
+    preguntadas = "\n".join(mundo.s.de(ANA)[antes:])
+    # Lo que el CV (o el perfil manual) ya respondió no se vuelve a preguntar
+    for clave in ("nombre", "correo", "telefono", "ciudad"):
+        item = next(i for i in t.CUESTIONARIO if i.clave == clave)
+        assert item.pregunta not in preguntadas
+    # Sí se preguntan las que suelen pedir las vacantes y el CV no dice
+    for clave in ("salario", "disponibilidad_inicio", "actualizar_cv_portal"):
+        item = next(i for i in t.CUESTIONARIO if i.clave == clave)
+        assert t.e(item.pregunta) in preguntadas
 
 
 def test_editar_recorre_secciones_enfoque_y_cuestionario(mundo):
