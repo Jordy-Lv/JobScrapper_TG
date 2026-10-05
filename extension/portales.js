@@ -21,6 +21,16 @@ export const NOMBRES = {
   spe: "Servicio Público de Empleo",
 };
 
+// Página oficial de ingreso de cada portal: el usuario inicia sesión ahí, nunca en la extensión
+export const INGRESO = {
+  computrabajo: "https://candidato.co.computrabajo.com/acceso/",
+  magneto: "https://login.magneto365.com/candidates",
+  elempleo: "https://www.elempleo.com/co/",
+  getonboard: "https://www.getonbrd.com/",
+  linkedin: "https://www.linkedin.com/login",
+  spe: "https://www.buscadordeempleo.gov.co/",
+};
+
 // Plataformas con código propio en adaptadores/; las demás funcionan solo con los datos
 // (selectores y flujo) que entrega el servidor, sin publicar otra versión de la extensión.
 export const ADAPTADORES = ["computrabajo", "magneto"];

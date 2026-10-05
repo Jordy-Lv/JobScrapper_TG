@@ -1,5 +1,5 @@
 import { ajustes } from "./api.js";
-import { NOMBRES, origenes, tienePermiso } from "./portales.js";
+import { INGRESO, NOMBRES, origenes, tienePermiso } from "./portales.js";
 
 const ESTADOS = { listo: "listo ✅", incompleto: "perfil incompleto", sin_sesion: "sin sesión" };
 const RESULTADOS = {
@@ -16,47 +16,69 @@ function hace(ms) {
   return min < 1 ? "hace un momento" : min < 60 ? `hace ${min} min` : `hace ${Math.round(min / 60)} h`;
 }
 
+function nota(texto) {
+  const span = document.createElement("span");
+  span.className = "nota";
+  span.textContent = texto;
+  return span;
+}
+
+function boton(texto, accion) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "enlace";
+  b.textContent = texto;
+  b.addEventListener("click", accion);
+  return b;
+}
+
+async function pintarPortales(estado, portales, selectores_version, vinculado) {
+  // Todas las plataformas: las que el servidor habilitó muestran su estado y su acción
+  const filas = [];
+  for (const p of Object.keys(NOMBRES)) {
+    const habilitada = p in selectores_version || (!Object.keys(selectores_version).length
+      && (p === "computrabajo" || p === "magneto"));
+    const info = portales[p];
+    const li = document.createElement("li");
+    const nombre = document.createElement("b");
+    nombre.textContent = NOMBRES[p];
+    li.append(nombre, " ");
+    if (!habilitada) {
+      li.append(nota("próximamente"));
+    } else if (!(await tienePermiso(p))) {
+      li.append(nota("sin activar "), boton("Activar", async () => {
+        if (await chrome.permissions.request({ origins: origenes(p) })) {
+          await chrome.runtime.sendMessage({ tipo: "latido", revisar: true });
+        }
+        pintar();
+      }));
+    } else if (!vinculado || !info || info.estado === "sin_sesion") {
+      li.append(nota(vinculado ? (info ? "sin sesión " : "sin revisar ") : ""), boton("Iniciar sesión", () => {
+        chrome.tabs.create({ url: INGRESO[p] });
+      }));
+    } else {
+      let texto = ESTADOS[info.estado] || info.estado;
+      if (info.correo) texto += ` · ${info.correo}`;
+      const cuentaOk = estado.cuentas ? estado.cuentas[p] : undefined;
+      if (cuentaOk === false) texto += " (confírmala en el bot)";
+      li.append(texto);
+    }
+    filas.push(li);
+  }
+  $("portales").replaceChildren(...filas);
+}
+
 async function pintar() {
   const { token, pausado } = await ajustes();
   const { estado = {}, portales = {}, selectores_version = {} } =
     await chrome.storage.local.get(["estado", "portales", "selectores_version"]);
   $("sin-vincular").hidden = Boolean(token);
   $("vinculado").hidden = !token;
+  await pintarPortales(estado, portales, selectores_version, Boolean(token));
   if (!token) return;
   $("linea").textContent = estado.en_linea
     ? `🟢 Conectado al servidor · ${hace(estado.ultimo_latido)}`
     : `🔴 Sin conexión con el servidor${estado.error ? ` (${estado.error})` : ""}`;
-  const habilitadas = Object.keys(selectores_version).length
-    ? Object.keys(selectores_version) : ["computrabajo", "magneto"];
-  const filas = [];
-  for (const p of habilitadas) {
-    const li = document.createElement("li");
-    if (!(await tienePermiso(p))) {
-      // Plataforma nueva habilitada en el servidor: el usuario da el permiso con un toque
-      li.append(`${NOMBRES[p] || p}: `);
-      const boton = document.createElement("button");
-      boton.type = "button";
-      boton.className = "enlace";
-      boton.textContent = "Activar";
-      boton.addEventListener("click", async () => {
-        if (await chrome.permissions.request({ origins: origenes(p) })) {
-          await chrome.runtime.sendMessage({ tipo: "latido", revisar: true });
-        }
-        pintar();
-      });
-      li.append(boton);
-      filas.push(li);
-      continue;
-    }
-    const info = portales[p];
-    const cuentaOk = estado.cuentas ? estado.cuentas[p] : undefined;
-    let texto = `${NOMBRES[p] || p}: ${info ? ESTADOS[info.estado] || info.estado : "sin revisar"}`;
-    if (info && info.correo) texto += ` · ${info.correo}`;
-    if (info && info.estado !== "sin_sesion" && cuentaOk === false) texto += " (confírmala en el bot)";
-    li.textContent = texto;
-    filas.push(li);
-  }
-  $("portales").replaceChildren(...filas);
   $("actual").textContent = estado.trabajo_actual
     ? `⏳ Postulando: ${estado.trabajo_actual.titulo || NOMBRES[estado.trabajo_actual.plataforma]}` : "";
   $("ultima").textContent = estado.ultima
