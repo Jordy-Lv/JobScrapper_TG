@@ -190,6 +190,7 @@ PERFIL_CT = "https://candidato.co.computrabajo.com/candidate/cv/"
 CUENTA_MG = "https://www.magneto365.com/co/perfil"
 INICIO_CT = "https://co.computrabajo.com/"
 INICIO_MG = "https://www.magneto365.com/co"
+INGRESO_CT = "https://candidato.co.computrabajo.com/acceso/"
 MI_CUENTA_CT = "https://candidato.co.computrabajo.com/candidate/micuenta/"
 
 
@@ -208,7 +209,8 @@ class Navegador:
     async def vincular_directo(self, url_api: str) -> None:
         await self.evaluar(
             f"chrome.storage.local.set({{servidor: '{url_api}', token: '{TOKEN}', "
-            "pruebas: {sondeo_captcha_ms: 500}})"
+            "pruebas: {sondeo_captcha_ms: 500, sondeo_sesion_ms: 300, "
+            "espera_sesion_max_ms: 8000}})"
         )
 
     async def latido(self):
@@ -651,3 +653,67 @@ def test_el_correo_se_busca_siguiendo_mi_cuenta(tmp_path, api):
     assert ct["estado"] == "listo"
     assert ct["correo"] == "ana.perez@gmail.com"
     assert ct["pagina_correo"] == "/candidate/micuenta/"
+
+
+# --- "Iniciar sesión": abre, espera, cierra sola y reporta ---------------------------------
+
+
+def test_iniciar_sesion_cierra_la_pestana_sola_y_reporta_al_servidor(tmp_path, api):
+    """El botón abre la página de ingreso; en cuanto esa pestaña muestra la sesión iniciada
+    (el usuario ya inició sesión), la extensión la cierra sola, relee el portal y avisa al
+    servidor sin que el usuario haga nada más."""
+    portales = portales_listos()
+    # Simula el formulario de acceso: tras "iniciar sesión", el portal redirige a la home
+    portales.paginas[INGRESO_CT] = (
+        "<!doctype html><html><body>Formulario de acceso"
+        f'<script>setTimeout(() => {{ location.href = "{INICIO_CT}"; }}, 300)</script>'
+        "</body></html>"
+    )
+    portales.poner(INICIO_CT, "ct_cuenta.html")  # la home, ya con la sesión iniciada
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            antes = len(nav.contexto.pages)
+            await nav.evaluar("asistente.vigilarInicioSesion('computrabajo')")
+            vigilando = await nav.almacenamiento("vigilando")
+            return vigilando, antes, len(nav.contexto.pages)
+        finally:
+            await cerrar(nav)
+
+    vigilando, antes, despues = correr(flujo())
+    assert not vigilando  # se limpió al terminar de vigilar
+    assert despues == antes  # la pestaña de ingreso se cerró sola: no quedó ninguna de más
+    ct = api.de("latido")[-1]["portales"]["computrabajo"]
+    assert ct["estado"] == "listo" and ct["correo"] == "ana.perez@gmail.com"
+
+
+def test_sin_confirmar_la_cuenta_el_popup_no_la_muestra_como_lista(tmp_path, api):
+    """Mientras el servidor no diga explícitamente que la cuenta quedó confirmada (por
+    ejemplo, justo tras cancelar en el bot, antes del siguiente latido), el popup no debe
+    asumir que sí lo está."""
+    portales = portales_listos()
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            # El servidor no mandó nada sobre esta cuenta todavía (ni true ni false)
+            await nav.evaluar(
+                "chrome.storage.local.set({"
+                "estado: {en_linea: true, cuentas: {}}, "
+                "portales: {computrabajo: {estado: 'listo', correo: 'ana.perez@gmail.com'}}, "
+                "selectores_version: {computrabajo: '1', magneto: '1'}})"
+            )
+            id_extension = nav.worker.url.split("/")[2]
+            pagina = await nav.contexto.new_page()
+            await pagina.goto(f"chrome-extension://{id_extension}/popup.html")
+            await pagina.wait_for_timeout(300)
+            texto = await pagina.inner_text("#portales")
+            await pagina.close()
+            return texto
+        finally:
+            await cerrar(nav)
+
+    texto = correr(flujo())
+    assert "Confírmala" in texto or "Esperando confirmación" in texto
+    assert "Listo" not in texto

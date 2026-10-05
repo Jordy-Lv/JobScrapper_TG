@@ -2,12 +2,15 @@
 // Coordina el flujo entre páginas; cada paso lo ejecuta motor.js dentro de la pestaña.
 
 import { ajustes, llamar, version, vincular, ErrorApi } from "./api.js";
-import { ADAPTADORES, paginaPermitida, plataformaDeUrl, tienePermiso } from "./portales.js";
+import { ADAPTADORES, INGRESO, paginaPermitida, plataformaDeUrl, tienePermiso } from "./portales.js";
 
 const ALARMA = "latido";
 const REVISION_MAX_MS = 6 * 60 * 60 * 1000; // estado de los portales: se revisa cada 6 h
 const CARGA_MS = 45000;
-const PREDETERMINADOS = { sondeo_captcha_ms: 10000, verificacion_max_ms: 2 * 60 * 60 * 1000 };
+const PREDETERMINADOS = {
+  sondeo_captcha_ms: 10000, verificacion_max_ms: 2 * 60 * 60 * 1000,
+  sondeo_sesion_ms: 2000, espera_sesion_max_ms: 10 * 60 * 1000, // 10 min para iniciar sesión
+};
 
 let ocupado = false;
 let enCurso = null; // latido en curso: quien llama mientras tanto recibe el mismo
@@ -194,7 +197,7 @@ async function revisarPortal(plataforma) {
     const pagina_correo = origen ? new URL(origen).pathname : null;
     return { estado: "listo", correo: correo || null, pagina_correo };
   } finally {
-    cerrarPestana(pestana);
+    await cerrarPestana(pestana);
   }
 }
 
@@ -210,14 +213,14 @@ async function abrirPestana(url) {
   try {
     await navegar(pestana.id, url);
   } catch (error) {
-    cerrarPestana(pestana);
+    await cerrarPestana(pestana);
     throw error;
   }
   return pestana;
 }
 
 function cerrarPestana(pestana) {
-  chrome.tabs.remove(pestana.id).catch(() => {});
+  return chrome.tabs.remove(pestana.id).catch(() => {});
 }
 
 async function navegar(tabId, url) {
@@ -310,7 +313,7 @@ async function ejecutar(trabajo) {
     await terminar(id, "fallida", { motivo: String(error.message || error).slice(0, 400) });
   } finally {
     await guardarEstado({ trabajo_actual: null });
-    if (cerrar) cerrarPestana(pestana);
+    if (cerrar) await cerrarPestana(pestana);
   }
 }
 
@@ -544,6 +547,78 @@ async function vincularDesdePagina(tabId) {
   }
 }
 
+// --- iniciar sesión desde el popup --------------------------------------------------------
+
+async function marcarVigilando(plataforma, activo) {
+  const { vigilando = {} } = await chrome.storage.local.get("vigilando");
+  if (activo) vigilando[plataforma] = true;
+  else delete vigilando[plataforma];
+  await chrome.storage.local.set({ vigilando });
+}
+
+// Abre la página de ingreso del portal, espera a que el usuario inicie sesión (sondeando la
+// pestaña cada 2 s) y la cierra sola en cuanto detecta la sesión; entonces relee ese portal y
+// avisa al servidor, que es quien le pide al usuario confirmar la cuenta en el bot.
+async function vigilarInicioSesion(plataforma) {
+  const url = INGRESO[plataforma];
+  if (!url) return;
+  let tab;
+  try {
+    // Se crea en blanco y luego navega, igual que abrirPestana: así el navegador ya tiene la
+    // pestaña lista para interceptar la navegación real (y las pruebas pueden servirla)
+    tab = await chrome.tabs.create({ url: "about:blank", active: true });
+    await navegar(tab.id, url);
+  } catch (error) {
+    if (tab) cerrarPestana(tab);
+    return;
+  }
+  await marcarVigilando(plataforma, true);
+  try {
+    const sel = await selectores(plataforma);
+    const { sondeo_sesion_ms, espera_sesion_max_ms } = await opciones();
+    const limite = Date.now() + espera_sesion_max_ms;
+    while (Date.now() < limite) {
+      await new Promise((r) => setTimeout(r, sondeo_sesion_ms));
+      let actual;
+      try {
+        actual = await chrome.tabs.get(tab.id);
+      } catch (error) {
+        return; // el usuario cerró la pestaña antes de iniciar sesión
+      }
+      if (actual.status !== "complete" || plataformaDeUrl(actual.url) !== plataforma) continue;
+      let estado;
+      try {
+        await inyectar(tab.id, plataforma);
+        estado = await enPestana(tab.id, (ss) => globalThis.__asistente.sesion(ss), sel);
+      } catch (error) {
+        continue; // la página está cargando o cambiando justo ahora
+      }
+      if (estado.sin_sesion) continue;
+      await cerrarPestana(tab);
+      // Se relee ya mismo ese portal (correo incluido): un segundo intento por si justo tras
+      // cerrar la pestaña el navegador queda un instante ocupado y el primero sale en falso
+      let resultado;
+      for (let intento = 0; intento < 2; intento++) {
+        if (intento) await new Promise((r) => setTimeout(r, 500));
+        try {
+          resultado = await revisarPortal(plataforma);
+        } catch (error) {
+          resultado = { estado: "sin_sesion", correo: null };
+        }
+        if (resultado.estado !== "sin_sesion") break;
+      }
+      const { portales = {} } = await chrome.storage.local.get("portales");
+      await chrome.storage.local.set({
+        portales: { ...portales, [plataforma]: { ...resultado, revisado: Date.now() } },
+      });
+      await latido({ forzarRevision: false });
+      return;
+    }
+  } finally {
+    await marcarVigilando(plataforma, false);
+  }
+}
+
 // --- mensajes del popup y las opciones -------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((mensaje, _remitente, responder) => {
@@ -560,6 +635,9 @@ chrome.runtime.onMessage.addListener((mensaje, _remitente, responder) => {
         }
       case "latido":
         return { ok: Boolean(await latido({ forzarRevision: Boolean(mensaje.revisar) })) };
+      case "iniciarSesion":
+        vigilarInicioSesion(mensaje.plataforma); // se deja corriendo; no bloquea la respuesta
+        return { ok: true };
       case "desvincular":
         await chrome.storage.local.set({ token: null, portales: {}, estado: {} });
         return { ok: true };
@@ -571,4 +649,4 @@ chrome.runtime.onMessage.addListener((mensaje, _remitente, responder) => {
 });
 
 // Acceso para las pruebas automáticas (Playwright evalúa en el service worker)
-globalThis.asistente = { latido, ejecutar, revisarPortal, estadoPortales };
+globalThis.asistente = { latido, ejecutar, revisarPortal, estadoPortales, vigilarInicioSesion };

@@ -1,5 +1,5 @@
 import { ajustes } from "./api.js";
-import { INGRESO, INICIO, NOMBRES, origenes, tienePermiso } from "./portales.js";
+import { INICIO, NOMBRES, origenes, tienePermiso } from "./portales.js";
 
 const RESULTADOS = {
   enviada: "✅ Enviada", ya_postulada: "Ya estabas postulado", vacante_cerrada: "Vacante cerrada",
@@ -53,7 +53,7 @@ function accion(texto, alHacer) {
 }
 
 // Una tarjeta por plataforma: logo, estado y la acción que corresponda
-async function tarjeta(p, { habilitada, vinculado, info, cuentaOk }) {
+async function tarjeta(p, { habilitada, vinculado, info, cuentaOk, vigilando }) {
   const li = el("li", `tarjeta ${p}`);
   const logo = el("div", "logo");
   const img = el("img");
@@ -79,19 +79,34 @@ async function tarjeta(p, { habilitada, vinculado, info, cuentaOk }) {
       }
       pintar();
     }));
+  } else if (vigilando) {
+    pill = el("span", "pill pendiente", "Iniciando sesión…");
+    sub.textContent = "Esperando que termines de iniciar sesión en la pestaña abierta";
   } else if (vinculado && info && info.estado !== "sin_sesion") {
-    const confirmar = cuentaOk === false;
-    pill = confirmar ? el("span", "pill pendiente", "Confírmala")
-      : info.estado === "incompleto" ? el("span", "pill pendiente", "Perfil incompleto")
-      : el("span", "pill listo", "Listo ✓");
-    sub.textContent = confirmar
-      ? "Esperando confirmación en el bot de Telegram"
-      : info.correo || "Sesión iniciada · buscando tu correo";
-    if (confirmar) sub.title = `Confirma en el bot que ${info.correo || "esta cuenta"} es tuya`;
+    // La cuenta queda "confirmada" solo cuando el servidor lo dice explícitamente: ni sin
+    // respuesta todavía ni tras cancelar en el bot se debe mostrar como lista
+    const confirmada = cuentaOk === true;
+    if (!info.correo) {
+      pill = el("span", "pill pendiente", "Buscando correo");
+      sub.textContent = "Sesión iniciada · buscando tu correo";
+    } else if (!confirmada) {
+      pill = el("span", "pill pendiente", "Confírmala");
+      sub.textContent = "Esperando confirmación en el bot de Telegram";
+      sub.title = `Confirma en el bot que ${info.correo} es tuya`;
+    } else if (info.estado === "incompleto") {
+      pill = el("span", "pill pendiente", "Perfil incompleto");
+      sub.textContent = info.correo;
+    } else {
+      pill = el("span", "pill listo", "Listo ✓");
+      sub.textContent = info.correo;
+    }
   } else {
-    // Sin vincular no se sabe el estado: solo se ofrece el acceso al portal
+    // Sin sesión: un toque abre la página de ingreso y espera a que el usuario inicie sesión
     pill = vinculado ? el("span", "pill pendiente", info ? "Sin sesión" : "Revisando") : null;
-    sub.append(accion("Iniciar sesión ↗", () => chrome.tabs.create({ url: INGRESO[p] })));
+    sub.append(accion("Iniciar sesión ↗", async (evento) => {
+      evento.target.disabled = true;
+      await chrome.runtime.sendMessage({ tipo: "iniciarSesion", plataforma: p });
+    }));
   }
   if (pill) fila.append(pill);
   cuerpo.append(fila, sub);
@@ -109,8 +124,8 @@ async function tarjeta(p, { habilitada, vinculado, info, cuentaOk }) {
 
 async function pintar() {
   const { token, pausado } = await ajustes();
-  const { estado = {}, portales = {}, selectores_version = {} } =
-    await chrome.storage.local.get(["estado", "portales", "selectores_version"]);
+  const { estado = {}, portales = {}, selectores_version = {}, vigilando = {} } =
+    await chrome.storage.local.get(["estado", "portales", "selectores_version", "vigilando"]);
   const vinculado = Boolean(token);
   const conVersiones = Object.keys(selectores_version).length > 0;
 
@@ -119,6 +134,7 @@ async function pintar() {
     const habilitada = conVersiones ? p in selectores_version : p === "computrabajo" || p === "magneto";
     tarjetas.push(await tarjeta(p, {
       habilitada, vinculado, info: portales[p], cuentaOk: (estado.cuentas || {})[p],
+      vigilando: Boolean(vigilando[p]),
     }));
   }
   $("portales").replaceChildren(...tarjetas);

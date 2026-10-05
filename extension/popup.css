@@ -257,6 +257,8 @@ h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
   font-weight: 700;
 }
 .sub .accion:hover { text-decoration: underline; }
+.sub .accion:disabled { color: var(--tenue); cursor: default; }
+.sub .accion:disabled:hover { text-decoration: none; }
 
 .abrir {
   width: 28px;
