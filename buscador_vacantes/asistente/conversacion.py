@@ -1471,11 +1471,13 @@ class Conversacion:
         elif tipo == "cuenta_por_confirmar":
             await self._enviar(
                 usuario,
-                f"¿Esta es tu cuenta de {nombre}: <b>{t.e(d['asociado'])}</b>?",
+                f"🔓 Sesión iniciada en {nombre} mediante la extensión.\n"
+                f"Cuenta: <b>{t.e(d['asociado'])}</b>\n\n"
+                "¿La confirmas para postular con ella?",
                 [
                     [
-                        ("✅ Sí, es mía", cb("cuenta", d["plataforma"], "si")),
-                        ("No es mía", cb("cuenta", d["plataforma"], "no")),
+                        ("✅ Confirmar", cb("cuenta", d["plataforma"], "si")),
+                        ("Cancelar", cb("cuenta", d["plataforma"], "no")),
                     ]
                 ],
             )

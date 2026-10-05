@@ -84,8 +84,10 @@ async function tarjeta(p, { habilitada, vinculado, info, cuentaOk }) {
     pill = confirmar ? el("span", "pill pendiente", "Confírmala")
       : info.estado === "incompleto" ? el("span", "pill pendiente", "Perfil incompleto")
       : el("span", "pill listo", "Listo ✓");
-    sub.textContent = info.correo || "Sesión iniciada · buscando tu correo";
-    if (confirmar) sub.title = "Confirma en el bot que esta cuenta es tuya";
+    sub.textContent = confirmar
+      ? "Esperando confirmación en el bot de Telegram"
+      : info.correo || "Sesión iniciada · buscando tu correo";
+    if (confirmar) sub.title = `Confirma en el bot que ${info.correo || "esta cuenta"} es tuya`;
   } else {
     // Sin vincular no se sabe el estado: solo se ofrece el acceso al portal
     pill = vinculado ? el("span", "pill pendiente", info ? "Sin sesión" : "Revisando") : null;

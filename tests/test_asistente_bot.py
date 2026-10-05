@@ -342,7 +342,8 @@ def test_cuenta_por_confirmar_muestra_el_correo_y_botones(mundo):
              "plataforma": "computrabajo", "asociado": "ana@gmail.com"}  # fmt: skip
     correr(mundo.c.notificar(aviso))
     chat, texto, botones = mundo.s.ultimo(ANA)
-    assert "ana@gmail.com" in texto and botones[0][0][1] == cb("cuenta", "computrabajo", "si")
+    assert "Sesión iniciada en Computrabajo" in texto and "ana@gmail.com" in texto
+    assert botones[0][0][1] == cb("cuenta", "computrabajo", "si")
 
 
 @respx.mock
