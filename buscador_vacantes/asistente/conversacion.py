@@ -31,7 +31,7 @@ from buscador_vacantes.asistente.cv_lectura import (
     leer_cv,
     validar_archivo,
 )
-from buscador_vacantes.asistente.gemini import ErrorIA
+from buscador_vacantes.asistente.gemini import ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Paquete
 from buscador_vacantes.asistente.respuestas import (
@@ -114,12 +114,14 @@ class Conversacion:
         comprobador: Comprobador,
         *,
         reloj_monotono: Callable[[], float] = time.monotonic,
+        dormir=asyncio.sleep,
     ) -> None:
         self.n = nucleo
         self.s = salida
         self.comprobador = comprobador
         self.config = nucleo.config
         self.reloj = reloj_monotono
+        self.dormir = dormir
         self._mensajes: dict[int, deque[float]] = defaultdict(deque)
         self._candados: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._tareas: set[asyncio.Task] = set()
@@ -292,7 +294,11 @@ class Conversacion:
             cx.execute("UPDATE usuarios SET cv_archivo = ? WHERE id = ?", (str(ruta), usuario.id))
         await self._leer_cv(usuario, contenido, permitir=False)
 
-    async def _leer_cv(self, usuario: Usuario, contenido: bytes, *, permitir: bool) -> None:
+    REINTENTOS_CV_S = (120, 300)  # Gemini saturado: se reintenta solo a los 2 y a los 7 min
+
+    async def _leer_cv(
+        self, usuario: Usuario, contenido: bytes, *, permitir: bool, reintento: int = 0
+    ) -> None:
         clave = self.n.clave_gemini(usuario.id)
         if not clave:
             await self._enviar(
@@ -300,7 +306,8 @@ class Conversacion:
             )
             await self._perfil_manual(usuario, 0)
             return
-        await self._enviar(usuario, "📄 Leyendo tu hoja de vida…")
+        if reintento == 0:
+            await self._enviar(usuario, "📄 Leyendo tu hoja de vida…")
         try:
             lectura = await leer_cv(
                 self.n.gemini,
@@ -325,6 +332,28 @@ class Conversacion:
         except CVInvalido as exc:
             await self._enviar(usuario, f"❌ {t.e(exc)}")
             return
+        except Saturado:
+            if reintento < len(self.REINTENTOS_CV_S):
+                espera = self.REINTENTOS_CV_S[reintento]
+                if reintento == 0:
+                    await self._enviar(
+                        usuario,
+                        "⏳ Los servidores de IA de Google están muy ocupados en este momento. "
+                        f"Reintento solo en {espera // 60} minutos y te aviso; no tienes que "
+                        "hacer nada.",
+                        [[("Prefiero llenarlo a mano", cb("cv", "manual"))]],
+                    )
+                self._en_segundo_plano(
+                    self._reintentar_cv(usuario.id, contenido, permitir, reintento + 1, espera)
+                )
+                return
+            await self._enviar(
+                usuario,
+                "Google sigue saturado. Armemos tu perfil con unas preguntas (podrás "
+                "reemplazarlo luego enviando tu CV desde /perfil).",
+            )
+            await self._perfil_manual(usuario, 0)
+            return
         except ErrorIA as exc:
             await self._enviar(
                 usuario,
@@ -345,6 +374,18 @@ class Conversacion:
             await self._enviar(
                 usuario, "✅ Perfil actualizado con tu nueva hoja de vida. Revísalo con /perfil."
             )
+
+    async def _reintentar_cv(
+        self, usuario_id: int, contenido: bytes, permitir: bool, reintento: int, espera: float
+    ) -> None:
+        await self.dormir(espera)
+        usuario = self.n.usuarios.por_id(usuario_id)
+        # Si mientras tanto eligió llenarlo a mano o ya tiene perfil, no se hace nada
+        if usuario is None or (self._esperando(usuario) or {}).get("tipo") == "manual":
+            return
+        if usuario.estado == EstadoUsuario.ALTA and usuario.paso_alta != "cv":
+            return
+        await self._leer_cv(usuario, contenido, permitir=permitir, reintento=reintento)
 
     # Perfil sin IA: unas preguntas de texto
     PREGUNTAS_MANUAL = (

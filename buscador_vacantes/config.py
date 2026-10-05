@@ -279,6 +279,8 @@ class TareaIA(Modelo):
     max_tokens: int = Field(800, gt=0)
     # Nivel de razonamiento de los modelos que "piensan" (thinkingLevel); None: el del modelo
     pensamiento: Literal["low", "medium", "high"] | None = "low"
+    # Modelos de respaldo si el principal está saturado, sin cuota o retirado (en orden)
+    respaldo: list[str] = Field(default_factory=list)
 
 
 class AsistenteGemini(Modelo):

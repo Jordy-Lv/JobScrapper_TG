@@ -371,3 +371,43 @@ def test_preguntas_pendientes_con_botones_y_reanudacion(mundo):
 
 def test_pdf_cv_es_valido():
     assert io.BytesIO(pdf_cv()).read(4) == b"%PDF"
+
+
+@respx.mock
+def test_gemini_saturado_reintenta_solo_el_cv(mundo):
+    respx.get(MODELOS).mock(return_value=httpx.Response(200, json={"models": []}))
+    respuestas = iter(
+        [httpx.Response(503, json={})] * 9
+        + [
+            httpx.Response(
+                200,
+                json={"candidates": [{"content": {"parts": [{"text": (
+                    '{"es_cv": true, "nombre": "Ana Pérez", "habilidades_tecnicas": ["Python"]}'
+                )}]}}]},
+            )
+        ]
+    )  # fmt: skip
+    respx.post(url__startswith=MODELOS + "/").mock(side_effect=lambda _: next(respuestas))
+    esperas = []
+
+    async def dormir(segundos):
+        esperas.append(segundos)
+
+    mundo.c.dormir = dormir
+    mundo.n.gemini.dormir = dormir
+
+    async def flujo():
+        c = mundo.c
+        await c.al_iniciar(ANA, "Ana", None)
+        await c.al_boton(ANA, cb("politica", "si"))
+        await c.al_texto(ANA, CLAVE, mensaje_id=1)
+        await c.al_documento(ANA, pdf_cv(), "cv.pdf")
+        await c.esperar_tareas()
+
+    correr(flujo())
+    mensajes = mundo.s.de(ANA)
+    assert any("muy ocupados" in m for m in mensajes)
+    assert not any("Armemos tu perfil" in m for m in mensajes)
+    assert 120 in esperas
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == "resumen"
+    assert "Revisa tu información" in mensajes[-1]

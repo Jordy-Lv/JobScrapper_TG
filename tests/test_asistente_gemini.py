@@ -135,10 +135,22 @@ def test_429_corto_reintenta(entorno):
 @respx.mock
 def test_429_largo_es_cuota_agotada(entorno):
     cliente, esperas = entorno
-    respx.post(URL).mock(return_value=error_429(3600))
+    # La cuota es por modelo: se prueban los respaldos y, si todos la agotaron, se avisa
+    respx.post(url__startswith=BASE + "models/").mock(return_value=error_429(3600))
     with pytest.raises(CuotaAgotada, match="se renueva mañana"):
         generar(cliente)
     assert esperas == []
+
+
+@respx.mock
+def test_cuota_agotada_en_un_modelo_usa_el_respaldo(entorno):
+    cliente, _ = entorno
+    respx.post(URL).mock(return_value=error_429(3600))
+    respaldo = respx.post(BASE + "models/gemini-3.5-flash:generateContent").mock(
+        return_value=ok({"respuesta": "desde el respaldo", "suficiente": True})
+    )
+    assert generar(cliente).respuesta == "desde el respaldo"
+    assert respaldo.call_count == 1
 
 
 @respx.mock
@@ -236,18 +248,53 @@ def test_pensamiento_bajo_y_partes_de_pensamiento_ignoradas(entorno):
 
 
 @respx.mock
-def test_modelo_saturado_reintenta_una_vez(entorno):
+def test_modelo_saturado_reintenta_con_espera_creciente(entorno):
     cliente, esperas = entorno
     respx.post(URL).mock(
-        side_effect=[httpx.Response(503, json={}), ok({"respuesta": "x", "suficiente": True})]
+        side_effect=[
+            httpx.Response(503, json={}),
+            httpx.Response(503, json={}),
+            ok({"respuesta": "x", "suficiente": True}),
+        ]
     )
     assert generar(cliente).respuesta == "x"
-    assert esperas == [5]
+    assert esperas == [3, 8]
 
 
 @respx.mock
-def test_modelo_saturado_dos_veces_falla(entorno):
+def test_modelo_saturado_pasa_al_respaldo(entorno):
     cliente, _ = entorno
-    respx.post(URL).mock(return_value=httpx.Response(503, json={}))
+    principal = respx.post(URL).mock(return_value=httpx.Response(503, json={}))
+    respx.post(BASE + "models/gemini-3.5-flash:generateContent").mock(
+        return_value=ok({"respuesta": "respaldo", "suficiente": True})
+    )
+    assert generar(cliente).respuesta == "respaldo"
+    assert principal.call_count == 3
+
+
+@respx.mock
+def test_todos_los_modelos_saturados_falla(entorno):
+    cliente, _ = entorno
+    respx.post(url__startswith=BASE + "models/").mock(return_value=httpx.Response(503, json={}))
     with pytest.raises(ErrorIA, match="saturado"):
         generar(cliente)
+
+
+@respx.mock
+def test_los_fallos_no_gastan_el_tope(entorno):
+    cliente, _ = entorno
+    respx.post(URL).mock(
+        side_effect=[httpx.Response(503, json={}), ok({"respuesta": "x", "suficiente": True})]
+    )
+    generar(cliente)
+    assert cliente.llamadas_hoy(1) == 1
+
+
+@respx.mock
+def test_modelo_retirado_usa_el_respaldo(entorno):
+    cliente, _ = entorno
+    respx.post(URL).mock(return_value=httpx.Response(404, json={}))
+    respx.post(BASE + "models/gemini-3.5-flash:generateContent").mock(
+        return_value=ok({"respuesta": "ok", "suficiente": True})
+    )
+    assert generar(cliente).respuesta == "ok"
