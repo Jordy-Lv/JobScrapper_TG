@@ -3,12 +3,13 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.config import cargar_configuracion
 from buscador_vacantes.estado import Estado, a_texto
 from buscador_vacantes.fechas import ZONA
 from buscador_vacantes.ia_cliente import RespuestaIA
 from buscador_vacantes.notificador_telegram import ResultadoEnvio
-from buscador_vacantes.resumen import Resumen, calcular_metricas
+from buscador_vacantes.resumen import Resumen, calcular_metricas, calcular_metricas_asistente
 
 AHORA = datetime(2026, 10, 4, 8, 0, tzinfo=ZONA)
 
@@ -189,3 +190,112 @@ def test_resumen_de_prueba_cuenta_los_envios_de_prueba(config, estado):
     # Tras promover-prueba, lo de la fase de prueba no cuenta como enviado al canal
     estado.promover_prueba()
     assert calcular_metricas(estado, AHORA).enviadas == 3
+
+
+# --- métricas del asistente (tarea 9.1) -------------------------------------------------------
+
+
+@pytest.fixture
+def base_asistente():
+    b = BaseAsistente.abrir(":memory:")
+    hace = lambda **kw: a_texto(AHORA - timedelta(**kw))  # noqa: E731
+    with b.transaccion() as cx:
+        for tid, nombre, estado, creado in [
+            (111, "Ana Gómez", "activo", hace(days=9)),
+            (222, "Luis Pérez", "activo", hace(hours=5)),
+            (333, "Eva Ríos", "suspendido", hace(days=20)),
+        ]:
+            cx.execute(
+                "INSERT INTO usuarios(telegram_id, nombre, estado, directorio, creado) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (tid, nombre, estado, f"dir-{tid}", creado),
+            )
+        for usuario, token, latido, revocado in [
+            (1, "t1", hace(seconds=30), 0),  # en línea
+            (2, "t2", hace(minutes=10), 0),  # caído
+            (1, "t3", hace(seconds=10), 1),  # revocado
+        ]:
+            cx.execute(
+                "INSERT INTO navegadores(usuario_id, token_hash, creado, ultimo_latido, revocado) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (usuario, token, hace(days=1), latido, revocado),
+            )
+        for usuario, corta, estado, terminada in [
+            (1, "a", "enviada", hace(hours=2)),
+            (1, "b", "enviada", hace(hours=4)),
+            (2, "c", "respaldo", hace(hours=3)),
+            (2, "d", "enviada", hace(hours=40)),  # fuera de las 24 h
+            (2, "e", "cancelada", hace(hours=1)),
+        ]:
+            cx.execute(
+                "INSERT INTO postulaciones(usuario_id, id_corto, plataforma, estado, creada, "
+                "actualizada, terminada_en) VALUES (?, ?, 'computrabajo', ?, ?, ?, ?)",
+                (usuario, corta, estado, terminada, terminada, terminada),
+            )
+        cx.execute(
+            "INSERT INTO postulacion_pasos(postulacion_id, ts, estado, paso) "
+            "VALUES (1, ?, 'verificacion', 'estado')",
+            (hace(hours=2),),
+        )
+        for pid, origen in [(1, "perfil"), (1, "banco"), (1, "perfil"), (2, "ia")]:
+            cx.execute(
+                "INSERT INTO respuestas(postulacion_id, pregunta, respuesta, origen) "
+                "VALUES (?, 'p', 'r', ?)",
+                (pid, origen),
+            )
+        for pregunta, origen, creada in [
+            ("a", "ia", hace(hours=3)),
+            ("b", "ia", hace(days=3)),  # vieja
+            ("c", "semilla", hace(hours=3)),  # no cuenta
+        ]:
+            cx.execute(
+                "INSERT INTO banco_preguntas(pregunta_norm, campo, origen, creada) "
+                "VALUES (?, 'x', ?, ?)",
+                (pregunta, origen, creada),
+            )
+    yield b
+    b.cerrar()
+
+
+def test_metricas_del_asistente_en_un_dia_con_actividad(base_asistente):
+    m = calcular_metricas_asistente(base_asistente, AHORA, navegador_caido_min=2)
+    assert (m.usuarios_activos, m.altas, m.navegadores_en_linea) == (2, 1, 1)
+    assert (m.enviadas, m.respaldo, m.verificaciones) == (2, 1, 1)
+    assert m.pct_sin_ia == 75
+    assert m.preguntas_nuevas_banco == 1
+
+
+def test_resumen_incluye_el_asistente(config, estado, base_asistente):
+    notificador = NotificadorFalso()
+    crear(config, estado, IAFalsa(RECOMENDACIONES), notificador, asistente=base_asistente).enviar()
+    texto = notificador.mensajes[0][1]
+    assert "⚡ Asistente: 2 usuarios activos (1 altas) · 1 navegadores en línea" in texto
+    assert (
+        "📝 Postulaciones: 2 enviadas · 1 de respaldo · 1 verificaciones · "
+        "respuestas: 75 % sin IA · preguntas nuevas del banco: 1"
+    ) in texto
+
+
+def test_asistente_desactivado_deja_el_resumen_identico(config, estado):
+    con, sin = NotificadorFalso(), NotificadorFalso()
+    crear(config, estado, IAFalsa(RECOMENDACIONES), con, asistente=None).enviar(registrar=False)
+    crear(config, estado, IAFalsa(RECOMENDACIONES), sin).enviar(registrar=False)
+    assert con.mensajes == sin.mensajes
+    assert "Asistente" not in sin.mensajes[0][1]
+
+
+def test_asistente_sin_actividad_no_agrega_lineas(config, estado):
+    vacia = BaseAsistente.abrir(":memory:")
+    notificador = NotificadorFalso()
+    crear(config, estado, IAFalsa(RECOMENDACIONES), notificador, asistente=vacia).enviar()
+    assert "Asistente" not in notificador.mensajes[0][1]
+    vacia.cerrar()
+
+
+def test_el_cuerpo_a_deepseek_no_lleva_ids_ni_nombres(config, estado, base_asistente):
+    ia = IAFalsa(RECOMENDACIONES)
+    crear(config, estado, ia, NotificadorFalso(), asistente=base_asistente).enviar()
+    payload = json.dumps(ia.llamadas[0][1], ensure_ascii=False)
+    assert '"asistente"' in payload and "postulaciones_enviadas" in payload
+    for prohibido in ("Ana", "Luis", "Eva", "111", "222", "dir-", "t1", "computrabajo"):
+        assert prohibido not in payload
