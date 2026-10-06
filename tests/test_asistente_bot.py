@@ -319,6 +319,7 @@ def test_detalle_muestra_pasos_respuestas_y_cv(mundo):
 def test_borrarme(mundo):
     correr(alta_completa(mundo, ANA))
     correr(mundo.c.al_comando(ANA, "borrarme", []))
+    assert "elimínalo desde Telegram" in mundo.s.mensajes[-1][1]
     correr(mundo.c.al_boton(ANA, cb("borrarme")))
     assert mundo.n.usuarios.obtener(ANA) is None
 
@@ -764,3 +765,30 @@ def test_al_vincular_el_navegador_el_alta_termina_sin_boton_terminar(mundo):
     assert mundo.n.usuarios.obtener(ANA).estado != EstadoUsuario.ALTA
     assert not any("Cuando termines" in m[1] for m in mundo.s.mensajes)
     assert t.ALTA_LISTA in mundo.s.de(ANA)
+
+
+@respx.mock
+def test_start_con_el_navegador_ya_vinculado_cierra_el_alta_y_retoma_la_vacante(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("resumen", "ok"))
+        await responder_faltantes(mundo, ANA)
+        usuario = mundo.n.usuarios.obtener(ANA)
+        with mundo.n.base.transaccion() as cx:  # navegador vinculado con el alta sin cerrar
+            cx.execute(
+                "INSERT INTO navegadores(usuario_id, token_hash, creado, ultimo_latido) "
+                "VALUES (?, 'h', 'x', 'x')",
+                (usuario.id,),
+            )
+        assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ALTA
+        await mundo.c.al_iniciar(ANA, "Ana", "v_" + id_corto("linkedin:1"))
+        await mundo.c.esperar_tareas()
+
+    correr(flujo())
+    assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ACTIVO
+    mensajes = "\n".join(mundo.s.de(ANA))
+    assert t.ALTA_LISTA in mensajes
+    assert "Paso 5 de 5" not in mensajes.split(t.ALTA_LISTA)[-1]
+    assert "Practicante de sistemas" in mensajes

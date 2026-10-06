@@ -576,11 +576,11 @@ async function vincularDesdePagina(tabId) {
   try {
     await vincular(leer.codigo);
     ok = true;
-    mensaje = "✅ Navegador vinculado. Ya puedes cerrar esta pestaña y volver a Telegram.";
+    mensaje = "Navegador vinculado. Ya puedes cerrar esta pestaña y volver a Telegram.";
   } catch (error) {
     mensaje = error.estado === 400
-      ? "❌ El código venció o ya se usó. Pide uno nuevo en el bot con /vincular."
-      : "❌ No pude contactar al servidor. Intenta de nuevo en unos minutos.";
+      ? "El código venció o ya se usó. Pide uno nuevo en el bot con /vincular."
+      : "No pude contactar al servidor. Intenta de nuevo en unos minutos.";
   }
   await enPestana(tabId, (texto, exito) => {
     const p = document.getElementById("estado");

@@ -168,16 +168,85 @@ class Limitador:
 PAGINA_VINCULO = """<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vincular navegador · Asistente de postulación</title>
-<style>body{{font-family:system-ui,sans-serif;max-width:560px;margin:48px auto;padding:0 16px;
-color:#1f2937}}h1{{color:#1f3a5f;font-size:1.4rem}}code{{font-size:1.3rem;background:#eef2f7;
-padding:4px 8px;border-radius:6px}}.ok{{color:#2e7d4f}}.error{{color:#b42318}}</style></head>
-<body><h1>Vincular tu navegador</h1>
+<style>
+:root{{--fondo:#eef2f7;--tarjeta:#fff;--texto:#1f2937;--titulo:#0f2a43;--suave:#4b5563;
+--caja:#f1f4f8;--borde:#dde3ea;--ok:#2fb36d;--error:#d92d20;--azul:#3a8fd1;--azul-h:#2f7fbd}}
+@media(prefers-color-scheme:dark){{:root{{--fondo:#0e1520;--tarjeta:#172231;--texto:#e5e9f0;
+--titulo:#f3f6fa;--suave:#a4afbe;--caja:#1d2b3d;--borde:#2a3a4f}}}}
+*{{box-sizing:border-box}}
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+padding:24px 16px;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+color:var(--texto);background:radial-gradient(circle at 50% 0,var(--tarjeta),var(--fondo) 70%)}}
+main{{width:100%;max-width:440px;background:var(--tarjeta);border-radius:24px;
+padding:36px 32px 32px;text-align:center;box-shadow:0 18px 50px rgba(15,42,67,.14)}}
+.icono{{width:72px;height:72px;margin:0 auto 22px;border-radius:50%;display:none;
+align-items:center;justify-content:center;color:#fff}}
+.icono svg{{width:36px;height:36px}}
+.icono.ok{{background:var(--ok);box-shadow:0 0 0 10px rgba(47,179,109,.16)}}
+.icono.fallo{{background:var(--error);box-shadow:0 0 0 10px rgba(217,45,32,.14)}}
+.icono.espera{{background:none;color:var(--azul)}}
+.icono.espera svg{{width:56px;height:56px;animation:giro 1s linear infinite}}
+@keyframes giro{{to{{transform:rotate(360deg)}}}}
+body:not([data-vinculado]) .icono.espera,body[data-vinculado=si] .icono.ok,
+body[data-vinculado=no] .icono.fallo{{display:flex}}
+h1{{display:none;margin:0 0 10px;font-size:1.5rem;line-height:1.25;color:var(--titulo)}}
+body:not([data-vinculado]) h1.espera,body[data-vinculado=si] h1.ok,
+body[data-vinculado=no] h1.fallo{{display:block}}
+#estado{{margin:0 auto 24px;max-width:320px;font-size:1.05rem;line-height:1.5;color:var(--suave)}}
+#estado.error{{color:var(--error)}}
+.telegram{{display:none;align-items:center;justify-content:center;gap:10px;width:100%;
+padding:15px 20px;border-radius:999px;background:var(--azul);color:#fff;font-weight:600;
+font-size:1.05rem;text-decoration:none;transition:background .15s}}
+.telegram:hover,.telegram:focus-visible{{background:var(--azul-h)}}
+.telegram svg{{width:22px;height:22px}}
+body[data-vinculado=si] .telegram{{display:flex}}
+.codigo{{margin-top:24px;padding:18px 16px;border-radius:16px;background:var(--caja)}}
+body[data-vinculado=si] .codigo{{display:none}}
+.codigo p{{margin:0 0 12px;font-weight:600;color:var(--titulo)}}
+.caja{{display:inline-flex;align-items:stretch;border:1px solid var(--borde);border-radius:10px;
+overflow:hidden;background:var(--tarjeta)}}
+.caja code{{padding:10px 16px;font:600 1.15rem ui-monospace,SFMono-Regular,Consolas,monospace;
+letter-spacing:.08em;color:var(--titulo)}}
+.caja button{{border:0;border-left:1px solid var(--borde);background:var(--caja);color:var(--suave);
+padding:0 12px;cursor:pointer}}
+.caja button:hover,.caja button:focus-visible{{color:var(--titulo)}}
+.caja button svg{{width:20px;height:20px;display:block}}
+.codigo small{{display:block;margin-top:12px;color:var(--suave)}}
+</style></head>
+<body><main>
 <div id="asistente-vinculo" data-codigo="{codigo}" data-api="{api}"></div>
-<p id="estado">Si tienes la extensión del asistente instalada, este navegador se vincula solo en
-unos segundos.</p>
-<p>¿No pasa nada? Instala la extensión, vuelve a abrir este enlace o escribe en la extensión
-el código <code>{visible}</code> (vence en 10 minutos).</p>
+<div class="icono espera" aria-hidden="true"><svg viewBox="0 0 50 50" fill="none"
+stroke="currentColor" stroke-width="5" stroke-linecap="round"><circle cx="25" cy="25" r="20"
+opacity=".2"/><path d="M45 25a20 20 0 0 0-20-20"/></svg></div>
+<div class="icono ok" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"
+stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path
+d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+<div class="icono fallo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"
+stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/>
+</svg></div>
+<h1 class="espera">Vinculando tu navegador…</h1>
+<h1 class="ok">¡Navegador vinculado con éxito!</h1>
+<h1 class="fallo">No se pudo vincular</h1>
+<p id="estado" role="status">Si tienes la extensión del asistente instalada, este navegador se
+vincula solo en unos segundos.</p>
+{boton_telegram}
+<div class="codigo"><p>¿No se sincronizó automáticamente?</p>
+<div class="caja"><code id="codigo-visible">{visible}</code><button type="button" id="copiar"
+title="Copiar código" aria-label="Copiar código"><svg viewBox="0 0 24 24" fill="none"
+stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect
+x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button>
+</div><small>Escríbelo en la extensión · vence en 10 minutos</small></div>
+</main>
+<script>document.getElementById("copiar").addEventListener("click",function(){{
+var t=document.getElementById("codigo-visible").textContent;
+if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){{
+document.getElementById("copiar").title="¡Copiado!"}}).catch(function(){{}})}})</script>
 </body></html>"""
+
+BOTON_TELEGRAM = """<a class="telegram" href="{enlace}"><svg viewBox="0 0 24 24" fill="none"
+stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>
+ Volver a Telegram</a>"""
 
 PAGINA_PRIVACIDAD = """<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -272,7 +341,11 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
     @app.get(PREFIJO + "/vincular/{codigo}", response_class=HTMLResponse)
     async def pagina_vinculo(codigo: str):
         codigo = vinculos.normalizar_codigo(codigo)[:8]
+        bot = nucleo.config.bot_usuario
         return PAGINA_VINCULO.format(
+            boton_telegram=BOTON_TELEGRAM.format(enlace=html.escape(f"https://t.me/{bot}"))
+            if bot
+            else "",
             codigo=html.escape(codigo),
             visible=html.escape(vinculos.mostrar_codigo(codigo)),
             api=html.escape(nucleo.config.api.url_publica + PREFIJO),

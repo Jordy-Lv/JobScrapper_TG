@@ -122,6 +122,22 @@ def test_pagina_de_vinculo_lleva_el_codigo(entorno):
     assert r.status_code == 200 and f'data-codigo="{codigo}"' in r.text
 
 
+def test_pagina_de_vinculo_vuelve_al_bot_de_telegram(entorno):
+    nucleo, cliente = entorno
+    nucleo.config.bot_usuario = "mi_bot"
+    codigo = vinculos.crear_codigo(nucleo.base, 1, T0)
+    texto = cliente.get(f"/api/v1/vincular/{codigo}").text
+    assert 'href="https://t.me/mi_bot"' in texto and "Volver a Telegram" in texto
+    assert "¡Navegador vinculado con éxito!" in texto and vinculos.mostrar_codigo(codigo) in texto
+
+
+def test_pagina_de_vinculo_sin_bot_configurado_no_ofrece_el_boton(entorno):
+    nucleo, cliente = entorno
+    nucleo.config.bot_usuario = ""
+    codigo = vinculos.crear_codigo(nucleo.base, 1, T0)
+    assert "Volver a Telegram" not in cliente.get(f"/api/v1/vincular/{codigo}").text
+
+
 def test_politica_de_privacidad_publica(entorno):
     _, cliente = entorno
     r = cliente.get("/api/v1/privacidad")

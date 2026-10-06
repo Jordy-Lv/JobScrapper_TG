@@ -266,7 +266,10 @@ class Conversacion:
         elif paso.startswith("faltantes:"):
             await self._preguntar_faltante(usuario, int(paso.split(":", 1)[1]))
         elif paso == "navegador":
-            await self._mostrar_navegador(usuario, al_terminar_alta=True)
+            if self.n.tiene_navegador(usuario.id):  # ya lo vinculó: no se le pide otra vez
+                await self._terminar_alta(usuario)
+            else:
+                await self._mostrar_navegador(usuario, al_terminar_alta=True)
 
     async def _ir_a(self, usuario: Usuario, paso: str) -> None:
         self.n.usuarios.fijar_paso(usuario, paso)
@@ -1414,7 +1417,8 @@ class Conversacion:
         await self._enviar(
             usuario,
             "⚠️ Esto borra <b>todos</b> tus datos: perfil, CV, clave, "
-            "navegadores e historial. No se puede deshacer.",
+            "navegadores e historial. No se puede deshacer.\n\n"
+            "Este chat no se borra: si también quieres limpiarlo, elimínalo desde Telegram.",
             [[("Sí, borrar todo", cb("borrarme"))]],
         )
 

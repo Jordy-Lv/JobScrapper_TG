@@ -58,7 +58,7 @@ class ApiPrueba:
 
         @app.get("/api/v1/vincular/{codigo}", response_class=HTMLResponse)
         async def pagina(codigo: str):
-            return PAGINA_VINCULO.format(codigo=codigo, visible=codigo, api="")
+            return PAGINA_VINCULO.format(boton_telegram="", codigo=codigo, visible=codigo, api="")
 
         @app.post("/api/v1/vincular")
         async def vincular(request: Request):
