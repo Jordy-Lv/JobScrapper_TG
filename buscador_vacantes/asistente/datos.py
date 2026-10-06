@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-ESQUEMA_VERSION = 2
+ESQUEMA_VERSION = 3
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS esquema_version (version INTEGER NOT NULL);
@@ -149,6 +149,17 @@ CREATE TABLE IF NOT EXISTS respuestas (
     respuesta TEXT,
     origen TEXT NOT NULL                       -- perfil | banco | aprendida | ia | usuario
 );
+
+-- Mensajes del bot que se borran solos (esquema 3); sobreviven a un reinicio del servicio
+CREATE TABLE IF NOT EXISTS mensajes_efimeros (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    chat_id INTEGER NOT NULL,
+    mensaje_id INTEGER NOT NULL,
+    clave TEXT NOT NULL,                       -- p. ej. res:14:r (postulación y botón)
+    borrar_en TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mensajes_efimeros_borrar ON mensajes_efimeros(borrar_en);
 
 CREATE TABLE IF NOT EXISTS evidencia (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

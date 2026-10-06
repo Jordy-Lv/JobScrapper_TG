@@ -274,6 +274,16 @@ class AsistenteDetalle(Modelo):
     cache_h: float = Field(24, gt=0)
 
 
+class AsistenteMensajesEfimeros(Modelo):
+    """Mensajes que el bot manda al tocar «Ver respuestas» o «De qué trata»: se borran solos
+    tras el tiempo que toma leerlos y no se pueden repetir mientras siguen en pantalla."""
+
+    lectura_min_s: float = Field(25, gt=0)
+    lectura_max_s: float = Field(120, gt=0)
+    caracteres_por_s: float = Field(14, gt=0)  # ≈ 170 palabras por minuto
+    max_por_min: int = Field(6, ge=1)  # envíos de estos botones por usuario y minuto
+
+
 class TareaIA(Modelo):
     modelo: str = Field(min_length=1)
     temperatura: float = Field(0.3, ge=0, le=2)
@@ -321,6 +331,7 @@ class Asistente(Modelo):
     retencion_dias: int = Field(90, ge=1)
     evidencia_dias: int = Field(30, ge=1)
     detalle: AsistenteDetalle = Field(default_factory=AsistenteDetalle)
+    mensajes_efimeros: AsistenteMensajesEfimeros = Field(default_factory=AsistenteMensajesEfimeros)
     preguntas_tipicas: dict[str, list[str]] = Field(default_factory=dict)
     gemini: AsistenteGemini
 

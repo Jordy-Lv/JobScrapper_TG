@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from buscador_vacantes.asistente.datos import BaseAsistente, abrir_vacantes_ro
+from buscador_vacantes.asistente.datos import ESQUEMA_VERSION, BaseAsistente, abrir_vacantes_ro
 from buscador_vacantes.estado import Estado
 
 AHORA = "2026-10-04T15:00:00+00:00"
@@ -125,5 +125,5 @@ def test_base_del_esquema_1_gana_la_ficha_de_la_vacante(tmp_path):
     base = BaseAsistente.abrir(ruta)
     columnas = {f["name"] for f in base.cx.execute("PRAGMA table_info(vacantes)")}
     assert "ficha_json" in columnas
-    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 2
+    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == ESQUEMA_VERSION
     base.cerrar()

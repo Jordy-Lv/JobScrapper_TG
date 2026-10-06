@@ -974,6 +974,14 @@ asistente:
     intervalo_dominio_s: 5
     timeout_s: 15
     cache_h: 24
+  # Botones «Ver respuestas» y «De qué trata»: su mensaje se borra solo al pasar el tiempo de
+  # lectura (caracteres / caracteres_por_s, entre lectura_min_s y lectura_max_s) y, mientras
+  # sigue en pantalla, volver a tocar el botón no lo repite (antispam)
+  mensajes_efimeros:
+    lectura_min_s: 25
+    lectura_max_s: 120
+    caracteres_por_s: 14
+    max_por_min: 6
   # Preguntas típicas por fuente para el paquete de respaldo (se completan en la tarea 3.1)
   preguntas_tipicas:
     otras:

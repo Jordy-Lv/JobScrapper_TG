@@ -120,6 +120,7 @@ class Servicio:
                 for evento in self.nucleo.cola.vigilar(ahora):
                     await conversacion.notificar(evento)
                 await conversacion.recordatorios(ahora)
+                await conversacion.borrar_vencidos(ahora)
                 await self._tareas_diarias(conversacion, ahora)
             except Exception:  # noqa: BLE001 - una tarea fallida no detiene el servicio
                 log.exception("Error en las tareas periódicas")

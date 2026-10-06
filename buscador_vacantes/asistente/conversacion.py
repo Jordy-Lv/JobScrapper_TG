@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
@@ -135,6 +136,8 @@ class Conversacion:
         self._mensajes: dict[int, deque[float]] = defaultdict(deque)
         self._candados: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._tareas: set[asyncio.Task] = set()
+        self._borrados: set[asyncio.Task] = set()  # borrados programados; no se esperan
+        self._toques_resumen: dict[int, deque[float]] = defaultdict(deque)
 
     # --- utilidades ------------------------------------------------------------------
 
@@ -1066,8 +1069,7 @@ class Conversacion:
                         usuario, f"Escribe tu respuesta para:\n<b>{t.e(pregunta)}</b>"
                     )
             case "res":
-                await self._ver_resumen(usuario, int(args[0]), args[1])
-                return None
+                return await self._ver_resumen(usuario, int(args[0]), args[1])
             case "rei":
                 p = self.n.cola.obtener(int(args[0]))
                 if p is None or p.usuario_id != usuario.id or not p.id_corto:
@@ -1602,17 +1604,109 @@ class Conversacion:
         if cv is not None:
             await self.s.documento(usuario.telegram_id, cv, "La hoja de vida que recibió el portal")
 
-    async def _ver_resumen(self, usuario: Usuario, pid: int, parte: str) -> None:
-        p = self.n.cola.obtener(pid)
-        if p is None or p.usuario_id != usuario.id:
-            return
-        datos, _ = self._datos_resumen(p, confirmada=p.estado != E.INCIERTA)
-        if datos is None:
-            return
-        textos = (resumen_postulacion.respuestas(datos) if parte == "r"
-                  else resumen_postulacion.de_que_trata(datos))  # fmt: skip
+    # --- mensajes que se borran solos (botones del resumen) ----------------------------------
+
+    def _espera_lectura(self, textos: list[str]) -> int:
+        """Segundos que el mensaje se queda en pantalla: lo que toma leerlo, con tope."""
+        c = self.config.mensajes_efimeros
+        caracteres = sum(len(re.sub(r"<[^>]+>", "", x)) for x in textos)
+        return int(min(c.lectura_max_s, max(c.lectura_min_s, caracteres / c.caracteres_por_s)))
+
+    def _toque_resumen_permitido(self, tid: int) -> bool:
+        ahora = self.reloj()
+        cola = self._toques_resumen[tid]
+        while cola and ahora - cola[0] > 60:
+            cola.popleft()
+        if len(cola) >= self.config.mensajes_efimeros.max_por_min:
+            return False
+        cola.append(ahora)
+        return True
+
+    def _vigente(self, usuario: Usuario, clave: str, ahora: datetime) -> datetime | None:
+        """Cuándo se borra el mensaje de este botón, si todavía está en pantalla."""
+        fila = self.n.base.cx.execute(
+            "SELECT MAX(borrar_en) AS hasta FROM mensajes_efimeros "
+            "WHERE usuario_id = ? AND clave = ? AND borrar_en > ?",
+            (usuario.id, clave, a_texto(ahora)),
+        ).fetchone()
+        return de_texto(fila["hasta"]) if fila and fila["hasta"] else None
+
+    async def _enviar_efimero(self, usuario: Usuario, textos: list[str], clave: str) -> int:
+        """Envía los mensajes, anota cuándo borrarlos y programa el borrado."""
+        espera = self._espera_lectura(textos)
+        aviso = f"<i>🕒 Se borra solo en {espera} s</i>"
+        textos = [*textos[:-1], f"{textos[-1]}\n\n{aviso}"]
+        borrar_en = a_texto(self.n.ahora() + timedelta(seconds=espera))
+        filas: list[int] = []
         for texto in textos:
-            await self._enviar(usuario, texto)
+            mensaje = await self._enviar(usuario, texto)
+            if mensaje is None:
+                continue
+            with self.n.base.transaccion() as cx:
+                fila = cx.execute(
+                    "INSERT INTO mensajes_efimeros(usuario_id, chat_id, mensaje_id, clave, "
+                    "borrar_en) VALUES (?, ?, ?, ?, ?)",
+                    (usuario.id, usuario.telegram_id, mensaje, clave, borrar_en),
+                )
+                filas.append(fila.lastrowid)
+        if filas:
+            tarea = asyncio.create_task(self._borrar_luego(filas, espera))
+            self._borrados.add(tarea)
+            tarea.add_done_callback(self._borrados.discard)
+        return espera
+
+    async def _borrar_luego(self, filas: list[int], espera: float) -> None:
+        await self.dormir(espera)
+        marcas = ", ".join("?" for _ in filas)
+        pendientes = self.n.base.cx.execute(
+            f"SELECT * FROM mensajes_efimeros WHERE id IN ({marcas})", filas
+        ).fetchall()
+        await self._borrar_filas(pendientes)
+
+    async def _borrar_filas(self, filas) -> int:
+        borrados = 0
+        for f in filas:
+            try:
+                await self.s.borrar(f["chat_id"], f["mensaje_id"])
+                borrados += 1
+            except Exception:  # noqa: BLE001 - el usuario ya lo borró o es muy viejo
+                log.info("No se pudo borrar el mensaje %s", f["mensaje_id"])
+            with self.n.base.transaccion() as cx:
+                cx.execute("DELETE FROM mensajes_efimeros WHERE id = ?", (f["id"],))
+        return borrados
+
+    async def borrar_vencidos(self, ahora: datetime) -> int:
+        """Borra lo que ya cumplió su tiempo: cubre los reinicios del servicio."""
+        filas = self.n.base.cx.execute(
+            "SELECT * FROM mensajes_efimeros WHERE borrar_en <= ?", (a_texto(ahora),)
+        ).fetchall()
+        return await self._borrar_filas(filas)
+
+    async def _ver_resumen(self, usuario: Usuario, pid: int, parte: str) -> str | None:
+        """Responde a «Ver respuestas» (r) y «De qué trata» (d). Devuelve el aviso corto que
+        ve el usuario sobre el botón cuando no se envía nada."""
+        p = self.n.cola.obtener(pid)
+        if p is None or p.usuario_id != usuario.id or parte not in ("r", "d"):
+            return None
+        clave = f"res:{pid}:{parte}"
+        async with self._candados[usuario.id]:  # dos toques seguidos no envían dos veces
+            ahora = self.n.ahora()
+            hasta = self._vigente(usuario, clave, ahora)
+            if hasta is not None:
+                faltan = max(1, int((hasta - ahora).total_seconds()))
+                return f"👆 Ya lo tienes arriba; se borra en {faltan} s"
+            if not self._toque_resumen_permitido(usuario.telegram_id):
+                return "Vas muy rápido; intenta de nuevo en un minuto."
+            datos, _ = self._datos_resumen(p, confirmada=p.estado != E.INCIERTA)
+            if datos is None:
+                return None
+            if parte == "r":
+                textos = resumen_postulacion.respuestas(datos)
+            else:
+                textos = resumen_postulacion.de_que_trata(datos)
+            if textos:
+                await self._enviar_efimero(usuario, textos, clave)
+        return None
 
     async def _avisar_evento(self, ev: Evento) -> None:
         usuario = self.n.usuarios.por_id(ev.usuario_id)

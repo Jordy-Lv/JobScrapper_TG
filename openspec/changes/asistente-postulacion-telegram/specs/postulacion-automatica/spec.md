@@ -189,3 +189,14 @@ Si el portal no abre la postulación porque pide una acción en la cuenta del us
 #### Scenario: Correo de la cuenta marcado como incorrecto
 - **WHEN** al aplicar, Computrabajo redirige al inicio con el aviso «Email incorrecto»
 - **THEN** la postulación queda `bloqueada` con `portal_correo_incorrecto`, el formulario para cambiar el correo no se toca y el bot pide corregir el correo y reintentar
+
+### Requirement: Mensajes de detalle que se borran solos
+Los mensajes que el bot envía al tocar «Ver respuestas» o «De qué trata» SHALL borrarse solos pasado el tiempo que toma leerlos (proporcional a su largo, con un mínimo y un máximo configurables en `asistente.mensajes_efimeros`) y MUST avisar al final cuántos segundos quedan. La tarjeta de la postulación y el PDF del CV no se borran. Mientras el mensaje de un botón siga en pantalla, volver a tocarlo MUST NOT enviarlo otra vez y MUST responder con el tiempo que falta; además cada usuario tiene un tope de envíos de estos botones por minuto. El borrado MUST sobrevivir a un reinicio del servicio y no fallar si el usuario ya borró el mensaje.
+
+#### Scenario: Toque repetido
+- **WHEN** el usuario toca «Ver respuestas» dos veces seguidas
+- **THEN** el chat recibe un solo mensaje y el segundo toque muestra «Ya lo tienes arriba; se borra en N s»
+
+#### Scenario: Reinicio del servicio
+- **WHEN** el servicio se reinicia antes de que se cumpla el tiempo de un mensaje
+- **THEN** el siguiente barrido de tareas periódicas lo borra

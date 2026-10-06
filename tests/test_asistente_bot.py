@@ -1,6 +1,6 @@
 import asyncio
 import io
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -604,3 +604,101 @@ def test_sin_confirmacion_igual_envia_la_tarjeta_con_las_respuestas(mundo):
     assert "Con encuesta · 2 respuestas" in texto
     correr(mundo.c.al_boton(ANA, cb("res", p.id, "r")))
     assert "<b>SENA</b>" in mundo.s.de(ANA)[-1]
+
+
+# --- mensajes de los botones del resumen: se borran solos y no se pueden repetir ----------------
+
+
+def tocar_resumen(mundo, pid, parte):
+    return correr(mundo.c.al_boton(ANA, cb("res", pid, parte)))
+
+
+def test_el_mensaje_del_boton_trae_el_aviso_de_borrado_y_queda_anotado(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    assert tocar_resumen(mundo, p.id, "r") is None
+    texto = mundo.s.de(ANA)[-1]
+    assert "Tus respuestas" in texto and "🕒 Se borra solo en 25 s" in texto
+    filas = mundo.base.cx.execute("SELECT clave, borrar_en FROM mensajes_efimeros").fetchall()
+    assert [f["clave"] for f in filas] == [f"res:{p.id}:r"]
+
+
+def test_mientras_sigue_en_pantalla_volver_a_tocar_no_lo_repite(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    tocar_resumen(mundo, p.id, "r")
+    enviados = len(mundo.s.mensajes)
+    aviso = tocar_resumen(mundo, p.id, "r")
+    assert "Ya lo tienes arriba" in aviso and "25 s" in aviso
+    assert len(mundo.s.mensajes) == enviados
+    # El otro botón es independiente
+    assert tocar_resumen(mundo, p.id, "d") is None
+    assert len(mundo.s.mensajes) == enviados + 1
+
+
+def test_dos_toques_a_la_vez_envian_una_sola_vez(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+
+    async def doble():
+        return await asyncio.gather(
+            mundo.c.al_boton(ANA, cb("res", p.id, "r")), mundo.c.al_boton(ANA, cb("res", p.id, "r"))
+        )
+
+    avisos = correr(doble())
+    assert sorted(a is None for a in avisos) == [False, True]
+    assert sum("Tus respuestas" in m for m in mundo.s.de(ANA)) == 1
+
+
+def test_al_cumplirse_el_tiempo_se_borra_y_se_puede_pedir_otra_vez(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    tocar_resumen(mundo, p.id, "r")
+    ids = [i for i in range(1, mundo.s._id + 1)]
+    # Reinicio del servicio o paso del tiempo: el barrido borra lo vencido
+    assert correr(mundo.c.borrar_vencidos(T0 + timedelta(seconds=10))) == 0
+    assert correr(mundo.c.borrar_vencidos(T0 + timedelta(seconds=26))) == 1
+    assert mundo.s.borrados == [(ANA, ids[-1])]
+    assert mundo.base.cx.execute("SELECT COUNT(*) FROM mensajes_efimeros").fetchone()[0] == 0
+    assert tocar_resumen(mundo, p.id, "r") is None  # ya se puede pedir de nuevo
+
+
+def test_el_borrado_programado_corre_solo_tras_la_espera(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    esperas = []
+
+    async def dormir(segundos):
+        esperas.append(segundos)
+
+    mundo.c.dormir = dormir
+
+    async def flujo():
+        await mundo.c.al_boton(ANA, cb("res", p.id, "r"))
+        await asyncio.gather(*mundo.c._borrados)
+
+    correr(flujo())
+    assert esperas == [25] and len(mundo.s.borrados) == 1
+
+
+def test_si_el_mensaje_ya_no_existe_el_borrado_no_falla(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    tocar_resumen(mundo, p.id, "r")
+
+    async def borrar(chat, mensaje):
+        raise RuntimeError("Message to delete not found")
+
+    mundo.s.borrar = borrar
+    assert correr(mundo.c.borrar_vencidos(T0 + timedelta(seconds=60))) == 0
+    assert mundo.base.cx.execute("SELECT COUNT(*) FROM mensajes_efimeros").fetchone()[0] == 0
+
+
+def test_el_tiempo_de_lectura_crece_con_el_texto_y_tiene_tope(mundo):
+    espera = mundo.c._espera_lectura
+    assert espera(["corto"]) == 25
+    assert espera(["<b>x</b>" + "a" * 700]) == 50
+    assert espera(["a" * 100000]) == 120
+
+
+def test_tope_de_toques_por_minuto_protege_el_chat(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    mundo.n.config.mensajes_efimeros.max_por_min = 1
+    tocar_resumen(mundo, p.id, "r")
+    enviados = len(mundo.s.mensajes)
+    assert "muy rápido" in tocar_resumen(mundo, p.id, "d")
+    assert len(mundo.s.mensajes) == enviados
