@@ -333,4 +333,6 @@
 - [x] 10.9 El reporte dice si la postulación fue con encuesta o sin encuesta, y también se envía (con la advertencia) cuando la postulación queda `incierta`.
 - [x] 10.11 Plantilla del resumen: tarjeta de tres líneas con botones (respuestas, de qué trata, oferta) y la descripción de Computrabajo sin ruido de la página (`div[div-link] p.mbB`).
 - [x] 10.12 Los mensajes de «Ver respuestas» y «De qué trata» se borran solos tras el tiempo de lectura, no se repiten mientras siguen en pantalla y tienen tope por minuto (`mensajes_efimeros`, esquema 3). Verificar con `tests/test_asistente_bot.py`.
+- [x] 10.13 Paso 3 del alta con dos botones: «📎 Adjuntar mi CV» (pide el PDF) y «✍️ Crearla desde cero», que por ahora responde «Próximamente».
+- [ ] 10.14 Construir la hoja de vida desde cero en el bot (preguntas guiadas y PDF generado) para quien no tiene CV; reemplaza la respuesta «Próximamente» del botón «✍️ Crearla desde cero».
 - [ ] 10.10 Reintentar en el piloto las postulaciones 6 y 7 con la extensión recargada y comprobar el resumen en el bot.

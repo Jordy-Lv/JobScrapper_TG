@@ -247,7 +247,14 @@ class Conversacion:
                 usuario, t.PEDIR_CLAVE, [[("No tengo clave por ahora", cb("clave", "omitir"))]]
             )
         elif paso == "cv":
-            await self._enviar(usuario, t.PEDIR_CV.format(max_mb=self.config.cv.max_mb))
+            await self._enviar(
+                usuario,
+                t.PEDIR_CV.format(max_mb=self.config.cv.max_mb),
+                [[
+                    ("✍️ Crearla desde cero", cb("cvopc", "cero")),
+                    ("📎 Adjuntar mi CV", cb("cvopc", "adjuntar")),
+                ]],
+            )  # fmt: skip
         elif paso == "resumen":
             await self._mostrar_resumen(usuario)
         elif paso.startswith("revision:"):
@@ -973,6 +980,11 @@ class Conversacion:
                 elif args[0] == "borrar":
                     self.n.guardar_clave_gemini(usuario.id, None)
                     await self._enviar(usuario, "🗑 Clave de Gemini borrada.")
+            case "cvopc":
+                if args[0] == "cero":
+                    await self._enviar(usuario, t.CV_DESDE_CERO)
+                else:
+                    await self._enviar(usuario, t.CV_ADJUNTAR.format(max_mb=self.config.cv.max_mb))
             case "cv":
                 ruta = Path(
                     self.n.base.cx.execute(

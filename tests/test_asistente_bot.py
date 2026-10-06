@@ -721,3 +721,14 @@ def test_progreso_un_solo_mensaje_que_avanza_de_etapa_y_se_detiene(mundo):
                for x in textos)  # fmt: skip
     assert "Postulación enviada y confirmada" in textos[-1]
     assert p.id not in mundo.c._animaciones
+
+
+def test_paso_cv_con_botones_adjuntar_y_desde_cero_proximamente(mundo):
+    correr(alta_completa(mundo, ANA))
+    _, texto, botones = next(m for m in mundo.s.mensajes if "Paso 3 de 5" in m[1])
+    assert botones == [[("✍️ Crearla desde cero", cb("cvopc", "cero")),
+                        ("📎 Adjuntar mi CV", cb("cvopc", "adjuntar"))]]  # fmt: skip
+    correr(mundo.c.al_boton(ANA, cb("cvopc", "cero")))
+    assert "Próximamente" in mundo.s.de(ANA)[-1]
+    correr(mundo.c.al_boton(ANA, cb("cvopc", "adjuntar")))
+    assert "Adjunta aquí tu hoja de vida" in mundo.s.de(ANA)[-1]

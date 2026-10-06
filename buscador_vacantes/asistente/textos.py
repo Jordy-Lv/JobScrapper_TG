@@ -49,6 +49,12 @@ PEDIR_CV = (
     "<b>Paso 3 de 5 · Tu hoja de vida</b>\n"
     "Envíame tu CV en <b>PDF</b> (máximo {max_mb:g} MB). Con él armo tu perfil."
 )
+CV_ADJUNTAR = "📎 Adjunta aquí tu hoja de vida en <b>PDF</b> (máximo {max_mb:g} MB)."
+CV_DESDE_CERO = (
+    "🛠 <b>Próximamente</b>\n"
+    "Estamos trabajando para que puedas crear tu hoja de vida desde cero aquí mismo. "
+    "Por ahora, adjunta la que tengas en PDF."
+)
 CV_ESCANEADO = (
     "Tu hoja de vida parece escaneada (es una imagen). Para leerla tengo que enviar el archivo "
     "completo a Gemini, <b>incluidos tus datos de contacto</b>. ¿Lo envío?"
