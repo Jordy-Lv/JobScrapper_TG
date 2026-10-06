@@ -27,7 +27,8 @@ from buscador_vacantes.asistente.cv_lectura import PerfilExtraido
 from buscador_vacantes.asistente.cv_pdf import Contacto, generar_pdf, nombre_archivo
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina
-from buscador_vacantes.asistente.gemini import ClaveGeminiInvalida, ClienteGemini
+from buscador_vacantes.asistente.ia import ClaveInvalida as ClaveIAInvalida
+from buscador_vacantes.asistente.ia import ClienteIA
 from buscador_vacantes.asistente.preferencias import Preferencias
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
@@ -42,6 +43,8 @@ from buscador_vacantes.asistente.vacantes import Indice, VacanteIndexada
 from buscador_vacantes.estado import a_texto, ahora_utc
 
 log = logging.getLogger(__name__)
+
+PROVEEDOR_PROVISIONAL = "gemini"  # se elimina en la tarea 3.3 (proveedor por usuario)
 
 RUTA_SELECTORES = cfg.RAIZ / "assets" / "selectores"
 
@@ -84,7 +87,7 @@ class Nucleo:
         base: BaseAsistente,
         indice: Indice,
         detalles: Detalles,
-        gemini: ClienteGemini,
+        ia: dict[str, ClienteIA],
         cifrador: Cifrador,
         archivos: Path,
         *,
@@ -96,7 +99,7 @@ class Nucleo:
         self.base = base
         self.indice = indice
         self.detalles = detalles
-        self.gemini = gemini
+        self.ia = ia  # un cliente por proveedor del catálogo, por id
         self.cifrador = cifrador
         self.archivos = archivos
         self.enlace_grupo: str | None = None  # lo fija servicio.construir_nucleo
@@ -261,9 +264,16 @@ class Nucleo:
         os.chmod(carpeta, 0o700)
         return carpeta
 
-    async def _ia(self, usuario_id: int) -> tuple[ClienteGemini | None, str | None]:
+    def proveedor_de(self, usuario_id: int) -> str:
+        # Provisional hasta 3.1/3.3: la base solo guarda claves de Gemini, sin proveedor elegido
+        return PROVEEDOR_PROVISIONAL
+
+    def cliente_ia(self, usuario_id: int) -> ClienteIA:
+        return self.ia[self.proveedor_de(usuario_id)]
+
+    async def _ia(self, usuario_id: int) -> tuple[ClienteIA | None, str | None]:
         clave = self.clave_gemini(usuario_id)
-        return (self.gemini, clave) if clave else (None, None)
+        return (self.cliente_ia(usuario_id), clave) if clave else (None, None)
 
     async def preparar(
         self, usuario: Usuario, vacante: VacanteIndexada, pid: int
@@ -283,7 +293,7 @@ class Nucleo:
             afinidad = calcular_afinidad(requisitos, datos.perfil)
             cv = await adaptar(datos, requisitos, vacante.resumen, cliente=cliente, clave=clave,
                                usuario_id=usuario.id)  # fmt: skip
-        except ClaveGeminiInvalida:
+        except ClaveIAInvalida:
             self.marcar_clave_invalida(usuario.id)
             await self.notificar({"tipo": "clave_invalida", "usuario_id": usuario.id})
             afinidad, cv = None, cv_base(datos.perfil)
@@ -316,7 +326,7 @@ class Nucleo:
                 continue  # el CV lo adjunta la extensión
             try:
                 respuesta = await resolver(pregunta, ctx)
-            except ClaveGeminiInvalida:
+            except ClaveIAInvalida:
                 self.marcar_clave_invalida(usuario.id)
                 ctx.cliente, ctx.clave = None, None
                 respuesta = await resolver(pregunta, ctx)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -200,9 +201,10 @@ class Operacion(Modelo):
     timeout_corrida_min: float = Field(25, gt=0)
 
 
-TareaGemini = Literal[
+NombreTarea = Literal[
     "leer_cv", "requisitos", "adaptar_cv", "carta", "responder", "clasificar_pregunta"
 ]
+ProtocoloIA = Literal["gemini", "openai", "anthropic"]
 
 
 class AsistenteApi(Modelo):
@@ -294,16 +296,38 @@ class TareaIA(Modelo):
     respaldo: list[str] = Field(default_factory=list)
 
 
-class AsistenteGemini(Modelo):
-    base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+class ProveedorIA(Modelo):
+    """Un proveedor del catálogo: el usuario elige uno y trae su propia clave."""
+
+    protocolo: ProtocoloIA
+    nombre: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    url_clave: str = Field(min_length=1)  # dónde obtener la clave
+    pasos_clave: str = Field(min_length=1)  # texto que el bot muestra al elegirlo
+    gratuito: bool = False  # tiene plan gratuito (el bot solo lo dice si es verdadero)
+    acepta_pdf: bool = False  # admite el PDF en línea (CV escaneado)
     timeout_s: float = Field(60, gt=0)
-    tareas: dict[TareaGemini, TareaIA]
+    tareas: dict[NombreTarea, TareaIA]
 
     @model_validator(mode="after")
-    def _todas_las_tareas(self) -> AsistenteGemini:
-        faltantes = sorted(set(TareaGemini.__args__) - set(self.tareas))
+    def _completo(self) -> ProveedorIA:
+        if not self.base_url.startswith("https://"):
+            raise ValueError("base_url debe empezar por https://")
+        faltantes = sorted(set(NombreTarea.__args__) - set(self.tareas))
         if faltantes:
-            raise ValueError(f"faltan tareas de Gemini: {', '.join(faltantes)}")
+            raise ValueError(f"faltan tareas de IA: {', '.join(faltantes)}")
+        return self
+
+
+class AsistenteIA(Modelo):
+    proveedores: dict[str, ProveedorIA] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _identificadores(self) -> AsistenteIA:
+        # El id viaja en datos de botones de Telegram (máx. 64 bytes) y en la base de datos
+        for id_ in self.proveedores:
+            if not re.fullmatch(r"[a-z0-9_]{1,24}", id_):
+                raise ValueError(f"id de proveedor inválido: {id_!r} (a-z, 0-9 y _; máx. 24)")
         return self
 
 
@@ -333,7 +357,7 @@ class Asistente(Modelo):
     detalle: AsistenteDetalle = Field(default_factory=AsistenteDetalle)
     mensajes_efimeros: AsistenteMensajesEfimeros = Field(default_factory=AsistenteMensajesEfimeros)
     preguntas_tipicas: dict[str, list[str]] = Field(default_factory=dict)
-    gemini: AsistenteGemini
+    ia: AsistenteIA
 
     @model_validator(mode="after")
     def _activo_completo(self) -> Asistente:

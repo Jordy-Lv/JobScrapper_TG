@@ -16,7 +16,7 @@ from buscador_vacantes.asistente.cv_lectura import (  # noqa: E402
     PerfilExtraido,
 )
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
-from buscador_vacantes.asistente.gemini import ClienteGemini  # noqa: E402
+from buscador_vacantes.asistente.ia import ClienteIA  # noqa: E402
 from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     Contexto,
     ErrorPegado,
@@ -80,7 +80,7 @@ def contexto(base, usuario_id=1, con_ia=True, datos=DATOS):
     cliente = None
     if con_ia:
         config = cargar_configuracion().asistente
-        cliente = ClienteGemini(config.gemini, base, 60, reloj=lambda: AHORA)
+        cliente = ClienteIA(config.ia.proveedores["gemini"], base, 60, reloj=lambda: AHORA)
     return Contexto(base, usuario_id, datos, AHORA, cliente, "clave" if con_ia else None,
                     vacante="Practicante de desarrollo Python")  # fmt: skip
 

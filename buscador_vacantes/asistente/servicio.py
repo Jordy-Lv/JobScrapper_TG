@@ -24,7 +24,7 @@ from buscador_vacantes.asistente.cifrado import Cifrador
 from buscador_vacantes.asistente.conversacion import Conversacion
 from buscador_vacantes.asistente.datos import BaseAsistente, abrir_vacantes_ro
 from buscador_vacantes.asistente.detalle import Detalles
-from buscador_vacantes.asistente.gemini import ClienteGemini
+from buscador_vacantes.asistente.ia import crear_clientes
 from buscador_vacantes.asistente.membresia import Comprobador
 from buscador_vacantes.asistente.nucleo import Nucleo
 from buscador_vacantes.asistente.respuestas import sembrar_banco
@@ -54,8 +54,8 @@ def construir_nucleo(configuracion: cfg.Configuracion, secretos: cfg.Secretos) -
     ro = abrir_vacantes_ro(ruta(asistente.vacantes_db or configuracion.rutas.base_datos))
     indice = Indice(base, ro, asistente.retencion_dias)
     detalles = Detalles(base, ro, asistente.detalle, configuracion.red)
-    gemini = ClienteGemini(asistente.gemini, base, asistente.topes.ia_usuario_dia)
-    nucleo = Nucleo(configuracion, base, indice, detalles, gemini, cifrador, archivos)
+    ia = crear_clientes(asistente.ia, base, asistente.topes.ia_usuario_dia)
+    nucleo = Nucleo(configuracion, base, indice, detalles, ia, cifrador, archivos)
     nucleo.enlace_grupo = enlace_grupo(asistente, secretos)
     sembrar_banco(base, ahora_utc())
     nucleo.cargar_selectores()
@@ -193,6 +193,7 @@ class Servicio:
             if self.conversacion:
                 await self.conversacion.esperar_tareas()
             await asyncio.gather(*tareas, return_exceptions=True)
-        await self.nucleo.gemini.cerrar()
+        for cliente in self.nucleo.ia.values():
+            await cliente.cerrar()
         await self.nucleo.detalles.cerrar()
         self.nucleo.base.cerrar()

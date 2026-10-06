@@ -17,7 +17,7 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 from buscador_vacantes import config as cfg
-from buscador_vacantes.asistente.gemini import ClienteGemini, Parte, datos
+from buscador_vacantes.asistente.ia import ClienteIA, Parte, datos
 
 MIN_CARACTERES_TEXTO = 200  # menos que esto: PDF escaneado o sin texto útil
 TIEMPO_MAXIMO_LECTURA_S = 20  # un PDF hecho para colgar al lector no bloquea el servicio
@@ -201,7 +201,7 @@ class LecturaCV:
 
 
 async def leer_cv(
-    cliente: ClienteGemini,
+    cliente: ClienteIA,
     clave: str,
     usuario_id: int,
     contenido: bytes,

@@ -33,7 +33,7 @@ from buscador_vacantes.asistente.cv_lectura import (
     validar_archivo,
 )
 from buscador_vacantes.asistente.enlaces import PREFIJO_VACANTE
-from buscador_vacantes.asistente.gemini import ErrorIA, Saturado
+from buscador_vacantes.asistente.ia import ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Paquete
 from buscador_vacantes.asistente.respuestas import (
@@ -280,7 +280,7 @@ class Conversacion:
                 log.warning("No se pudo borrar el mensaje con la clave")
         clave = texto.strip()
         try:
-            valida = await self.n.gemini.validar_clave(clave)
+            valida = await self.n.cliente_ia(usuario.id).validar_clave(clave)
         except ErrorIA:
             await self._enviar(
                 usuario,
@@ -335,7 +335,7 @@ class Conversacion:
             await self._enviar(usuario, "📄 Leyendo tu hoja de vida…")
         try:
             lectura = await leer_cv(
-                self.n.gemini,
+                self.n.cliente_ia(usuario.id),
                 clave,
                 usuario.id,
                 contenido,
@@ -921,7 +921,7 @@ class Conversacion:
             usuario.id,
             datos,
             self.n.ahora(),
-            self.n.gemini if clave else None,
+            self.n.cliente_ia(usuario.id) if clave else None,
             clave,
             vacante.resumen if vacante else "",
         )

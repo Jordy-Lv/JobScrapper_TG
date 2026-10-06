@@ -18,7 +18,7 @@ from buscador_vacantes.asistente.conversacion import Conversacion, cb  # noqa: E
 from buscador_vacantes.asistente.datos import BaseAsistente, abrir_vacantes_ro  # noqa: E402
 from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
-from buscador_vacantes.asistente.gemini import ClienteGemini  # noqa: E402
+from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.membresia import Comprobador  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Nucleo  # noqa: E402
 from buscador_vacantes.asistente.respuestas import sembrar_banco  # noqa: E402
@@ -90,7 +90,7 @@ def mundo(tmp_path):
     detalles = Detalles(base, ro, a.detalle, configuracion.red,
                         ritmo=Ritmo(0, reloj=lambda: 0, dormir=dormir))  # fmt: skip
     nucleo = Nucleo(configuracion, base, Indice(base, ro, 90), detalles,
-                    ClienteGemini(a.gemini, base, 60, reloj=lambda: T0),
+                    crear_clientes(a.ia, base, 60, reloj=lambda: T0),
                     Cifrador(generar_clave()), tmp_path / "archivos", reloj=lambda: T0)  # fmt: skip
     salida = SalidaFalsa()
 
@@ -418,7 +418,7 @@ def test_gemini_saturado_reintenta_solo_el_cv(mundo):
         esperas.append(segundos)
 
     mundo.c.dormir = dormir
-    mundo.n.gemini.dormir = dormir
+    mundo.n.ia["gemini"].dormir = dormir
 
     async def flujo():
         c = mundo.c

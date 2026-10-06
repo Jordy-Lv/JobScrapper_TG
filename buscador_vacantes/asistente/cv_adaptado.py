@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from buscador_vacantes.asistente.afinidad import Requisitos
 from buscador_vacantes.asistente.campos import DatosUsuario
 from buscador_vacantes.asistente.cv_lectura import PerfilExtraido
-from buscador_vacantes.asistente.gemini import ClienteGemini, ErrorIA, Parte, datos
+from buscador_vacantes.asistente.ia import ClienteIA, ErrorIA, Parte, datos
 from buscador_vacantes.asistente.tecnologias import Diccionario, diccionario
 from buscador_vacantes.normalizar import normalizar_texto
 
@@ -147,7 +147,7 @@ async def adaptar(
     requisitos: Requisitos,
     vacante: str,
     *,
-    cliente: ClienteGemini | None,
+    cliente: ClienteIA | None,
     clave: str | None,
     usuario_id: int,
 ) -> CVFinal:
@@ -198,7 +198,7 @@ async def redactar_carta(
     vacante: str,
     maximo: int,
     *,
-    cliente: ClienteGemini | None,
+    cliente: ClienteIA | None,
     clave: str | None,
     usuario_id: int,
 ) -> str:

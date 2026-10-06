@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from buscador_vacantes.asistente import campos
 from buscador_vacantes.asistente.campos import DatosUsuario
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.asistente.gemini import ClienteGemini, ErrorIA, Parte, datos
+from buscador_vacantes.asistente.ia import ClienteIA, ErrorIA, Parte, datos
 from buscador_vacantes.config import RAIZ
 from buscador_vacantes.estado import a_texto
 from buscador_vacantes.normalizar import normalizar_texto
@@ -233,7 +233,7 @@ class Contexto:
     usuario_id: int
     datos: DatosUsuario
     ahora: datetime
-    cliente: ClienteGemini | None = None
+    cliente: ClienteIA | None = None
     clave: str | None = None
     vacante: str = ""  # título, empresa y descripción, para redactar
 

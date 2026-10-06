@@ -241,14 +241,18 @@ def test_asistente_por_defecto_desactivado(config):
     assert asistente.activo is False
     assert asistente.enlace_canal is False
     assert set(asistente.plataformas) == {"computrabajo", "magneto"}
-    assert set(asistente.gemini.tareas) == {
-        "leer_cv",
-        "requisitos",
-        "adaptar_cv",
-        "carta",
-        "responder",
-        "clasificar_pregunta",
-    }
+    assert {"gemini", "groq", "openrouter", "openai", "anthropic", "deepseek"} <= set(
+        asistente.ia.proveedores
+    )
+    for proveedor in asistente.ia.proveedores.values():
+        assert set(proveedor.tareas) == {
+            "leer_cv",
+            "requisitos",
+            "adaptar_cv",
+            "carta",
+            "responder",
+            "clasificar_pregunta",
+        }
 
 
 def test_asistente_tope_negativo(tmp_path):
@@ -257,18 +261,69 @@ def test_asistente_tope_negativo(tmp_path):
         cargar_configuracion(ruta)
 
 
-def test_asistente_tarea_gemini_sin_modelo(tmp_path):
+def _proveedor(datos: dict, id_: str = "gemini") -> dict:
+    return datos["asistente"]["ia"]["proveedores"][id_]
+
+
+def test_asistente_proveedor_completo(config):
+    gemini = config.asistente.ia.proveedores["gemini"]
+    assert gemini.protocolo == "gemini"
+    assert gemini.gratuito is True and gemini.acepta_pdf is True
+    assert gemini.tareas["carta"].modelo
+    openai = config.asistente.ia.proveedores["openai"]
+    assert openai.protocolo == "openai" and openai.gratuito is False
+
+
+def test_asistente_tarea_sin_modelo(tmp_path):
     ruta = escribir_config(
-        tmp_path, lambda d: d["asistente"]["gemini"]["tareas"]["carta"].pop("modelo")
+        tmp_path, lambda d: _proveedor(d, "groq")["tareas"]["carta"].pop("modelo")
     )
-    with pytest.raises(ErrorConfiguracion, match="asistente.gemini.tareas.carta.modelo"):
+    with pytest.raises(ErrorConfiguracion, match="proveedores.groq.tareas.carta.modelo"):
         cargar_configuracion(ruta)
 
 
-def test_asistente_tarea_gemini_faltante(tmp_path):
-    ruta = escribir_config(tmp_path, lambda d: d["asistente"]["gemini"]["tareas"].pop("leer_cv"))
-    with pytest.raises(ErrorConfiguracion, match="leer_cv"):
+def test_asistente_tarea_faltante_nombra_proveedor_y_tarea(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: _proveedor(d, "openai")["tareas"].pop("leer_cv"))
+    with pytest.raises(ErrorConfiguracion, match=r"proveedores\.openai.*leer_cv"):
         cargar_configuracion(ruta)
+
+
+def test_asistente_protocolo_desconocido(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: _proveedor(d, "groq").update(protocolo="cohere"))
+    with pytest.raises(ErrorConfiguracion, match="proveedores.groq.protocolo"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_base_url_http_rechazada(tmp_path):
+    ruta = escribir_config(
+        tmp_path, lambda d: _proveedor(d, "groq").update(base_url="http://api.groq.com/v1")
+    )
+    with pytest.raises(ErrorConfiguracion, match="https"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_proveedor_sin_pasos_de_clave(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: _proveedor(d, "groq").pop("pasos_clave"))
+    with pytest.raises(ErrorConfiguracion, match="proveedores.groq.pasos_clave"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_id_de_proveedor_invalido(tmp_path):
+    def cambio(d):
+        proveedores = d["asistente"]["ia"]["proveedores"]
+        proveedores["Mi Proveedor"] = dict(proveedores["groq"])
+
+    with pytest.raises(ErrorConfiguracion, match="id de proveedor inválido"):
+        cargar_configuracion(escribir_config(tmp_path, cambio))
+
+
+def test_asistente_agregar_proveedor_compatible_solo_con_configuracion(tmp_path):
+    def cambio(d):
+        proveedores = d["asistente"]["ia"]["proveedores"]
+        proveedores["mistral"] = dict(proveedores["groq"], nombre="Mistral")
+
+    config = cargar_configuracion(escribir_config(tmp_path, cambio))
+    assert config.asistente.ia.proveedores["mistral"].protocolo == "openai"
 
 
 def test_asistente_enlace_sin_activo(tmp_path):

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from buscador_vacantes.asistente.cv_lectura import PerfilExtraido
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.asistente.gemini import ClienteGemini, ErrorIA, Parte, datos
+from buscador_vacantes.asistente.ia import ClienteIA, ErrorIA, Parte, datos
 from buscador_vacantes.asistente.tecnologias import Diccionario, diccionario
 from buscador_vacantes.normalizar import normalizar_texto
 
@@ -50,7 +50,7 @@ async def obtener_requisitos(
     id_corto: str,
     texto_vacante: str,
     *,
-    cliente: ClienteGemini | None = None,
+    cliente: ClienteIA | None = None,
     clave: str | None = None,
     usuario_id: int | None = None,
 ) -> Requisitos:

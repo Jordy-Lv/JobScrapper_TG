@@ -16,7 +16,7 @@ from buscador_vacantes.asistente.cv_lectura import Formacion, Idioma, PerfilExtr
 from buscador_vacantes.asistente.datos import BaseAsistente, abrir_vacantes_ro  # noqa: E402
 from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
-from buscador_vacantes.asistente.gemini import ClienteGemini  # noqa: E402
+from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
 from buscador_vacantes.asistente.respuestas import Pregunta, sembrar_banco  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
@@ -57,9 +57,9 @@ class Mundo:
 
         ritmo = Ritmo(0, reloj=lambda: 0, dormir=dormir)
         detalles = Detalles(self.base, self.ro, a.detalle, configuracion.red, ritmo=ritmo)
-        gemini = ClienteGemini(a.gemini, self.base, 60, reloj=lambda: T0)
+        ia = crear_clientes(a.ia, self.base, 60, reloj=lambda: T0)
         self.nucleo = Nucleo(
-            configuracion, self.base, Indice(self.base, self.ro, 90), detalles, gemini,
+            configuracion, self.base, Indice(self.base, self.ro, 90), detalles, ia,
             Cifrador(generar_clave()), tmp_path / "archivos", reloj=lambda: T0,
         )  # fmt: skip
         self.eventos = []

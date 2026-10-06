@@ -17,7 +17,7 @@ from buscador_vacantes.asistente.cv_lectura import (  # noqa: E402
     leer_cv,
 )
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
-from buscador_vacantes.asistente.gemini import ClienteGemini  # noqa: E402
+from buscador_vacantes.asistente.ia import ClienteIA  # noqa: E402
 from buscador_vacantes.config import cargar_configuracion  # noqa: E402
 
 URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
@@ -63,8 +63,8 @@ def cliente(tmp_path):
     base = BaseAsistente.abrir(tmp_path / "a.db")
     with base.transaccion() as cx:
         cx.execute("INSERT INTO usuarios(id, telegram_id, directorio, creado) VALUES (1,1,'u','x')")
-    cliente = ClienteGemini(
-        CONFIG.gemini, base, 60, reloj=lambda: datetime(2026, 10, 4, tzinfo=UTC)
+    cliente = ClienteIA(
+        CONFIG.ia.proveedores["gemini"], base, 60, reloj=lambda: datetime(2026, 10, 4, tzinfo=UTC)
     )
     yield cliente
     asyncio.run(cliente.cerrar())

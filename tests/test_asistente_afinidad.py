@@ -16,7 +16,7 @@ from buscador_vacantes.asistente.afinidad import (  # noqa: E402
 )
 from buscador_vacantes.asistente.cv_lectura import PerfilExtraido, Proyecto  # noqa: E402
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
-from buscador_vacantes.asistente.gemini import ClienteGemini  # noqa: E402
+from buscador_vacantes.asistente.ia import ClienteIA  # noqa: E402
 from buscador_vacantes.asistente.tecnologias import diccionario  # noqa: E402
 from buscador_vacantes.config import cargar_configuracion  # noqa: E402
 
@@ -94,8 +94,8 @@ def base(tmp_path):
 @respx.mock
 def test_requisitos_con_ia_se_comparten_en_cache(base):
     config = cargar_configuracion().asistente
-    cliente = ClienteGemini(
-        config.gemini, base, 60, reloj=lambda: datetime(2026, 10, 4, tzinfo=UTC)
+    cliente = ClienteIA(
+        config.ia.proveedores["gemini"], base, 60, reloj=lambda: datetime(2026, 10, 4, tzinfo=UTC)
     )
     ruta = respx.post(URL).mock(
         return_value=httpx.Response(

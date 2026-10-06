@@ -9,16 +9,16 @@ import respx
 from pydantic import BaseModel
 
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.asistente.gemini import (
-    ClaveGeminiInvalida,
-    ClienteGemini,
+from buscador_vacantes.asistente.ia import (
+    ClaveInvalida,
+    ClienteIA,
     CuotaAgotada,
     ErrorIA,
     Parte,
     TopeAlcanzado,
     datos,
-    esquema_gemini,
 )
+from buscador_vacantes.asistente.ia.gemini import esquema_gemini
 from buscador_vacantes.config import cargar_configuracion
 
 BASE = "https://generativelanguage.googleapis.com/v1beta/"
@@ -74,8 +74,10 @@ def entorno(tmp_path):
         esperas.append(s)
 
     config = cargar_configuracion().asistente
-    cliente = ClienteGemini(config.gemini, base, tope_usuario_dia=3, reloj=lambda: AHORA,
-                            dormir=dormir)  # fmt: skip
+    cliente = ClienteIA(
+        config.ia.proveedores["gemini"], base, tope_usuario_dia=3, reloj=lambda: AHORA,
+        dormir=dormir,
+    )  # fmt: skip
     yield cliente, esperas
     asyncio.run(cliente.cerrar())
     base.cerrar()
@@ -161,7 +163,7 @@ def test_clave_invalida(entorno):
             400, json={"error": {"status": "INVALID_ARGUMENT", "message": "API key not valid"}}
         )
     )
-    with pytest.raises(ClaveGeminiInvalida):
+    with pytest.raises(ClaveInvalida):
         generar(cliente)
 
 
