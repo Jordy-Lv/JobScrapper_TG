@@ -61,6 +61,33 @@ export async function llamar(metodo, ruta, cuerpo, { sinToken = false, binario =
   return binario ? respuesta.arrayBuffer() : respuesta.json();
 }
 
+// Latencia con el servidor: cualquier respuesta HTTP cuenta como alcanzado (un servidor sin la
+// ruta nueva responde 404 y esa ida y vuelta sigue siendo la latencia real). Solo la red caída o
+// el tiempo agotado es "sin respuesta". No lleva token ni cuenta como latido.
+const ESPERA_PING_MS = 5000;
+
+export async function ping() {
+  const { servidor } = await ajustes();
+  const control = new AbortController();
+  const plazo = setTimeout(() => control.abort(), ESPERA_PING_MS);
+  const inicio = performance.now();
+  let resultado;
+  try {
+    await fetch(servidor + PREFIJO + "/ping", {
+      credentials: "omit",
+      cache: "no-store",
+      signal: control.signal,
+    });
+    resultado = { ms: Math.round(performance.now() - inicio), ok: true };
+  } catch {
+    resultado = { ms: null, ok: false };
+  } finally {
+    clearTimeout(plazo);
+  }
+  await chrome.storage.local.set({ ping: { ...resultado, en: Date.now() } });
+  return resultado;
+}
+
 export async function vincular(codigo) {
   const limpio = String(codigo).toUpperCase().replace(/[^A-Z0-9]/g, "");
   const nombre = navegadorNombre();

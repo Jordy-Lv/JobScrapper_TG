@@ -47,6 +47,8 @@ class ApiPrueba:
         self.ajustar = lambda plataforma, selectores: selectores
         self.preferencias: dict[str, dict] = {}
         self.cuentas: dict[str, dict] = {}
+        self.con_ping = True  # False: servidor desactualizado, sin la ruta /ping (404)
+        self.demora_ping = 0.0
         self.app = self._app()
 
     def de(self, ruta: str) -> list[dict]:
@@ -67,6 +69,14 @@ class ApiPrueba:
             if cuerpo["codigo"] != "ABCD2345":
                 return JSONResponse({"detail": "código inválido"}, status_code=400)
             return {"token": TOKEN}
+
+        @app.get("/api/v1/ping")
+        async def ping(request: Request):
+            api.llamadas.append(("ping", {"authorization": request.headers.get("authorization")}))
+            await asyncio.sleep(api.demora_ping)
+            if not api.con_ping:
+                return JSONResponse({"detail": "Not Found"}, status_code=404)
+            return {"ok": True}
 
         def autorizado(request: Request) -> bool:
             return request.headers.get("authorization") == f"Bearer {TOKEN}"
@@ -166,6 +176,8 @@ def api(servidor):
     servidor.trabajos.clear()
     servidor.respuestas = lambda campos: []
     servidor.ajustar = lambda plataforma, selectores: selectores
+    servidor.con_ping = True
+    servidor.demora_ping = 0.0
     return servidor
 
 
@@ -267,6 +279,16 @@ class Navegador:
     async def latido(self):
         # Si ya hay un latido en curso (el de la instalación), se espera y se hace uno nuevo
         return await self.evaluar("asistente.latido().then(() => asistente.latido())")
+
+    async def guardar(self, objeto: dict) -> None:
+        await self.evaluar(f"chrome.storage.local.set({json.dumps(objeto)})")
+
+    async def popup(self):
+        id_extension = self.worker.url.split("/")[2]
+        pagina = await self.contexto.new_page()
+        await pagina.set_viewport_size({"width": 360, "height": 600})
+        await pagina.goto(f"chrome-extension://{id_extension}/popup.html")
+        return pagina
 
 
 def correr(corutina):
@@ -988,3 +1010,281 @@ def test_encuesta_que_el_portal_no_acepta_queda_como_no_enviada(tmp_path, api):
     resultado = api.de("resultado")[0]
     assert resultado["estado"] == "formulario_desconocido"
     assert "no aceptó el envío" in resultado["motivo"]
+
+
+# --- popup: ping y recarga de la conexión ---------------------------------------------------
+
+LEER_PING = "chrome.storage.local.get('ping').then(r => r.ping)"
+MEDIR_PING = f"import('./api.js').then(m => m.ping()).then(() => {LEER_PING})"
+
+
+def servidor_apagado() -> str:
+    return f"http://127.0.0.1:{puerto_libre()}"  # nadie escucha en ese puerto
+
+
+@pytest.mark.parametrize("con_ping", [True, False], ids=["con_ruta", "servidor_desactualizado"])
+def test_ping_guarda_la_latencia_con_cualquier_respuesta(tmp_path, api, con_ping):
+    api.con_ping = con_ping
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            pagina = await nav.popup()
+            return await pagina.evaluate(MEDIR_PING)
+        finally:
+            await cerrar(nav)
+
+    ping = correr(flujo())
+    assert ping["ok"] is True and ping["ms"] >= 0 and ping["en"] > 0
+    # Sin credenciales: el ping no lleva el token del navegador
+    assert api.de("ping") and all(c["authorization"] is None for c in api.de("ping"))
+
+
+def test_ping_con_el_servidor_apagado(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.guardar({"servidor": servidor_apagado()})
+            pagina = await nav.popup()
+            return await pagina.evaluate(MEDIR_PING)
+        finally:
+            await cerrar(nav)
+
+    ping = correr(flujo())
+    assert ping["ok"] is False and ping["ms"] is None
+
+
+BARRA_LISTA = "document.getElementById('linea-texto').textContent !== 'Midiendo…'"
+RECARGA_TERMINADA = "!document.getElementById('recargar').disabled"
+
+
+async def esperar(pagina, expresion: str, timeout: float = 10.0) -> None:
+    """wait_for_function evalúa el texto con eval, que la CSP del popup no permite."""
+    limite = time.monotonic() + timeout
+    while not await pagina.evaluate(expresion):
+        if time.monotonic() > limite:
+            raise TimeoutError(expresion)
+        await asyncio.sleep(0.05)
+
+
+async def leer_barra(pagina) -> dict:
+    return await pagina.evaluate(
+        "({texto: document.getElementById('linea-texto').textContent,"
+        " ping: document.getElementById('ping').textContent,"
+        " clase_ping: document.getElementById('ping').className,"
+        " clase: document.getElementById('conexion').className,"
+        " oculta: document.getElementById('conexion').hidden,"
+        " recargar_deshabilitado: document.getElementById('recargar').disabled})"
+    )
+
+
+def test_barra_de_conexion_colorea_el_ping_y_muestra_la_pausa(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            pagina = await nav.popup()
+            await esperar(pagina, BARRA_LISTA)
+            medida_real = await leer_barra(pagina)
+            barras = {}
+            # Se simula la medición en el almacenamiento: el popup se repinta al cambiar
+            for ms in (42, 149, 150, 499, 500, 650):
+                await nav.guardar({"ping": {"ms": ms, "ok": True, "en": 1}})
+                await esperar(pagina, f"document.getElementById('ping').textContent === '{ms} ms'")
+                barras[ms] = await leer_barra(pagina)
+            await nav.guardar({"ping": {"ms": None, "ok": False, "en": 1}})
+            await pagina.wait_for_timeout(200)
+            barras["sin_respuesta"] = await leer_barra(pagina)
+            await nav.guardar({"ping": {"ms": 80, "ok": True, "en": 1}, "pausado": True})
+            await pagina.wait_for_timeout(200)
+            barras["pausa"] = await leer_barra(pagina)
+            return medida_real, barras
+        finally:
+            await cerrar(nav)
+
+    medida_real, barras = correr(flujo())
+    assert medida_real["texto"] == "Conectado" and medida_real["ping"].endswith(" ms")
+    assert barras[42]["texto"] == "Conectado" and barras[42]["ping"] == "42 ms"
+    colores = {ms: barras[ms]["clase_ping"].split()[-1] for ms in (42, 149, 150, 499, 500, 650)}
+    assert colores == {42: "rapido", 149: "rapido", 150: "medio", 499: "medio",
+                       500: "lento", 650: "lento"}  # fmt: skip
+    assert barras["sin_respuesta"]["texto"] == "Sin respuesta"
+    assert barras["sin_respuesta"]["ping"] == "" and "caido" in barras["sin_respuesta"]["clase"]
+    assert barras["pausa"]["texto"] == "En pausa" and barras["pausa"]["ping"] == "80 ms"
+
+
+def test_barra_midiendo_mientras_llega_la_primera_medicion(tmp_path, api):
+    api.demora_ping = 1.5
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            pagina = await nav.popup()
+            await pagina.wait_for_selector("#conexion:not([hidden])")
+            antes = await leer_barra(pagina)
+            await esperar(pagina, BARRA_LISTA, 6)
+            return antes, await leer_barra(pagina)
+        finally:
+            await cerrar(nav)
+
+    antes, despues = correr(flujo())
+    assert antes["texto"] == "Midiendo…" and antes["ping"] == ""
+    assert despues["texto"] == "Conectado"
+    assert int(despues["ping"].removesuffix(" ms")) >= 1500
+
+
+def test_sin_vincular_no_hay_barra_ni_pausa(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos(), vinculado=False)
+        try:
+            pagina = await nav.popup()
+            await pagina.wait_for_selector("#sin-vincular:not([hidden])")
+            return (await leer_barra(pagina), await pagina.is_hidden("#pausar"),
+                    await pagina.inner_text("h1"))  # fmt: skip
+        finally:
+            await cerrar(nav)
+
+    barra, pausa_oculta, titulo = correr(flujo())
+    assert barra["oculta"] and pausa_oculta and titulo == "APOLO TI"
+    assert not api.de("ping")  # sin vincular no se mide nada
+
+
+def test_engranaje_de_la_cabecera_abre_las_opciones(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            pagina = await nav.popup()
+            async with nav.contexto.expect_page() as nueva:
+                await pagina.click("#opciones")
+            opciones = await nueva.value
+            await opciones.wait_for_load_state()
+            return opciones.url
+        finally:
+            await cerrar(nav)
+
+    assert correr(flujo()).endswith("/opciones.html")
+
+
+def test_recargar_tras_una_caida_reconecta_y_manda_un_latido(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            await nav.guardar({"servidor": servidor_apagado()})
+            pagina = await nav.popup()
+            await esperar(pagina, BARRA_LISTA)
+            caida = await leer_barra(pagina)
+            # El servidor vuelve: el usuario toca recargar (dos veces seguidas)
+            await nav.guardar({"servidor": api.url})
+            latidos_antes = len(api.de("latido"))
+            await pagina.evaluate(
+                "window.latidosPedidos = 0;"
+                "const enviar = chrome.runtime.sendMessage.bind(chrome.runtime);"
+                "chrome.runtime.sendMessage = (m, ...r) => {"
+                "  if (m.tipo === 'latido') window.latidosPedidos++; return enviar(m, ...r); };"
+                "document.getElementById('recargar').click();"
+                "document.getElementById('recargar').click();"
+            )
+            durante = await leer_barra(pagina)
+            await esperar(pagina, RECARGA_TERMINADA, 30)
+            final = await leer_barra(pagina)
+            pedidos = await pagina.evaluate("window.latidosPedidos")
+            return caida, durante, final, pedidos, len(api.de("latido")) - latidos_antes
+        finally:
+            await cerrar(nav)
+
+    caida, durante, final, pedidos, latidos = correr(flujo())
+    assert caida["texto"] == "Sin respuesta"
+    assert durante["texto"] == "Reconectando…" and durante["recargar_deshabilitado"]
+    assert "reconectando" in durante["clase"]
+    assert final["texto"] == "Conectado" and final["ping"].endswith(" ms")
+    assert pedidos == 1 and latidos == 1  # el segundo toque no lanzó otra recarga
+    assert api.de("latido")[-1]["portales"]["computrabajo"]["estado"] == "listo"
+
+
+def test_recargar_sin_servidor_deja_el_boton_disponible(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            await nav.guardar({"servidor": servidor_apagado()})
+            pagina = await nav.popup()
+            await esperar(pagina, BARRA_LISTA)
+            latidos_antes = len(api.de("latido"))
+            await pagina.click("#recargar")
+            await esperar(pagina, RECARGA_TERMINADA, 15)
+            return await leer_barra(pagina), len(api.de("latido")) - latidos_antes
+        finally:
+            await cerrar(nav)
+
+    barra, latidos = correr(flujo())
+    assert barra["texto"] == "Sin respuesta" and not barra["recargar_deshabilitado"]
+    assert latidos == 0
+
+
+def test_el_popup_ya_no_tiene_boton_revisar():
+    html = (EXTENSION / "popup.html").read_text(encoding="utf-8")
+    assert 'id="revisar"' not in html and 'id="recargar"' in html
+    assert 'aria-label="Recargar la conexión"' in html
+
+
+# --- popup: etiquetas de las tarjetas de portal -------------------------------------------
+
+
+async def tarjetas(pagina) -> dict[str, dict]:
+    return await pagina.evaluate(
+        "Object.fromEntries([...document.querySelectorAll('#portales .tarjeta')].map(t => ["
+        "  t.classList[1], {pill: t.querySelector('.pill')?.textContent ?? null,"
+        "  sub: t.querySelector('.sub').textContent, engranaje: !!t.querySelector('.abrir'),"
+        "  apagada: t.classList.contains('apagada')}]))"
+    )
+
+
+def test_etiquetas_de_las_tarjetas(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            # Computrabajo lista y confirmada, Magneto sin sesión, elempleo habilitado pero sin
+            # el permiso del navegador, y el resto sin habilitar en el servidor
+            await nav.guardar({
+                "estado": {"en_linea": True, "cuentas": {"computrabajo": True}},
+                "portales": {"computrabajo": {"estado": "listo", "correo": "ana.perez@gmail.com"},
+                             "magneto": {"estado": "sin_sesion"}},
+                "selectores_version": {"computrabajo": "1", "magneto": "1", "elempleo": "1"},
+            })  # fmt: skip
+            pagina = await nav.popup()
+            await pagina.wait_for_timeout(400)
+            primero = await tarjetas(pagina)
+            # Avance de la cuenta: correo aún sin encontrar e inicio de sesión en curso
+            await nav.guardar({
+                "portales": {"computrabajo": {"estado": "listo"},
+                             "magneto": {"estado": "sin_sesion"}},
+                "vigilando": {"magneto": True},
+                "selectores_version": {"computrabajo": "1", "magneto": "1"},
+            })  # fmt: skip
+            await pagina.wait_for_timeout(400)
+            segundo = await tarjetas(pagina)
+            await nav.guardar({
+                "portales": {"computrabajo": {"estado": "incompleto", "correo": "ana@x.co"}},
+            })  # fmt: skip
+            await pagina.wait_for_timeout(400)
+            return primero, segundo, await tarjetas(pagina)
+        finally:
+            await cerrar(nav)
+
+    primero, segundo, tercero = correr(flujo())
+    assert primero["computrabajo"]["pill"] == "Listo ✓"
+    assert primero["computrabajo"]["sub"] == "ana.perez@gmail.com"
+    assert primero["computrabajo"]["engranaje"]
+    assert primero["magneto"]["pill"] == "Sin sesión"
+    assert "Iniciar sesión" in primero["magneto"]["sub"]
+    assert primero["elempleo"]["pill"] == "Sin activar" and "Activar" in primero["elempleo"]["sub"]
+    for p in ("getonboard", "linkedin", "spe"):
+        assert primero[p]["pill"] == "Próximamente" and primero[p]["apagada"]
+        assert not primero[p]["engranaje"]
+    assert segundo["computrabajo"]["pill"] == "Buscando correo"
+    assert segundo["magneto"]["pill"] == "Iniciando sesión…"
+    assert segundo["elempleo"]["pill"] == "Próximamente"  # ya no está habilitado
+    assert tercero["computrabajo"]["pill"] == "Perfil incompleto"

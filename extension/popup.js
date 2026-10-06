@@ -1,4 +1,4 @@
-import { ajustes } from "./api.js";
+import { ajustes, ping } from "./api.js";
 import { INICIO, NOMBRES, origenes, tienePermiso } from "./portales.js";
 
 const RESULTADOS = {
@@ -131,10 +131,74 @@ async function tarjeta(p, { habilitada, vinculado, info, cuentaOk, vigilando }) 
   return li;
 }
 
+// --- barra de conexión: estado y latencia con el servidor ----------------------------------
+
+const UMBRAL_RAPIDO_MS = 150;
+const UMBRAL_LENTO_MS = 500;
+
+let midiendo = false; // medición al abrir el popup, aún sin terminar
+let recargando = false;
+
+function velocidad(ms) {
+  return ms < UMBRAL_RAPIDO_MS ? "rapido" : ms < UMBRAL_LENTO_MS ? "medio" : "lento";
+}
+
+function pintarConexion(medida, pausado) {
+  let clase, texto;
+  if (recargando) {
+    [clase, texto] = ["reconectando", "Reconectando…"];
+  } else if (midiendo || !medida) {
+    // Mientras llega la medición se deja a la vista el último valor conocido, atenuado
+    [clase, texto] = ["midiendo", "Midiendo…"];
+  } else if (!medida.ok) {
+    [clase, texto] = ["caido", "Sin respuesta"];
+  } else {
+    [clase, texto] = pausado ? ["pausa", "En pausa"] : ["en-linea", "Conectado"];
+  }
+  const barra = $("conexion");
+  barra.className = `conexion ${clase}`;
+  $("linea-texto").textContent = texto;
+
+  const valor = $("ping");
+  const conValor = Boolean(medida && medida.ok) && clase !== "caido";
+  valor.textContent = conValor ? `${medida.ms} ms` : "";
+  valor.className = conValor ? `ping ${velocidad(medida.ms)}` : "ping";
+  valor.classList.toggle("viejo", conValor && (midiendo || recargando));
+
+  const boton = $("recargar");
+  boton.disabled = recargando;
+  boton.classList.toggle("girando", recargando);
+}
+
+async function medirAlAbrir() {
+  midiendo = true;
+  try {
+    await ping();
+  } finally {
+    midiendo = false;
+    pintar();
+  }
+}
+
+// Recargar: primero el ping (dice al instante si el servidor está vivo) y, si responde, un
+// latido forzado que vuelve a revisar los portales
+async function recargar() {
+  if (recargando) return;
+  recargando = true;
+  pintar();
+  try {
+    const { ok } = await ping();
+    if (ok) await chrome.runtime.sendMessage({ tipo: "latido", revisar: true });
+  } finally {
+    recargando = false;
+    pintar();
+  }
+}
+
 async function pintar() {
   const { token, pausado } = await ajustes();
-  const { estado = {}, portales = {}, selectores_version = {}, vigilando = {} } =
-    await chrome.storage.local.get(["estado", "portales", "selectores_version", "vigilando"]);
+  const { estado = {}, portales = {}, selectores_version = {}, vigilando = {}, ping: medida } =
+    await chrome.storage.local.get(["estado", "portales", "selectores_version", "vigilando", "ping"]);
   const vinculado = Boolean(token);
   const conVersiones = Object.keys(selectores_version).length > 0;
 
@@ -149,17 +213,9 @@ async function pintar() {
   $("portales").replaceChildren(...tarjetas);
 
   $("sin-vincular").hidden = vinculado;
-  $("revisar").hidden = !vinculado;
   $("pausar").hidden = !vinculado;
-  const linea = $("linea");
-  const enPausa = vinculado && Boolean(estado.en_linea) && Boolean(pausado);
-  linea.classList.toggle("en-linea", vinculado && Boolean(estado.en_linea) && !enPausa);
-  linea.classList.toggle("pausa", enPausa);
-  linea.classList.toggle("caido", vinculado && !estado.en_linea);
-  $("linea-texto").textContent = !vinculado ? "Sin vincular"
-    : estado.en_linea ? `Conectado · ${hace(estado.ultimo_latido)}`
-    : "Sin conexión con el servidor";
-  if (vinculado && estado.en_linea && pausado) $("linea-texto").textContent = "En pausa";
+  $("conexion").hidden = !vinculado;
+  if (vinculado) pintarConexion(medida, Boolean(pausado));
 
   const boton = $("pausar");
   boton.classList.toggle("pausado", Boolean(pausado));
@@ -186,15 +242,8 @@ $("form-codigo").addEventListener("submit", async (evento) => {
   pintar();
 });
 
-$("revisar").addEventListener("click", async () => {
-  // La revisión abre cada portal en una pestaña de fondo y tarda unos segundos
-  $("revisar").disabled = true;
-  $("revisar").textContent = "Revisando…";
-  await chrome.runtime.sendMessage({ tipo: "latido", revisar: true });
-  $("revisar").disabled = false;
-  $("revisar").textContent = "Revisar";
-  pintar();
-});
+$("recargar").addEventListener("click", recargar);
+$("opciones").addEventListener("click", () => chrome.runtime.openOptionsPage());
 
 $("pausar").addEventListener("click", async () => {
   const { pausado } = await ajustes();
@@ -338,3 +387,4 @@ $("vp-olvidar").addEventListener("click", async () => {
 
 chrome.storage.onChanged.addListener(pintar);
 pintar();
+ajustes().then(({ token }) => token && medirAlAbrir());

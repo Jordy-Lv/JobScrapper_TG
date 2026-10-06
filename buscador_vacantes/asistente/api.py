@@ -39,6 +39,7 @@ MAX_CUERPO = 512 * 1024
 MAX_HTML_EVIDENCIA = 300 * 1024
 LIMITE_POR_MINUTO = 120
 LIMITE_VINCULAR_POR_MINUTO = 20
+LIMITE_PING_POR_MINUTO = 60
 VIGENCIA_CV = timedelta(minutes=10)
 
 
@@ -304,6 +305,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     limite = Limitador(LIMITE_POR_MINUTO)
     limite_vincular = Limitador(LIMITE_VINCULAR_POR_MINUTO)
+    limite_ping = Limitador(LIMITE_PING_POR_MINUTO)
     descargas_cv: dict[str, tuple[Path, datetime]] = {}
 
     @app.middleware("http")
@@ -335,6 +337,17 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
                 (a_texto(nucleo.ahora()), nav.id),
             )
         return p
+
+    # --- ping ---
+
+    @app.get(PREFIJO + "/ping")
+    async def ping(request: Request):
+        # Público y sin base de datos: la extensión lo cronometra para mostrar la latencia.
+        # No usa navegador_actual, así que no cuenta como latido ni revela nada del servidor
+        ip = request.client.host if request.client else "?"
+        if not limite_ping.permitir(ip):
+            raise HTTPException(429, "demasiadas peticiones")
+        return {"ok": True}
 
     # --- vinculación ---
 

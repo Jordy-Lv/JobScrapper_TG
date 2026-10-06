@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from buscador_vacantes.asistente import vinculos  # noqa: E402
 from buscador_vacantes.asistente.api import (  # noqa: E402
+    LIMITE_PING_POR_MINUTO,
     MAX_CUERPO,
     ResultadoFormulario,
     crear_app,
@@ -142,6 +143,32 @@ def test_politica_de_privacidad_publica(entorno):
     _, cliente = entorno
     r = cliente.get("/api/v1/privacidad")
     assert r.status_code == 200 and "contraseñas" in r.text and "/borrarme" in r.text
+
+
+def test_ping_publico_sin_token(entorno):
+    _, cliente = entorno
+    r = cliente.get("/api/v1/ping")
+    assert r.status_code == 200 and r.json() == {"ok": True}  # sin versión ni datos
+
+
+def test_ping_no_cuenta_como_latido(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    latido(cliente, cab)
+    consulta = "SELECT ultimo_latido FROM navegadores"
+    antes = nucleo.base.cx.execute(consulta).fetchone()[0]
+    nucleo.momento = T0 + timedelta(minutes=5)
+    assert cliente.get("/api/v1/ping", headers=cab).status_code == 200
+    assert nucleo.base.cx.execute(consulta).fetchone()[0] == antes
+
+
+def test_ping_limitado_por_ip(entorno):
+    nucleo, cliente = entorno
+    for _ in range(LIMITE_PING_POR_MINUTO):
+        assert cliente.get("/api/v1/ping").status_code == 200
+    assert cliente.get("/api/v1/ping").status_code == 429
+    otra_ip = TestClient(cliente.app, client=("10.0.0.2", 50000))
+    assert otra_ip.get("/api/v1/ping").status_code == 200
 
 
 def test_token_invalido_401(entorno):

@@ -2,21 +2,32 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Asistente de postulación</title>
+<title>APOLO TI</title>
 <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <header class="cabecera">
-    <div class="marca"><img src="iconos/48.png" alt=""></div>
+    <div class="marca"><img src="iconos/128.png" alt=""></div>
     <div class="titulo">
-      <h1>Asistente</h1>
-      <p id="linea" class="linea"><span class="punto"></span><span id="linea-texto">Sin vincular</span></p>
+      <h1>APOLO TI</h1>
+      <p class="lema">Asistente de postulación</p>
     </div>
+    <button id="opciones" class="boton-icono" type="button" title="Opciones" aria-label="Opciones de la extensión">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M19.4 13.5a7.4 7.4 0 0 0 0-3l2-1.3-1.5-2.6-2.3.8a7.4 7.4 0 0 0-2.6-1.5l-.4-2.4h-3l-.4 2.4a7.4 7.4 0 0 0-2.6 1.5l-2.3-.8-1.5 2.6 2 1.3a7.4 7.4 0 0 0 0 3l-2 1.3 1.5 2.6 2.3-.8a7.4 7.4 0 0 0 2.6 1.5l.4 2.4h3l.4-2.4a7.4 7.4 0 0 0 2.6-1.5l2.3.8 1.5-2.6z"/></svg>
+    </button>
     <button id="pausar" class="neon" type="button" hidden>
       <svg class="icono-pausa" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="4" width="4" height="16" rx="2"/><rect x="14.5" y="4" width="4" height="16" rx="2"/></svg>
       <svg class="icono-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.6v14.8a1 1 0 0 0 1.53.85l11.8-7.4a1 1 0 0 0 0-1.7L8.53 3.75A1 1 0 0 0 7 4.6z"/></svg>
     </button>
   </header>
+
+  <div id="conexion" class="conexion" hidden>
+    <span class="punto"></span>
+    <p id="linea" class="linea"><span id="linea-texto">Midiendo…</span><span id="ping" class="ping"></span></p>
+    <button id="recargar" class="recargar" type="button" title="Recargar la conexión" aria-label="Recargar la conexión">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+    </button>
+  </div>
 
   <section id="sin-vincular" class="bloque" hidden>
     <p>Vincula este navegador desde el bot con <b>/vincular</b>, o escribe aquí el código que te dio:</p>
@@ -30,20 +41,16 @@
   <p id="actual" class="aviso trabajando" hidden></p>
   <p id="actualizar" class="aviso alerta" hidden>Hay una versión nueva de la extensión. Actualízala para seguir postulando.</p>
 
-  <div class="seccion">
-    <span>Portales</span>
-    <button id="revisar" class="enlace" type="button" hidden>Revisar</button>
-  </div>
+  <div class="seccion"><span>Portales</span></div>
   <ul id="portales" class="portales"></ul>
+  <p class="nota">Inicias sesión en la página de cada portal; la extensión nunca ve tu contraseña.</p>
 
   <footer class="pie">
     <p id="ultima" class="ultima"></p>
-    <p class="nota">Inicias sesión en la página de cada portal; la extensión nunca ve tu contraseña.</p>
-    <a href="opciones.html" target="_blank">Opciones</a>
+    <button id="boton-chat" class="boton-chat" type="button" title="Telegram" aria-label="Abrir el bot o el grupo de Telegram" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.9 4.3 3.3 11.6c-1 .4-1 1.9.1 2.2l4.3 1.3 1.6 5.1c.3.9 1.4 1.1 2 .4l2.4-2.6 4.5 3.3c.8.6 2 .2 2.2-.8l3-14.2c.3-1.2-1-2.1-2.1-1.7z"/></svg>
+    </button>
   </footer>
-  <button id="boton-chat" class="boton-chat" type="button" title="Telegram" aria-label="Abrir el bot o el grupo de Telegram" aria-expanded="false">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.9 4.3 3.3 11.6c-1 .4-1 1.9.1 2.2l4.3 1.3 1.6 5.1c.3.9 1.4 1.1 2 .4l2.4-2.6 4.5 3.3c.8.6 2 .2 2.2-.8l3-14.2c.3-1.2-1-2.1-2.1-1.7z"/></svg>
-  </button>
   <div id="panel-chat" class="panel-chat" hidden>
     <div class="fondo-chat"></div>
     <div class="tarjeta-chat" role="dialog" aria-label="Comunidad de Telegram">
