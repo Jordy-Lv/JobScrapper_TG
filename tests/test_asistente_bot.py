@@ -497,3 +497,81 @@ def test_avisar_apagado_silencia_solo_la_automatica(mundo):
     )
     correr(mundo.c.notificar(Evento("resultado", manual.id, usuario.id, E.ENVIADA)))
     assert "Postulación enviada" in mundo.s.de(ANA)[-2]
+
+
+def postulacion_enviada_con_datos(mundo):
+    """Postulación de Ana a la vacante de LinkedIn con ficha, respuestas y CV adjunto."""
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    mundo.n.indice.indexar(T0)
+    p, _ = mundo.n.cola.encolar(usuario.id, id_corto("linkedin:1"), None, T0)
+    cv = mundo.n.cv_base_de(usuario, mundo.n.datos_usuario(usuario.id))
+    ficha = '{"salario": "$ 1.423.500 mensual", "ubicacion": "Medellín, Antioquia"}'
+    requisitos = (
+        '{"origen": "ia", "requisitos": {"obligatorios": ["Sistemas", "Redes"], '
+        '"deseables": [], "palabras_clave": [], "nivel": "Practicante", "modalidad": "Presencial"}}'
+    )
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "UPDATE vacantes SET detalle = ?, ficha_json = ?, requisitos_json = ? "
+            "WHERE id_corto = ?",
+            ("Buscamos practicante para soporte de equipos. Horario de lunes a viernes.",
+             ficha, requisitos, id_corto("linkedin:1")),
+        )  # fmt: skip
+        cx.execute(
+            "UPDATE postulaciones SET mensaje_id = 42, afinidad = 60, cv_archivo = ?, "
+            "terminada_en = ? WHERE id = ?",
+            (str(cv), T0.isoformat(), p.id),
+        )
+        cx.executemany(
+            "INSERT INTO respuestas(postulacion_id, campo, pregunta, respuesta, origen) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [(p.id, "institucion", "¿En qué institución estudias?", "SENA", "perfil"),
+             (p.id, None, "¿Por qué te interesa?", "Quiero aprender soporte.", "ia")],
+        )  # fmt: skip
+    mundo.n.cola.registrar_paso(p.id, None, "cv_adjunto", cv.name, T0)
+    return usuario, p, cv
+
+
+def test_resumen_detallado_al_confirmar_la_postulacion(mundo):
+    usuario, p, cv = postulacion_enviada_con_datos(mundo)
+    mundo.s.documentos.clear()
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    resumen = next(m for m in mundo.s.de(ANA) if "Resumen de tu postulación" in m)
+    for esperado in (
+        "Practicante de sistemas", "ACME", "Medellín, Antioquia", "$ 1.423.500 mensual",
+        "De qué trata", "soporte de equipos", "Piden: Sistemas, Redes", "Tu afinidad: 60 %",
+        "Hoja de vida enviada", cv.name, "Lo que respondí (2)", "¿En qué institución estudias?",
+        "→ SENA", "dato de tu perfil", "redactada con IA",
+    ):  # fmt: skip
+        assert esperado in resumen, esperado
+    assert mundo.s.documentos == [(ANA, cv.name)]
+    assert "¿Cómo te fue?" in mundo.s.de(ANA)[-1]
+
+
+def test_resumen_sin_adjunto_dice_que_fue_la_hoja_de_vida_del_portal(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    with mundo.base.transaccion() as cx:
+        cx.execute("DELETE FROM postulacion_pasos WHERE paso = 'cv_adjunto'")
+        cx.execute("UPDATE postulaciones SET plataforma = 'computrabajo' WHERE id = ?", (p.id,))
+    mundo.s.documentos.clear()
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    resumen = next(m for m in mundo.s.de(ANA) if "Resumen de tu postulación" in m)
+    assert "Computrabajo envió la hoja de vida que tienes guardada en tu perfil" in resumen
+    assert not mundo.s.documentos
+
+
+def test_bloqueo_del_portal_explica_que_hacer_sin_paquete(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    mundo.n.indice.indexar(T0)
+    p, _ = mundo.n.cola.encolar(usuario.id, id_corto("linkedin:1"), "computrabajo", T0)
+    antes = len(mundo.s.de(ANA))
+    ev = Evento("resultado", p.id, usuario.id, E.BLOQUEADA, "portal_correo_incorrecto")
+    correr(mundo.c.notificar(ev))
+    correr(mundo.c.esperar_tareas())
+    chat, texto, botones = mundo.s.ultimo(ANA)
+    assert "no puede enviarte correos" in texto and "Computrabajo" in texto
+    assert botones == [[("🔁 Reintentar", cb("rei", p.id))]]
+    assert not any("paquete" in m for m in mundo.s.de(ANA)[antes:])
+    assert not mundo.s.de(DUENO)  # no es un formulario roto: no se avisa al dueño

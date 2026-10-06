@@ -44,7 +44,19 @@ Solo una señal explícita de éxito del portal MUST dejar la postulación como 
 
 #### Scenario: Éxito
 - **WHEN** el formulario se llena completo, se envía y el portal confirma
-- **THEN** la postulación queda `enviada` y el usuario recibe la confirmación con el resumen de preguntas y respuestas
+- **THEN** la postulación queda `enviada` y el usuario recibe el resumen detallado según el requisito de resumen de la postulación confirmada
+
+#### Scenario: Campo obligatorio marcado solo por la validación del portal
+- **WHEN** el portal marca un campo como obligatorio con su validación propia (por ejemplo `data-rule-required` o `data-val-requiredif` en Computrabajo) y no con el atributo `required`
+- **THEN** la extensión lo reporta como obligatorio y, si el servidor no tiene respuesta, el bot se la pide al usuario antes de enviar
+
+#### Scenario: El portal rechaza el envío por campos sin responder
+- **WHEN** tras pulsar enviar el portal marca campos sin responder en la misma página
+- **THEN** la postulación queda `formulario_desconocido` con la evidencia, sin reintentar el envío
+
+#### Scenario: El envío recarga la página
+- **WHEN** pulsar enviar hace que el portal cargue otra página
+- **THEN** la extensión espera a que cargue y busca la confirmación en la página nueva; un paso cortado por la navegación nunca se reporta como rechazo del portal
 
 #### Scenario: Ya postulado
 - **WHEN** el portal indica que el usuario ya se postuló
@@ -128,7 +140,11 @@ En los casos de problema se informa al usuario, se entrega el paquete de respald
 - **THEN** la postulación queda `incierta` y se pide al usuario verificar en "Mis postulaciones"
 
 ### Requirement: Unicidad
-Un usuario SHALL tener como máximo una postulación por vacante. Un nuevo toque sobre una vacante en curso o ya enviada MUST mostrar su estado actual sin crear otra.
+Un usuario SHALL tener como máximo una postulación por vacante. Un nuevo toque sobre una vacante en curso o ya enviada MUST mostrar su estado actual sin crear otra. Un nuevo toque sobre una postulación que terminó sin que el portal la recibiera (`bloqueada`, `formulario_desconocido`, `fallida`, `respaldo` o `cancelada`) MUST volver a encolar la misma postulación; `enviada`, `ya_postulada` e `incierta` nunca se reintentan.
+
+#### Scenario: Reintento tras resolver un bloqueo
+- **WHEN** el usuario toca ⚡ o 🔁 Reintentar en una postulación `bloqueada`
+- **THEN** la misma postulación vuelve a `en_cola` sin navegador ni envío pulsado, y la extensión revisa primero si el portal ya la tiene
 
 #### Scenario: Doble toque
 - **WHEN** el usuario toca ⚡ dos veces en la misma vacante
@@ -154,3 +170,23 @@ Cada usuario SHALL poder activar con `/automatico [umbral]` que el sistema encol
 #### Scenario: Automático activo
 - **WHEN** el usuario tiene el modo automático con un umbral de 70 % y se publica una vacante de Computrabajo con afinidad del 82 %
 - **THEN** se encola su postulación y recibe el resultado sin haber tocado ⚡
+
+### Requirement: Resumen de la postulación confirmada
+Cuando el portal confirma una postulación, el bot SHALL enviar al usuario un resumen detallado con:
+- la vacante: título, empresa, ubicación, salario, tipo de empleo y fechas cuando el portal los publica (datos schema.org/JobPosting), y el enlace a la oferta;
+- de qué trata: el inicio de la descripción, los requisitos detectados, el nivel, la modalidad y la afinidad;
+- la hoja de vida que recibió el portal: el CV adaptado adjunto (y se le envía el PDF), el CV del perfil del portal actualizado, o la hoja de vida que el usuario ya tenía guardada en el portal;
+- cada pregunta del formulario con la respuesta enviada y su origen explicado (perfil, banco, aprendida, IA o usuario).
+
+El resumen MUST escapar el HTML y partirse en varios mensajes si supera el límite de Telegram.
+
+#### Scenario: Postulación con preguntas de selección
+- **WHEN** Computrabajo confirma una postulación con 3 preguntas respondidas y sin campo de archivo
+- **THEN** el usuario recibe la ficha de la vacante, las 3 preguntas con su respuesta y origen, y el aviso de que el portal envió la hoja de vida guardada en su perfil
+
+### Requirement: Bloqueos de la cuenta del portal
+Si el portal no abre la postulación porque pide una acción en la cuenta del usuario (correo marcado como incorrecto, cuenta sin verificar o redirección al inicio de la cuenta), la extensión SHALL terminar como `bloqueada` con el motivo `portal_*` sin llenar ningún formulario de esa página. El bot MUST explicarle al usuario qué resolver en el portal, ofrecer 🔁 Reintentar y no enviar el paquete de respaldo (el portal tampoco acepta la postulación a mano).
+
+#### Scenario: Correo de la cuenta marcado como incorrecto
+- **WHEN** al aplicar, Computrabajo redirige al inicio con el aviso «Email incorrecto»
+- **THEN** la postulación queda `bloqueada` con `portal_correo_incorrecto`, el formulario para cambiar el correo no se toca y el bot pide corregir el correo y reintentar

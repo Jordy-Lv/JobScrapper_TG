@@ -236,9 +236,13 @@ class Nucleo:
         vacante = self.indice.resolver(id_corto, ahora)
         if vacante is None:
             return Toque(Camino.NO_DISPONIBLE)
-        if existente := self.cola.de_usuario(usuario.id, id_corto):
-            return Toque(Camino.YA_EXISTE, vacante, existente)
         motivo = self.camino_automatico(usuario.id, vacante)
+        if existente := self.cola.de_usuario(usuario.id, id_corto):
+            # Un nuevo toque reintenta lo que el portal no llegó a recibir (por ejemplo, tras
+            # verificar el correo que el portal pedía); lo demás muestra su estado
+            if motivo is None and self.cola.reintentar(existente.id, ahora):
+                return Toque(Camino.AUTOMATICA, vacante, self.cola.obtener(existente.id))
+            return Toque(Camino.YA_EXISTE, vacante, existente)
         if motivo is None:
             postulacion, _ = self.cola.encolar(
                 usuario.id, id_corto, vacante.plataforma, ahora, origen=origen

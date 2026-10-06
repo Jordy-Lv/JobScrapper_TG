@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-ESQUEMA_VERSION = 1
+ESQUEMA_VERSION = 2
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS esquema_version (version INTEGER NOT NULL);
@@ -104,7 +104,8 @@ CREATE TABLE IF NOT EXISTS vacantes (
     estado_pagina TEXT,                        -- ok | cerrada | bloqueada
     detalle_en TEXT,
     requisitos_json TEXT,
-    indexada_en TEXT NOT NULL
+    indexada_en TEXT NOT NULL,
+    ficha_json TEXT                            -- salario, ubicación… (esquema 2)
 );
 
 CREATE TABLE IF NOT EXISTS postulaciones (
@@ -257,6 +258,16 @@ class BaseAsistente:
                     f"asistente.db tiene esquema {fila['version']} y el código soporta "
                     f"hasta {ESQUEMA_VERSION}"
                 )
+            elif fila["version"] < ESQUEMA_VERSION:
+                self._actualizar_desde(fila["version"])
+                self.cx.execute("UPDATE esquema_version SET version = ?", (ESQUEMA_VERSION,))
+
+    def _actualizar_desde(self, version: int) -> None:
+        """Cambios a una base existente (CREATE TABLE IF NOT EXISTS no agrega columnas)."""
+        if version < 2:
+            columnas = {f["name"] for f in self.cx.execute("PRAGMA table_info(vacantes)")}
+            if "ficha_json" not in columnas:
+                self.cx.execute("ALTER TABLE vacantes ADD COLUMN ficha_json TEXT")
 
     @contextmanager
     def transaccion(self) -> Iterator[sqlite3.Connection]:

@@ -214,3 +214,17 @@ def test_resultado_no_permitido(cola):
     cola.tomar(p.id, 10, T0)
     with pytest.raises(ValueError):
         cola.terminar(p.id, 10, E.EN_COLA, T0)
+
+
+def test_reintentar_solo_lo_que_el_portal_no_recibio(cola):
+    p, _ = cola.encolar(1, "abc", CT, T0)
+    ejecutar(cola, p.id, T0, E.BLOQUEADA)
+    assert cola.reintentar(p.id, T0)
+    otra = cola.obtener(p.id)
+    assert otra.estado == E.EN_COLA and otra.navegador_id is None and not otra.envio_pulsado
+    # Lo enviado, lo incierto o lo que está en curso no se reintenta
+    ejecutar(cola, p.id, T0, E.ENVIADA)
+    assert not cola.reintentar(p.id, T0)
+    q, _ = cola.encolar(1, "def", CT, T0)
+    ejecutar(cola, q.id, T0, E.INCIERTA)
+    assert not cola.reintentar(q.id, T0)

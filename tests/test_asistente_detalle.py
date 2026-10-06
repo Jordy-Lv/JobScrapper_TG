@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from buscador_vacantes.asistente.datos import BaseAsistente, abrir_vacantes_ro
-from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina, Ritmo, extraer
+from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina, Ritmo, extraer, ficha_de
 from buscador_vacantes.asistente.enlaces import id_corto
 from buscador_vacantes.asistente.vacantes import Indice, plataforma_de_url
 from buscador_vacantes.config import cargar_configuracion
@@ -191,3 +191,22 @@ def test_ritmo_por_dominio():
     asyncio.run(ritmo.esperar_turno("b.com"))
     asyncio.run(ritmo.esperar_turno("a.com"))
     assert esperas == [5]
+
+
+def test_ficha_del_jobposting_para_el_resumen():
+    detalle = extraer(fixture("computrabajo"), URLS["computrabajo"], HOY)
+    assert detalle.ficha == {
+        "empresa": "Multiempleos S.A.",
+        "salario": "$ 1.300.000 mensual",
+        "ubicacion": "Bogotá, D.C.",
+        "tipo": "Tiempo completo",
+        "publicada": "2026-10-02",
+        "vence": "2026-12-01",
+    }
+
+
+def test_ficha_con_rango_salarial_y_sin_datos():
+    rango = {"baseSalary": {"value": {"minValue": 1300000, "maxValue": 1800000,
+                                      "unitText": "MONTH"}}}  # fmt: skip
+    assert ficha_de(rango) == {"salario": "$ 1.300.000 – $ 1.800.000 mensual"}
+    assert ficha_de({"employmentType": "OTHER", "baseSalary": {"value": 0}}) == {}

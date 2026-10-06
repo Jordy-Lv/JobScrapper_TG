@@ -5,6 +5,7 @@ Lee `vistas` de vacantes.db en solo lectura: el esquema del buscador no cambia.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -41,13 +42,14 @@ class VacanteIndexada:
     detalle: str | None = None
     estado_pagina: str | None = None
     detalle_en: datetime | None = None
+    ficha: dict[str, str] | None = None  # salario, ubicación… del JobPosting (ver detalle.py)
 
     @classmethod
     def de_fila(cls, f: sqlite3.Row) -> VacanteIndexada:
         return cls(
             f["id_corto"], f["clave"], f["fuente"], f["plataforma"], f["url"], f["titulo"],
             f["empresa"], de_texto(f["enviada_en"]), f["detalle"], f["estado_pagina"],
-            de_texto(f["detalle_en"]),
+            de_texto(f["detalle_en"]), json.loads(f["ficha_json"]) if f["ficha_json"] else None,
         )  # fmt: skip
 
     @property

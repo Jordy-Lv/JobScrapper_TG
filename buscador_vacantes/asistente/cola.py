@@ -52,6 +52,9 @@ FINALES_EXTENSION = {
 }  # fmt: skip
 # Estados que entregan el paquete de respaldo al usuario
 CON_RESPALDO = {E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO}
+# Resultados que el usuario puede reintentar tocando ⚡ otra vez. No hay riesgo de duplicar:
+# antes de llenar nada la extensión revisa si el portal ya tiene la postulación (ya_postulada)
+REINTENTABLES = (E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO, E.CANCELADA)
 
 
 class Tipo(StrEnum):
@@ -361,6 +364,12 @@ class Cola:
             if self.reanudar(f["id"], ahora, (E.ESPERANDO_NAVEGADOR,)):
                 reanudadas.append(f["id"])
         return reanudadas
+
+    def reintentar(self, pid: int, ahora: datetime) -> bool:
+        """Vuelve a la cola una postulación terminada sin enviarse (nuevo toque ⚡)."""
+        return self._cambiar(pid, REINTENTABLES, E.EN_COLA, ahora, "reintento",
+                             navegador_id=None, tomada_en=None, terminada_en=None,
+                             envio_pulsado=0)  # fmt: skip
 
     def a_respaldo(self, pid: int, ahora: datetime, motivo: str, desde: tuple[str, ...]) -> bool:
         return self._cambiar(pid, desde, E.RESPALDO, ahora, motivo, terminada_en=a_texto(ahora))

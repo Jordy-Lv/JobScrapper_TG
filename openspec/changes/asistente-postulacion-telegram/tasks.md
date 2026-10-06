@@ -319,3 +319,14 @@
   - cada ficha de la siguiente publicación trae ⚡;
   - un toque de un usuario vinculado termina en `enviada`;
   - el resumen del día siguiente muestra las métricas del asistente.
+
+## 10. Correcciones del piloto en Computrabajo (postulaciones 5 a 7)
+
+- [x] 10.1 Leer como obligatorios los campos marcados por la validación del portal (`data-rule-required`, `data-val-required`, `data-val-requiredif`) y tomar el texto de la pregunta de un grupo de radios fuera de su contenedor de opciones. Verificar con `tests/test_extension.py` sobre el marcado real de `/candidate/kq` (`ct_kq.html`).
+- [x] 10.2 Quitar los contenedores genéricos (`main form`, `form`) del paso de preguntas y los textos genéricos del botón de envío: en la postulación 6 se leyó el formulario «Añade un nuevo email» del inicio de la cuenta.
+- [x] 10.3 Detectar los bloqueos de la cuenta del portal (`portal_correo_incorrecto`, `portal_cuenta_sin_verificar`, `portal_redirige_inicio`) después de aplicar y después de enviar, avisar al usuario con 🔁 Reintentar y sin paquete. Verificar con `ct_home_correo.html` y las pruebas del bot.
+- [x] 10.4 El paso enviar navega: esperar la carga, repetir los pasos de lectura cortados por una navegación, tope de tiempo por paso, y reportar los campos que el portal marca sin responder. Confirmación también por el título «Aplicación enviada».
+- [x] 10.5 Cada llamada de la extensión durante una postulación cuenta como latido del navegador (un paso largo dejaba la postulación como `navegador_cerrado`).
+- [x] 10.6 Reintento con un nuevo toque de lo que el portal no recibió (`cola.reintentar`).
+- [x] 10.7 Resumen detallado de la postulación confirmada (`asistente/resumen_postulacion.py`): ficha del JobPosting guardada en `vacantes.ficha_json` (esquema 2), descripción, requisitos, hoja de vida enviada (paso `cv_adjunto`) y cada respuesta con su origen. Verificar con `tests/test_asistente_resumen_postulacion.py` y las pruebas del bot.
+- [ ] 10.8 Reintentar en el piloto las postulaciones 6 y 7 con la extensión recargada y comprobar el resumen en el bot.

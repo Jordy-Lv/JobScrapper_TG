@@ -229,14 +229,24 @@ async function navegar(tabId, url) {
   await carga;
 }
 
-// Espera una navegación que empieza después de llamar a esta función
-function esperarCargaNueva(tabId, ms = CARGA_MS) {
+// Espera una navegación que empieza después de llamar a esta función. Con `inicioMs`, si la
+// página no empieza a cargar en ese plazo se da por hecho que el paso no navegó (envío por
+// AJAX o el portal marcó errores) y se sigue sin esperar el plazo completo.
+function esperarCargaNueva(tabId, ms = CARGA_MS, inicioMs = null) {
   return new Promise((resolver, rechazar) => {
     let cargando = false;
     const fin = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(oyente);
       rechazar(new Error("la página no cargó"));
     }, ms);
+    if (inicioMs) {
+      setTimeout(() => {
+        if (cargando) return;
+        clearTimeout(fin);
+        chrome.tabs.onUpdated.removeListener(oyente);
+        resolver();
+      }, inicioMs);
+    }
     function oyente(id, cambio, tab) {
       if (id !== tabId) return;
       // La carga inicial de una ventana o pestaña nueva (about:blank) no cuenta
@@ -356,8 +366,8 @@ async function ejecutarPaso(tabId, paso, contexto) {
   }
   await reportar(id, paso.nombre || paso.accion);
 
-  const navega = paso.navega ? esperarCargaNueva(tabId).catch(() => {}) : null;
-  let r = await correr(paso);
+  const navega = paso.navega ? esperarCargaNueva(tabId, CARGA_MS, 6000).catch(() => {}) : null;
+  let r = await correrSeguro(tabId, paso, plataforma, correr);
   if (r && r.captcha) {
     const resuelto = await esperarVerificacion(tabId, id, sel, plataforma);
     if (!resuelto) return { fin: true, cerrar: false };
@@ -385,7 +395,7 @@ async function ejecutarPaso(tabId, paso, contexto) {
     await navegar(tabId, r.ir);
     return {};
   }
-  if (r.campos) {
+  if (r.campos && r.campos.length) {
     const lleno = await formulario(tabId, contexto, r.campos);
     if (lleno.fin) return lleno;
   }
@@ -411,6 +421,43 @@ async function ejecutarPaso(tabId, paso, contexto) {
   return {};
 }
 
+// Un paso puede quedar cortado porque la página cambió mientras corría (el envío de un
+// formulario o una redirección del portal): el script muere y no devuelve nada. Un clic ya
+// hizo su trabajo; un paso de lectura se repite en la página nueva cuando termina de cargar.
+async function correrSeguro(tabId, paso, plataforma, correr) {
+  // Tope por si la página se cuelga a mitad del paso y Chrome nunca devuelve el resultado
+  const tope = (paso.ms || 10000) + 20000;
+  for (let intento = 0; ; intento++) {
+    let r = null;
+    let reloj;
+    try {
+      r = await Promise.race([
+        correr(paso),
+        new Promise((resolver) => (reloj = setTimeout(() => resolver(null), tope))),
+      ]);
+    } catch (error) {
+      r = null;
+    } finally {
+      clearTimeout(reloj);
+    }
+    if (r) return r;
+    if (paso.accion === "clic" || paso.accion === "enviar") return { ok: true, navego: true };
+    if (intento >= 2) return null;
+    await esperarCargaCompleta(tabId);
+    await inyectar(tabId, plataforma);
+  }
+}
+
+async function esperarCargaCompleta(tabId, ms = CARGA_MS) {
+  const limite = Date.now() + ms;
+  await new Promise((r) => setTimeout(r, 500));
+  while (Date.now() < limite) {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === "complete") return;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
+
 async function formulario(tabId, contexto, campos) {
   const { trabajo } = contexto;
   const r = await llamar("POST", `/postulaciones/${trabajo.id}/formulario`, { campos });
@@ -420,7 +467,7 @@ async function formulario(tabId, contexto, campos) {
     return { fin: true };
   }
   if (r.cv_url && campos.some((c) => c.tipo === "archivo")) await descargarCv(contexto, r);
-  await enPestana(
+  const lleno = await enPestana(
     tabId,
     (pp, s, dd) => globalThis.__asistente.paso(pp, s, dd),
     { accion: "llenar" },
@@ -428,6 +475,8 @@ async function formulario(tabId, contexto, campos) {
     { plataforma: trabajo.plataforma, respuestas: r.respuestas, cv: contexto.cv },
   );
   await reportar(trabajo.id, "llenado", `${r.respuestas.length} respuestas`);
+  // El servidor arma el resumen final con esto: qué hoja de vida recibió el portal
+  if (lleno && lleno.adjunto) await reportar(trabajo.id, "cv_adjunto", lleno.adjunto);
   return {};
 }
 

@@ -112,3 +112,18 @@ def test_vacantes_db_en_solo_lectura(tmp_path):
     with pytest.raises(sqlite3.OperationalError):
         cx.execute("INSERT INTO kv(clave, valor) VALUES ('a', 'b')")
     cx.close()
+
+
+def test_base_del_esquema_1_gana_la_ficha_de_la_vacante(tmp_path):
+    ruta = tmp_path / "a.db"
+    BaseAsistente.abrir(ruta).cerrar()
+    viejo = sqlite3.connect(ruta)
+    viejo.execute("ALTER TABLE vacantes DROP COLUMN ficha_json")
+    viejo.execute("UPDATE esquema_version SET version = 1")
+    viejo.commit()
+    viejo.close()
+    base = BaseAsistente.abrir(ruta)
+    columnas = {f["name"] for f in base.cx.execute("PRAGMA table_info(vacantes)")}
+    assert "ficha_json" in columnas
+    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 2
+    base.cerrar()

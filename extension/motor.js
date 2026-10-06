@@ -150,10 +150,32 @@
     return "texto";
   }
 
+  // Además del atributo HTML, los portales marcan lo obligatorio con la validación de jQuery
+  // (Computrabajo: data-rule-required y data-val-requiredif en las preguntas de selección)
+  function requerido(el) {
+    return el.required || el.getAttribute("aria-required") === "true"
+      || el.getAttribute("data-rule-required") === "true"
+      || el.hasAttribute("data-val-required") || el.hasAttribute("data-val-requiredif");
+  }
+
   function obligatoria(el) {
-    if (el.required || el.getAttribute("aria-required") === "true") return true;
+    if (requerido(el)) return true;
     const lab = etiqueta(el);
     return /\*\s*$/.test(lab);
+  }
+
+  // Texto de la pregunta de un grupo de radios o casillas: el título más cercano que no sea
+  // la etiqueta de una de sus opciones (en Computrabajo está fuera del contenedor de opciones)
+  function leyendaDeGrupo(elementos) {
+    const ids = new Set(elementos.map((x) => x.id).filter(Boolean));
+    const deOpcion = (t) => elementos.some((x) => t.contains(x)) || ids.has(t.getAttribute("for"));
+    let nodo = elementos[0].parentElement;
+    for (let i = 0; nodo && i < 4; i++, nodo = nodo.parentElement) {
+      const titulo = [...nodo.querySelectorAll("legend, label, p, h3, h4, .label")]
+        .find((t) => !deOpcion(t) && textoDe(t));
+      if (titulo) return textoDe(titulo);
+    }
+    return "";
   }
 
   function leerCampos(contenedor) {
@@ -182,21 +204,19 @@
     for (const item of leidos) {
       if (item.elementos) {
         const primero = item.elementos[0];
-        const bloque = primero.closest("fieldset, [role='radiogroup'], .form-group, .field, li, div");
-        const leyenda = bloque && bloque.querySelector("legend, label:not(:has(input)), p, h3, h4");
         const opciones = item.elementos.map((x) => etiqueta(x));
         if (item.elementos.length === 1 && item.tipo === "checkbox") {
           campos.push({ tipo: "casilla", el: primero });
           salida.push({ texto: etiqueta(primero), tipo: "opciones", opciones: ["Sí", "No"],
-            obligatoria: primero.required, nombre: primero.name || null });
+            obligatoria: requerido(primero), nombre: primero.name || null });
           continue;
         }
         campos.push({ tipo: item.tipo, elementos: item.elementos });
         salida.push({
-          texto: textoDe(leyenda) || item.nombre || "",
+          texto: leyendaDeGrupo(item.elementos) || item.nombre || "",
           tipo: "opciones",
           opciones,
-          obligatoria: item.elementos.some((x) => x.required),
+          obligatoria: item.elementos.some(requerido),
           nombre: item.nombre || null,
         });
         continue;
@@ -206,7 +226,7 @@
       if (t === "checkbox") {
         campos.push({ tipo: "casilla", el });
         salida.push({ texto: etiqueta(el), tipo: "opciones", opciones: ["Sí", "No"],
-          obligatoria: el.required, nombre: el.name || null });
+          obligatoria: requerido(el), nombre: el.name || null });
         continue;
       }
       let opciones = [];
@@ -286,15 +306,17 @@
       escritos++;
       await pausa();
     }
+    let adjunto = null;
     if (cv) {
       for (const campo of campos) {
         if (campo.tipo === "archivo" && !(campo.el.files && campo.el.files.length)) {
           adjuntar(campo.el, cv);
+          adjunto = cv.nombre;
           escritos++;
         }
       }
     }
-    return escritos;
+    return { escritos, adjunto };
   }
 
   // --- pasos ----------------------------------------------------------------------------
@@ -302,6 +324,28 @@
   function error(paso, motivo, raiz) {
     return { error: "formulario_desconocido", motivo: `${paso.accion}: ${motivo}`,
       html: htmlSinValores(raiz) };
+  }
+
+  // Casos que terminan el flujo: la página dice el resultado (ya postulado, cerrada) o el
+  // portal pide una acción en la cuenta antes de aceptar postulaciones (verificar el correo…)
+  function casoPresente(casos, sel) {
+    const url = location.href.toLowerCase();
+    for (const caso of casos || []) {
+      const porSelector = caso.selector && buscar(caso.selector);
+      const porTexto = caso.texto && hayTexto(textos(sel, caso.texto));
+      const porUrl = caso.url && [].concat(caso.url).some((p) => url.includes(p.toLowerCase()));
+      if (porSelector || porTexto || porUrl) {
+        return { terminar: caso.resultado, motivo: caso.motivo || caso.texto || "" };
+      }
+    }
+    return null;
+  }
+
+  function confirmado(sel, paso) {
+    const titulo = normalizar(document.title);
+    return hayTexto(textos(sel, "confirmacion"))
+      || textos(sel, "confirmacion_titulo").some((t) => titulo.includes(normalizar(t)))
+      || Boolean(paso.selector && buscar(paso.selector));
   }
 
   async function paso(paso, sel, datos = {}) {
@@ -318,11 +362,8 @@
         // Termina el flujo si la página ya dice el resultado (ya postulado, cerrada…)
         const limite = Date.now() + (paso.ms || 0);
         do {
-          for (const caso of paso.casos || []) {
-            const porSelector = caso.selector && buscar(caso.selector);
-            const porTexto = caso.texto && hayTexto(textos(sel, caso.texto));
-            if (porSelector || porTexto) return { terminar: caso.resultado, motivo: caso.texto || "" };
-          }
+          const caso = casoPresente(paso.casos, sel);
+          if (caso) return caso;
           if (Date.now() >= limite) break;
           await dormir(250);
         } while (true);
@@ -343,6 +384,12 @@
         await pausa(300, 800);
         el.scrollIntoView({ block: "center" });
         el.click();
+        if (paso.errores) {
+          // Si el portal no acepta el envío marca los campos en la misma página; si lo acepta,
+          // la página cambia y este script deja de existir (el service worker lo sabe así)
+          await dormir(paso.espera_errores_ms || 1500);
+          if (buscar(paso.errores)) return error(paso, "el portal marcó campos sin responder");
+        }
         return { ok: true };
       }
       case "ir": {
@@ -363,7 +410,7 @@
         return { campos: leerCampos(contenedor) };
       }
       case "llenar":
-        return { ok: true, escritos: await llenar(datos.respuestas || [], datos.cv) };
+        return { ok: true, ...(await llenar(datos.respuestas || [], datos.cv)) };
       case "cv_liberar": {
         // perfil_multiple: si se alcanzó el límite, borra solo un CV subido por el sistema
         const filas = [].concat(paso.item || []).flatMap((x) => candidatos(x)).filter(visible);
@@ -406,9 +453,9 @@
       case "confirmar": {
         const limite = Date.now() + (paso.ms || 20000);
         do {
-          if (hayTexto(textos(sel, "confirmacion")) || (paso.selector && buscar(paso.selector))) {
-            return { confirmado: true, texto: document.title.slice(0, 200) };
-          }
+          if (confirmado(sel, paso)) return { confirmado: true, texto: document.title.slice(0, 200) };
+          const caso = casoPresente(paso.casos, sel);
+          if (caso) return caso;
           if (hayCaptcha(sel)) return { captcha: true };
           await dormir(500);
         } while (Date.now() < limite);

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Computrabajo Colombia - Bolsa de trabajo, ofertas de trabajo</title></head>
+<body>
+<!-- Marcado tomado de candidato.co.computrabajo.com/candidate/kq (2026-10-05): la pregunta de
+     los radios va en un label fuera del div.group y lo obligatorio se marca con la validación
+     de jQuery (data-rule-required, data-val-requiredif), no con el atributo required. -->
+<header><a class="logo" href="https://co.computrabajo.com">Computrabajo</a><div class="info_user" data-info-user="">Ana Pérez</div></header>
+<div id="MainContainer" class="container">
+<form action="/candidate/kq" method="post">
+  <input name="__RequestVerificationToken" type="hidden" value="t">
+  <div class="dFlex mt40"><article class="boxx form_kq w100">
+    <div class="header"><div><p class="fs24">Preguntas de selección</p>
+      <p class="fs16 fc80">Ya casi estamos, pero antes contesta estas preguntas.</p></div></div>
+    <article class="tags_form bb_d_1i plr15p p0_r">
+      <input id="KillerQuestions_0__Id" name="KillerQuestions[0].Id" type="hidden" value="1">
+      <div class="field_radio_box rounded">
+        <label class="fs16">¿Ha firmado anteriormente un contrato de aprendizaje?</label>
+        <div class="group">
+          <label class="radio w_49"><input data-msg-required="Obligatorio" data-radio="" data-rule-required="true" data-val="true" data-val-requiredif="Obligatorio" data-val-requiredif-dependentproperty="OpenQuestion" name="KillerQuestions[0].ClosedQuestion" type="radio" value="11"> <span class="input"></span> <span class="label_box">si</span></label>
+          <label class="radio w_49"><input data-msg-required="Obligatorio" data-radio="" data-rule-required="true" name="KillerQuestions[0].ClosedQuestion" type="radio" value="12"> <span class="input"></span> <span class="label_box">no</span></label>
+        </div>
+        <span class="field-validation-valid" data-valmsg-for="KillerQuestions[0].ClosedQuestion"></span>
+      </div>
+      <input id="KillerQuestions_1__Id" name="KillerQuestions[1].Id" type="hidden" value="2">
+      <div class="field_textarea">
+        <label class="fs16">Indica el nombre de tu institución de formación</label>
+        <textarea class="w100 rounded" data-msg-required="Obligatorio" data-rule-required="true" data-val="true" data-val-requiredif="Obligatorio" data-val-requiredif-dependentproperty="ClosedQuestion" id="KillerQuestions_1__OpenQuestion" maxlength="500" name="KillerQuestions[1].OpenQuestion" rows="6"></textarea>
+        <div class="contador">(máximo 500 caracteres)</div>
+        <span class="field-validation-valid" data-valmsg-for="KillerQuestions[1].OpenQuestion"></span>
+      </div>
+      <input id="KillerQuestions_2__Id" name="KillerQuestions[2].Id" type="hidden" value="3">
+      <div class="field_textarea">
+        <label class="fs16">¿Ya finalizó su etapa lectiva?</label>
+        <textarea class="w100 rounded" data-msg-required="Obligatorio" data-rule-required="true" data-val="true" data-val-requiredif="Obligatorio" data-val-requiredif-dependentproperty="ClosedQuestion" id="KillerQuestions_2__OpenQuestion" maxlength="500" name="KillerQuestions[2].OpenQuestion" rows="6"></textarea>
+        <div class="contador">(máximo 500 caracteres)</div>
+        <span class="field-validation-valid" data-valmsg-for="KillerQuestions[2].OpenQuestion"></span>
+      </div>
+    </article>
+    <div class="tc pt25"><input id="btnKiller" type="submit" class="b_primary new rounded" value="Enviar mi HdV"></div>
+  </article></div>
+</form>
+</div>
+<script>
+  // Validación del portal: con algo obligatorio vacío marca el campo y no envía
+  document.querySelector("form").addEventListener("submit", (e) => {
+    let falta = false;
+    for (const t of document.querySelectorAll("textarea[data-rule-required='true']")) {
+      if (!t.value.trim()) {
+        falta = true;
+        const aviso = document.querySelector(`[data-valmsg-for="${t.name}"]`);
+        aviso.className = "field-validation-error";
+        aviso.textContent = "Obligatorio";
+      }
+    }
+    if (!document.querySelector("input[type='radio']:checked")) falta = true;
+    if (falta) e.preventDefault();
+  });
+</script>
+</body></html>

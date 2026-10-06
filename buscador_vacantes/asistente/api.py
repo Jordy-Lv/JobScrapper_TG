@@ -257,6 +257,14 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         p = nucleo.cola.obtener(pid)
         if p is None or p.usuario_id != nav.usuario_id:
             raise HTTPException(404, "postulación no encontrada")
+        # Mientras ejecuta una postulación la extensión no manda latidos (el latido es el que
+        # la ejecuta): cada llamada de la postulación cuenta como señal de vida, así un paso
+        # largo (la IA, el CV adaptado) no la deja como "navegador cerrado"
+        with nucleo.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE navegadores SET ultimo_latido = ? WHERE id = ?",
+                (a_texto(nucleo.ahora()), nav.id),
+            )
         return p
 
     # --- vinculación ---

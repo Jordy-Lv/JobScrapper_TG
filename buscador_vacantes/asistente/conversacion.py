@@ -18,8 +18,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+from buscador_vacantes.asistente import resumen_postulacion, vinculos
 from buscador_vacantes.asistente import textos as t
-from buscador_vacantes.asistente import vinculos
 from buscador_vacantes.asistente.cola import CON_RESPALDO, E, Evento
 from buscador_vacantes.asistente.cv_lectura import (
     CVInvalido,
@@ -1065,6 +1065,14 @@ class Conversacion:
                     await self._enviar(
                         usuario, f"Escribe tu respuesta para:\n<b>{t.e(pregunta)}</b>"
                     )
+            case "rei":
+                p = self.n.cola.obtener(int(args[0]))
+                if p is None or p.usuario_id != usuario.id or not p.id_corto:
+                    return None
+                toque = await self.procesar_toque(usuario, p.id_corto)
+                if toque is not None and toque.camino == Camino.AUTOMATICA:
+                    return "🔁 Reintentando"
+                return None
             case "seg":
                 pid, seguimiento = int(args[0]), args[1]
                 with self.n.base.transaccion() as cx:
@@ -1538,6 +1546,46 @@ class Conversacion:
                 pass
         await self._enviar(usuario, f"<b>{t.e(fila['titulo'] if fila else '')}</b>\n{estado}")
 
+    async def _enviar_resumen(self, usuario: Usuario, p) -> None:
+        """Resumen detallado de una postulación confirmada: la vacante, la hoja de vida que
+        recibió el portal y cada pregunta con su respuesta y su origen."""
+        vacante = self.n.indice.obtener(p.id_corto) if p.id_corto else None
+        if vacante is None:
+            return
+        cx = self.n.base.cx
+        fila = cx.execute(
+            "SELECT p.afinidad, p.cv_archivo, p.terminada_en, v.requisitos_json "
+            "FROM postulaciones p LEFT JOIN vacantes v ON v.id_corto = p.id_corto "
+            "WHERE p.id = ?",
+            (p.id,),
+        ).fetchone()
+        pasos = cx.execute(
+            "SELECT paso, detalle FROM postulacion_pasos WHERE postulacion_id = ? ORDER BY id",
+            (p.id,),
+        ).fetchall()
+        respuestas = cx.execute(
+            "SELECT pregunta, respuesta, origen FROM respuestas WHERE postulacion_id = ? "
+            "ORDER BY id",
+            (p.id,),
+        ).fetchall()
+        requisitos = None
+        if fila["requisitos_json"]:
+            requisitos = json.loads(fila["requisitos_json"]).get("requisitos")
+        adjunto = next((x["detalle"] for x in reversed(pasos) if x["paso"] == "cv_adjunto"), None)
+        datos = resumen_postulacion.DatosResumen(
+            vacante=vacante, plataforma=p.plataforma,
+            enviada_en=de_texto(fila["terminada_en"]) if fila["terminada_en"] else None,
+            afinidad=fila["afinidad"], requisitos=requisitos,
+            respuestas=[dict(r) for r in respuestas], pasos=[x["paso"] for x in pasos],
+            cv_adjunto=adjunto,
+        )  # fmt: skip
+        for texto in resumen_postulacion.mensajes(datos):
+            await self._enviar(usuario, texto)
+        usado = adjunto or ("cv_subir" in datos.pasos and "cv_verificar_fallo" not in datos.pasos)
+        if usado and fila["cv_archivo"] and Path(fila["cv_archivo"]).is_file():
+            await self.s.documento(usuario.telegram_id, Path(fila["cv_archivo"]),
+                                   "La hoja de vida que recibió el portal")  # fmt: skip
+
     async def _avisar_evento(self, ev: Evento) -> None:
         usuario = self.n.usuarios.por_id(ev.usuario_id)
         if usuario is None:
@@ -1563,15 +1611,10 @@ class Conversacion:
                 pref = self.n.preferencias.obtener(usuario.id, p.plataforma)
                 if not pref.avisar:
                     return
-            respuestas = self.n.base.cx.execute(
-                "SELECT pregunta, respuesta FROM respuestas WHERE postulacion_id = ?", (p.id,)
-            ).fetchall()
-            texto = "✅ <b>Postulación enviada</b>"
-            if respuestas:
-                texto += "\n" + "\n".join(
-                    f"• {t.e(r['pregunta'])} → {t.e(r['respuesta'])}" for r in respuestas[:12]
-                )
-            await self._editar_progreso(usuario, p.id, texto)
+            await self._editar_progreso(
+                usuario, p.id, "✅ <b>Postulación enviada y confirmada.</b> Te dejo el resumen."
+            )
+            await self._enviar_resumen(usuario, p)
             await self._enviar(
                 usuario,
                 "¿Cómo te fue? Márcalo cuando sepas:",
@@ -1594,6 +1637,19 @@ class Conversacion:
         elif ev.estado == E.INCIERTA:
             await self._editar_progreso(
                 usuario, p.id, estado + ". Revisa «Mis postulaciones» en el portal."
+            )
+        elif ev.estado == E.BLOQUEADA and (ev.detalle or "") in t.BLOQUEOS_PORTAL:
+            nombre = t.NOMBRES_PLATAFORMA.get(p.plataforma, p.plataforma or "el portal")
+            await self._editar_progreso(
+                usuario, p.id, f"🔒 {t.e(nombre)} pide una acción en tu cuenta antes de postular."
+            )
+            await self._enviar(
+                usuario,
+                "🔒 "
+                + t.e(t.BLOQUEOS_PORTAL[ev.detalle].format(portal=nombre))
+                + "\n\nCuando lo resuelvas, toca <b>🔁 Reintentar</b> (o ⚡ en la vacante) y la "
+                "envío de nuevo. No envié nada todavía.",
+                [[("🔁 Reintentar", cb("rei", p.id))]],
             )
         elif ev.estado in CON_RESPALDO:
             await self._editar_progreso(usuario, p.id, estado)

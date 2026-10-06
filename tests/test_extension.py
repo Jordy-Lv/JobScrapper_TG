@@ -186,13 +186,23 @@ class Portales:
 
     def __init__(self) -> None:
         self.paginas: dict[str, str] = {}
+        self.envios: dict[str, str] = {}  # respuesta a un POST de formulario, por URL
+        self.redirecciones: dict[str, str] = {}
         self.recibido: list[bytes] = []
 
-    def poner(self, url: str, fixture: str, reemplazos: dict[str, str] | None = None) -> None:
+    @staticmethod
+    def _leer(fixture: str, reemplazos: dict[str, str] | None) -> str:
         html = (FIXTURES / fixture).read_text(encoding="utf-8")
         for a, b in (reemplazos or {}).items():
             html = html.replace(a, b)
-        self.paginas[url] = html
+        return html
+
+    def poner(self, url: str, fixture: str, reemplazos: dict[str, str] | None = None) -> None:
+        self.paginas[url] = self._leer(fixture, reemplazos)
+
+    def al_enviar(self, url: str, fixture: str) -> None:
+        """Página que devuelve el portal cuando se envía un formulario a `url` (POST)."""
+        self.envios[url] = self._leer(fixture, None)
 
     async def atender(self, route) -> None:
         peticion = route.request
@@ -200,6 +210,18 @@ class Portales:
         if url.endswith("/recibir"):
             self.recibido.append(peticion.post_data_buffer or b"")
             await route.fulfill(status=200, body="ok")
+            return
+        if peticion.method == "POST" and url in self.envios:
+            self.recibido.append(peticion.post_data_buffer or b"")
+            await route.fulfill(status=200, body=self.envios[url],
+                                content_type="text/html; charset=utf-8")  # fmt: skip
+            return
+        if url in self.redirecciones:
+            # Redirección desde la página: la petición que sigue a un 302 respondido con
+            # route.fulfill no pasa por context.route y saldría a la red real
+            destino = json.dumps(self.redirecciones[url])
+            await route.fulfill(status=200, content_type="text/html",
+                                body=f"<script>location.replace({destino})</script>")  # fmt: skip
             return
         if "recaptcha" in url:
             await route.fulfill(status=200, body="<html><body>reto</body></html>",
@@ -436,6 +458,8 @@ def test_postulacion_completa_llena_todos_los_campos(tmp_path, api):
     assert api.de("resultado")[0]["estado"] == "enviada"
     pasos = [p["paso"] for p in api.de("paso")]
     assert pasos[:3] == ["abrir", "revisar_vacante", "aplicar"]
+    adjunto = next(p for p in api.de("paso") if p["paso"] == "cv_adjunto")
+    assert adjunto["detalle"] == "CV_Ana_Perez.pdf"
 
 
 def test_ya_postulado_no_toca_nada(tmp_path, api):
@@ -557,6 +581,125 @@ def test_el_motor_no_opera_fuera_del_portal(tmp_path, api):
     assert resultado["estado"] == "formulario_desconocido"
     assert "no permitida" in resultado["motivo"]
     assert not api.de("envio")
+
+
+# --- Preguntas de selección reales de Computrabajo (postulaciones 6 y 7 del piloto) -----------
+
+KQ = "https://candidato.co.computrabajo.com/candidate/kq?oi=PRUEBA&p=57&d=33&idb=1"
+KQ_ENVIO = "https://candidato.co.computrabajo.com/candidate/kq"
+HOME_CT = "https://candidato.co.computrabajo.com/candidate/home?uvma=true"
+
+
+def respuestas_kq(campos: list[dict]) -> list[dict]:
+    salida = []
+    for i, c in enumerate(campos):
+        if c["tipo"] == "opciones":
+            salida.append({"indice": i, "valor": None, "opcion": c["opciones"].index("no")})
+        elif "institución" in c["texto"]:
+            salida.append({"indice": i, "valor": "SENA", "opcion": None})
+        elif "etapa lectiva" in c["texto"]:
+            salida.append({"indice": i, "valor": "Sí, en junio", "opcion": None})
+    return salida
+
+
+def test_preguntas_de_seleccion_reales_se_leen_llenan_y_confirman(tmp_path, api):
+    portales = portales_listos()
+    portales.poner(VACANTE, "ct_vacante.html")
+    portales.redirecciones[MATCH] = KQ
+    portales.poner(KQ, "ct_kq.html")
+    # Enviar las preguntas recarga la página: el portal responde con la de "Aplicación enviada"
+    portales.al_enviar(KQ_ENVIO, "ct_aplicada.html")
+    api.trabajos = [trabajo()]
+    api.respuestas = respuestas_kq
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    campos = api.de("formulario")[0]["campos"]
+    assert [(c["texto"], c["obligatoria"]) for c in campos] == [
+        ("¿Ha firmado anteriormente un contrato de aprendizaje?", True),
+        ("Indica el nombre de tu institución de formación", True),
+        ("¿Ya finalizó su etapa lectiva?", True),
+    ]
+    assert campos[0]["opciones"] == ["si", "no"]
+    enviado = portales.recibido[0].decode("utf-8")
+    assert "KillerQuestions%5B0%5D.ClosedQuestion=12" in enviado
+    assert "SENA" in enviado and "junio" in enviado
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "enviada", resultado
+    assert "Aplicación enviada" in resultado["confirmacion"]
+
+
+def test_campo_sin_responder_no_se_envia_a_ciegas(tmp_path, api):
+    """Si falta una respuesta, el portal marca el campo y la extensión lo reporta."""
+    portales = portales_listos()
+    portales.poner(VACANTE, "ct_vacante.html")
+    portales.redirecciones[MATCH] = KQ
+    portales.poner(KQ, "ct_kq.html")
+    portales.al_enviar(KQ_ENVIO, "ct_aplicada.html")
+    api.trabajos = [trabajo()]
+    api.respuestas = lambda campos: respuestas_kq(campos)[:2]
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido"
+    assert "sin responder" in resultado["motivo"]
+    assert not portales.recibido
+
+
+def test_correo_marcado_por_el_portal_bloquea_sin_tocar_la_cuenta(tmp_path, api):
+    """Computrabajo redirige Aplicar al inicio con «Email incorrecto»: no se llena nada."""
+    portales = portales_listos()
+    portales.poner(VACANTE, "ct_vacante.html")
+    portales.redirecciones[MATCH] = HOME_CT
+    portales.poner(HOME_CT, "ct_home_correo.html")
+    api.trabajos = [trabajo()]
+    api.respuestas = respuestas_ana
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    resultado = api.de("resultado")[0]
+    assert (resultado["estado"], resultado["motivo"]) == ("bloqueada", "portal_correo_incorrecto")
+    assert not api.de("formulario")
+    assert not portales.recibido
+
+
+def test_inicio_sin_aviso_conocido_tambien_bloquea(tmp_path, api):
+    portales = portales_listos()
+    portales.poner(VACANTE, "ct_vacante.html")
+    portales.redirecciones[MATCH] = HOME_CT
+    portales.poner(HOME_CT, "ct_home_sesion.html")
+    api.trabajos = [trabajo()]
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    resultado = api.de("resultado")[0]
+    assert (resultado["estado"], resultado["motivo"]) == ("bloqueada", "portal_redirige_inicio")
+    assert not api.de("formulario")
 
 
 # --- 7.6: CV del perfil del portal ------------------------------------------------------------

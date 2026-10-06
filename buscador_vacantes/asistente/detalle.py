@@ -55,6 +55,8 @@ class EstadoPagina(StrEnum):
 class Detalle:
     estado: EstadoPagina
     texto: str | None
+    # Datos cortos de la oferta (salario, ubicación, fechas) para el resumen de la postulación
+    ficha: dict[str, str] | None = None
 
 
 def _texto(html: str) -> str:
@@ -74,6 +76,77 @@ def _job_posting(sopa: BeautifulSoup) -> dict | None:
     return None
 
 
+UNIDADES_SALARIO = {"MONTH": "mensual", "YEAR": "anual", "WEEK": "semanal", "DAY": "diario",
+                    "HOUR": "por hora"}  # fmt: skip
+TIPOS_EMPLEO = {
+    "FULL_TIME": "Tiempo completo", "PART_TIME": "Medio tiempo",
+    "CONTRACTOR": "Por prestación de servicios", "TEMPORARY": "Temporal", "INTERN": "Prácticas",
+    "VOLUNTEER": "Voluntariado", "PER_DIEM": "Por días",
+}  # fmt: skip
+
+
+def _pesos(valor: object) -> str | None:
+    try:
+        numero = float(str(valor))
+    except ValueError:
+        return None
+    return "$ " + f"{numero:,.0f}".replace(",", ".") if numero > 0 else None
+
+
+def _salario(oferta: dict) -> str | None:
+    base = oferta.get("baseSalary")
+    if not isinstance(base, dict):
+        return None
+    valor = base.get("value")
+    unidad = ""
+    if isinstance(valor, dict):
+        unidad = UNIDADES_SALARIO.get(str(valor.get("unitText", "")).upper(), "")
+        minimo, maximo = _pesos(valor.get("minValue")), _pesos(valor.get("maxValue"))
+        if minimo and maximo and minimo != maximo:
+            texto = f"{minimo} – {maximo}"
+        else:
+            texto = _pesos(valor.get("value")) or minimo or maximo
+    else:
+        texto = _pesos(valor)
+    if not texto:
+        return None
+    return f"{texto} {unidad}".strip()
+
+
+def _ubicacion(oferta: dict) -> str | None:
+    lugares = oferta.get("jobLocation")
+    lugares = lugares if isinstance(lugares, list) else [lugares]
+    partes: list[str] = []
+    for lugar in lugares:
+        direccion = lugar.get("address") if isinstance(lugar, dict) else None
+        if not isinstance(direccion, dict):
+            continue
+        for clave in ("addressLocality", "addressRegion"):
+            valor = str(direccion.get(clave) or "").strip()
+            if valor and valor not in partes:
+                partes.append(valor)
+    if oferta.get("jobLocationType") == "TELECOMMUTE":
+        partes.append("Remoto")
+    return ", ".join(partes) or None
+
+
+def ficha_de(oferta: dict) -> dict[str, str]:
+    """Salario, ubicación, tipo de empleo y fechas de un JobPosting, solo lo que traiga."""
+    tipos = oferta.get("employmentType")
+    tipos = tipos if isinstance(tipos, list) else [tipos]
+    tipo = ", ".join(TIPOS_EMPLEO[t] for t in tipos if t in TIPOS_EMPLEO)
+    organizacion = oferta.get("hiringOrganization")
+    datos = {
+        "empresa": organizacion.get("name") if isinstance(organizacion, dict) else None,
+        "salario": _salario(oferta),
+        "ubicacion": _ubicacion(oferta),
+        "tipo": tipo or None,
+        "publicada": str(oferta.get("datePosted") or "")[:10] or None,
+        "vence": str(oferta.get("validThrough") or "")[:10] or None,
+    }
+    return {k: str(v) for k, v in datos.items() if v}
+
+
 def extraer(html: str, url: str, hoy: date) -> Detalle:
     sopa = BeautifulSoup(html, "lxml")
     visible = normalizar_texto(sopa.get_text(" "))
@@ -85,7 +158,7 @@ def extraer(html: str, url: str, hoy: date) -> Detalle:
             return Detalle(EstadoPagina.CERRADA, None)
         texto = _texto(oferta.get("description", ""))
         if texto:
-            return Detalle(EstadoPagina.OK, texto[:MAX_DETALLE])
+            return Detalle(EstadoPagina.OK, texto[:MAX_DETALLE], ficha_de(oferta) or None)
     host = urlparse(url).hostname or ""
     selectores = {
         "getonbrd.com": "div.gb-rich-txt",
@@ -160,17 +233,20 @@ class Detalles:
     def _guardar(self, vacante: VacanteIndexada, detalle: Detalle, ahora: datetime) -> None:
         with self.base.transaccion() as cx:
             cx.execute(
-                "UPDATE vacantes SET detalle = ?, estado_pagina = ?, detalle_en = ? "
-                "WHERE id_corto = ?",
-                (detalle.texto, detalle.estado, a_texto(ahora), vacante.id_corto),
-            )
-        vacante.detalle, vacante.estado_pagina, vacante.detalle_en = (
-            detalle.texto, detalle.estado, ahora,
+                "UPDATE vacantes SET detalle = ?, estado_pagina = ?, detalle_en = ?, "
+                "ficha_json = ? WHERE id_corto = ?",
+                (detalle.texto, detalle.estado, a_texto(ahora),
+                 json.dumps(detalle.ficha, ensure_ascii=False) if detalle.ficha else None,
+                 vacante.id_corto),
+            )  # fmt: skip
+        vacante.detalle, vacante.estado_pagina, vacante.detalle_en, vacante.ficha = (
+            detalle.texto, detalle.estado, ahora, detalle.ficha,
         )  # fmt: skip
 
     async def obtener(self, vacante: VacanteIndexada, ahora: datetime) -> Detalle:
         if vacante.detalle_en and ahora - vacante.detalle_en < timedelta(hours=self.config.cache_h):
-            return Detalle(EstadoPagina(vacante.estado_pagina or "sin_detalle"), vacante.detalle)
+            return Detalle(EstadoPagina(vacante.estado_pagina or "sin_detalle"), vacante.detalle,
+                           vacante.ficha)  # fmt: skip
         if self._en_cooldown(vacante.fuente, ahora):
             log.info("Detalle de %s omitido: la fuente está en cooldown", vacante.fuente)
             return Detalle(EstadoPagina.BLOQUEADA, None)  # sin caché: se reintenta después

@@ -83,6 +83,26 @@ MOTIVOS_RESPALDO = {
     "fallida": "el portal rechazó el envío",
 }
 
+# Bloqueos que solo el usuario resuelve en su cuenta del portal. No llevan paquete: el portal
+# tampoco acepta la postulación hecha a mano hasta que se resuelvan.
+BLOQUEOS_PORTAL = {
+    "portal_correo_incorrecto": (
+        "{portal} dice que no puede enviarte correos al email de tu cuenta y no acepta "
+        "postulaciones hasta que lo corrijas. Entra a {portal}, revisa el aviso «Email "
+        "incorrecto» y corrige o confirma tu correo."
+    ),
+    "portal_cuenta_sin_verificar": (
+        "{portal} tiene tu cuenta pendiente de verificar y no acepta postulaciones hasta "
+        "entonces. Abre el correo que te envió {portal} y toca el enlace de verificación "
+        "(revisa también spam y promociones)."
+    ),
+    "portal_redirige_inicio": (
+        "{portal} me devolvió a tu inicio en vez de abrir la postulación. Suele pasar cuando "
+        "pide algo en tu cuenta (verificar el correo, aceptar condiciones…). Entra a {portal} "
+        "y resuelve los avisos de tu inicio."
+    ),
+}
+
 ESTADOS = {
     "en_cola": "⏳ En cola",
     "esperando_navegador": "💻 Esperando que abras tu navegador",
