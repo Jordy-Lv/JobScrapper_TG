@@ -29,6 +29,7 @@
   - derechos y borrado.
 
   El mismo texto sirve de política de privacidad para la tienda de Edge. Verificar que el dueño lo aprueba antes de 9.3.
+  Avance: el texto versión 1 está en `config.yaml` (`asistente.politica`) y cubre los seis puntos; el config lo marca como borrador y falta la aprobación expresa del dueño. La página `/api/v1/privacidad` de `asistente/api.py` es un texto aparte, no el mismo: alinearlos al aprobar.
 - [x] 2.3 Crear `asistente/usuarios.py`:
   - alta con `paso_alta` persistente;
   - aceptación versionada;
@@ -119,6 +120,7 @@
   - sin IA se usa el CV base.
 
   Revisar visualmente un PDF con el dueño.
+  Avance: las pruebas de `tests/test_asistente_cv.py` cubren todos los puntos de la verificación y pasan; falta que el dueño revise visualmente un PDF. La plantilla usa Liberation Sans (OFL, con su licencia en `assets/fuentes/`), no Noto Sans como dice el texto de la tarea y el design 272.
 
 ## 6. API y orquestación en el servidor
 
@@ -193,7 +195,7 @@
   - detecta ya postulado, cerrada y sesión no iniciada.
   Avance: el código del adaptador y sus pruebas sobre fixtures con el marcado público real están listos; falta verificar las páginas con sesión (3.1 y 3.2) para cerrarla.
 - [ ] 7.4 Crear `extension/adaptadores/magneto.js` con las mismas condiciones y pruebas que 7.3.
-  Avance: el código del adaptador y sus pruebas sobre fixtures con el marcado público real están listos; falta verificar las páginas con sesión (3.1 y 3.2) para cerrarla.
+  Avance: el código del adaptador existe, pero `tests/test_extension.py` solo prueba Magneto en `sin_sesion` (`mg_sin_sesion.html`): no hay fixtures de postulación completa, ya postulado ni cerrada. Dependen de 3.1 y 3.2, que no se han hecho.
 - [ ] 7.5 Implementar la detección `sin_sesion`, `incompleto` y `listo` por portal y el trabajo `completar_perfil` en ambos adaptadores, más su encolado prioritario en `asistente/cola.py`:
   - carga del CV base;
   - datos personales, formación y experiencia desde el perfil;
@@ -205,7 +207,7 @@
   - una experiencia existente no se borra ni se modifica;
   - el motor se niega a operar en páginas prohibidas;
   - el bot envía la guía con el enlace de registro cuando el estado es `sin_sesion` sin cuenta.
-  Avance: el código del adaptador y sus pruebas sobre fixtures con el marcado público real están listos; falta verificar las páginas con sesión (3.1 y 3.2) para cerrarla.
+  Avance: están hechos el estado por portal en el latido, el encolado prioritario (`cola.encolar_completar_perfil`, con prueba) y la ejecución del trabajo en `extension/servicio.js`. Falta lo principal: `perfil.completar` está vacío en `computrabajo.json` y `magneto.json` (no hay pasos de datos personales, formación ni experiencia) y no hay pruebas `navegador` de perfil ni del bot con el enlace de registro. Depende de 3.1.
 - [x] 7.6 Implementar los pasos `cv_subir` y `cv_verificar` del motor según `cv.modo`, con el respeto de los CV del usuario en `perfil_multiple` y la autorización `actualizar_cv_portal` (pregunta en el alta y en `/perfil`). Verificar con pruebas `navegador` sobre fixtures de cada modo:
   - en `perfil_unico`, con autorización, el CV queda reemplazado antes del envío;
   - en `perfil_multiple`, con el límite alcanzado, solo se reemplaza el subido por el sistema;
@@ -276,13 +278,14 @@
   - un comando de administración ajeno responde como desconocido;
   - `/detalle` muestra los pasos, las respuestas con su origen y el CV;
   - `/borrarme` borra todo.
-- [ ] 8.4 Crear `asistente/servicio.py`, `buscador.py asistente servicio|enlace <clave>` y `asistente selectores recargar`:
+- [x] 8.4 Crear `asistente/servicio.py`, `buscador.py asistente servicio|enlace <clave>` y `asistente selectores recargar`:
   - bot, API y tareas periódicas en un solo proceso asyncio;
   - salida inmediata si `activo` es falso;
   - mensaje de instalación si faltan dependencias;
   - cierre limpio.
 
   Verificar con una prueba de arranque y parada y una ejecución local contra un bot de prueba.
+  Verificado con `tests/test_asistente_servicio.py`: arranque y parada contra una Bot API simulada (la API responde 401 sin token y 404 fuera de `/api/v1/`; tras la señal de parada termina solo, cierra la base y libera el puerto), salida inmediata con `activo: false`, rechazo sin `ASISTENTE_BOT_TOKEN` y mensaje de instalación si faltan dependencias. La ejecución local contra un bot real es la del piloto en el Fedora (`@PostuladorJobs_Bot`).
 
 ## 9. Resumen, despliegue y pilotos
 
