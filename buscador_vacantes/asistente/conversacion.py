@@ -1172,12 +1172,6 @@ class Conversacion:
             f"<code>{vinculos.mostrar_codigo(codigo)}</code> (vence en 10 minutos).",
             [[("🔗 Vincular mi navegador", f"url:{url_publica}/api/v1/vincular/{codigo}")]],
         )
-        if usuario.estado == EstadoUsuario.ALTA:
-            await self._enviar(
-                usuario,
-                "Cuando termines (o si prefieres hacerlo después):",
-                [[("Terminar", cb("alta", "fin"))]],
-            )
 
     # --- comandos ------------------------------------------------------------------
 
@@ -1512,6 +1506,8 @@ class Conversacion:
                 "✅ Navegador vinculado. Ahora inicia sesión en "
                 "Computrabajo y Magneto en ese navegador.",
             )
+            if usuario.estado == EstadoUsuario.ALTA:  # vincular era lo último del alta
+                await self._terminar_alta(usuario)
         elif tipo == "cuenta_por_confirmar":
             await self._enviar(
                 usuario,

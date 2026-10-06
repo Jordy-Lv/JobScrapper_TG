@@ -748,3 +748,19 @@ def test_modalidad_se_pregunta_segun_la_ciudad_del_usuario(mundo):
     assert [b[0] for b in botones[0]] == ["Presencial en Cali", "Híbrido y remoto", "Cualquiera"]
     correr(mundo.c.al_boton(ANA, cb("cuest", indice, 0)))
     assert mundo.n.datos_usuario(usuario.id).cuestionario["modalidades"] == "Presencial en Cali"
+
+
+def test_al_vincular_el_navegador_el_alta_termina_sin_boton_terminar(mundo):
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("resumen", "ok"))
+        await responder_faltantes(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("vincular"))
+        usuario = mundo.n.usuarios.obtener(ANA)
+        assert usuario.estado == EstadoUsuario.ALTA
+        await mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+
+    correr(flujo())
+    assert mundo.n.usuarios.obtener(ANA).estado != EstadoUsuario.ALTA
+    assert not any("Cuando termines" in m[1] for m in mundo.s.mensajes)
+    assert t.ALTA_LISTA in mundo.s.de(ANA)
