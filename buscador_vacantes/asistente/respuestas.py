@@ -268,8 +268,8 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
     norma = normalizar_pregunta(pregunta.texto)
     if estandar := _desde_tipo(pregunta):
         return _desde_campo(pregunta, *estandar, ctx, Origen.PERFIL)
-    if encontrada := buscar_en_banco(ctx.base, norma):
-        return _desde_campo(pregunta, *encontrada, ctx, Origen.PERFIL)
+    # Lo que el usuario respondió o corrigió manda sobre el banco y el perfil; si no, una
+    # pregunta del banco sin dato en el perfil se volvería a preguntar en bucle
     if (texto := aprendida(ctx.base, ctx.usuario_id, norma)) is not None:
         if pregunta.opciones:
             indice = elegir_opcion(texto, pregunta.opciones)
@@ -277,6 +277,8 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
                 return Respuesta(pregunta, opcion=indice, origen=Origen.APRENDIDA)
         else:
             return Respuesta(pregunta, valor=texto, origen=Origen.APRENDIDA)
+    if encontrada := buscar_en_banco(ctx.base, norma):
+        return _desde_campo(pregunta, *encontrada, ctx, Origen.PERFIL)
     if not ctx.con_ia:
         return Respuesta(pregunta, falta=True)
     try:

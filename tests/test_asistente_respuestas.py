@@ -23,6 +23,7 @@ from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     Origen,
     Pregunta,
     elegir_opcion,
+    guardar_en_banco,
     normalizar_pregunta,
     recordar,
     resolver,
@@ -199,6 +200,20 @@ def test_aprendida_se_reutiliza(base):
         )
     )
     assert r2.opcion == 1
+
+
+def test_aprendida_gana_a_una_pregunta_del_banco_sin_dato(base):
+    pregunta = Pregunta(
+        "¿Tienes experiencia en cuáles herramientas de RPA?",
+        "opciones",
+        ["UiPath", "Power Automate", "Tengo conocimiento en todas las anteriores"],
+    )
+    guardar_en_banco(base, normalizar_pregunta(pregunta.texto), "conoce", "UiPath", AHORA)
+    antes = asyncio.run(resolver(pregunta, contexto(base, con_ia=False)))
+    assert antes.falta
+    recordar(base, 1, pregunta.texto, "Tengo conocimiento en todas las anteriores", AHORA)
+    r = asyncio.run(resolver(pregunta, contexto(base, con_ia=False)))
+    assert not r.falta and (r.opcion, r.origen) == (2, Origen.APRENDIDA)
 
 
 def test_campos_estandar_sin_ia(base):
