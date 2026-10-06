@@ -20,3 +20,16 @@
 - Todo cambio se planifica e implementa con **OpenSpec** (`openspec/`): `/opsx:propose` → `/opsx:apply` → `/opsx:archive`. No se escribe código fuera de un change.
 - La especificación de origen del proyecto es `docs/buscador-vacantes-spec.md`; el contexto y el stack están en `openspec/config.yaml`.
 - Idioma: código, identificadores, mensajes, documentación y commits en español.
+
+## Regla: clasificar la dificultad de cada tarea
+
+Antes de empezar una tarea (por ejemplo, una de un `tasks.md` de OpenSpec), clasificarla y decírselo al dueño:
+
+- 🟢 **Ligera**: cambio pequeño y acotado (un archivo, documentación, marcar tareas, archivar un change).
+- 🟡 **Media**: varios archivos o módulos relacionados, con pruebas nuevas.
+- 🔴 **Pesada**: toca muchos módulos, exige leer y verificar mucho código, depende de fixtures o de datos reales, o necesita muchas iteraciones de prueba y error.
+- 👤 **Del dueño**: requiere su navegador, sus cuentas o el servidor Fedora; se le pide a él y no se simula.
+
+Si la tarea es 🔴 **pesada**, Claude debe recomendar **limpiar el contexto (`/clear`) o continuar en una sesión nueva** antes de empezarla, y también al terminarla antes de pasar a la siguiente.
+
+Para que una sesión nueva retome sin perder nada: marcar `[x]` en el `tasks.md` lo terminado antes de cortar, dejar las pruebas en verde y avisar si queda algo a medias.
