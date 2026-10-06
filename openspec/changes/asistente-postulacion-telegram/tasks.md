@@ -286,7 +286,7 @@
 
 ## 9. Resumen, despliegue y pilotos
 
-- [ ] 9.1 Agregar a `resumen.py` las métricas agregadas del asistente:
+- [x] 9.1 Agregar a `resumen.py` las métricas agregadas del asistente:
   - usuarios activos y altas;
   - navegadores en línea;
   - postulaciones enviadas y de respaldo;

@@ -27,6 +27,7 @@ from pathlib import Path
 from buscador_vacantes import config as cfg
 from buscador_vacantes import registro, rotacion
 from buscador_vacantes.asistente import cli as asistente_cli
+from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.enlaces import bot_para_enlaces
 from buscador_vacantes.clasificador import Clasificador, Dudosa
 from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto, ahora_utc
@@ -641,10 +642,22 @@ def _resumen(config: cfg.Configuracion, secretos: cfg.Secretos, estado: Estado, 
     ia = None
     if secretos.deepseek_api_key:
         ia = ClienteIA(config.ia, secretos.deepseek_api_key, estado, secretos=secretos.valores())
+    base_asistente = None
     try:
-        Resumen(config.resumen, ia, estado, notificador, chat, prueba=modo.chat_prueba).enviar(
-            registrar=not modo.dry_run
-        )
+        if config.asistente is not None and config.asistente.activo:
+            base_asistente = BaseAsistente.abrir(_ruta(cfg.RAIZ, config.asistente.base_datos))
+        Resumen(
+            config.resumen,
+            ia,
+            estado,
+            notificador,
+            chat,
+            prueba=modo.chat_prueba,
+            asistente=base_asistente,
+            navegador_caido_min=(
+                config.asistente.extension.navegador_caido_min if config.asistente else 2
+            ),
+        ).enviar(registrar=not modo.dry_run)
     except Exception:  # noqa: BLE001
         log.exception("Error generando el resumen diario")
         return 1
@@ -652,6 +665,8 @@ def _resumen(config: cfg.Configuracion, secretos: cfg.Secretos, estado: Estado, 
         notificador.cerrar()
         if ia is not None:
             ia.cerrar()
+        if base_asistente is not None:
+            base_asistente.cerrar()
     return 0
 
 

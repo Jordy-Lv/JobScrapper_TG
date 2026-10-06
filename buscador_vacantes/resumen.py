@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from buscador_vacantes import config as cfg
+from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.estado import Estado, a_texto
 from buscador_vacantes.fechas import ZONA
 from buscador_vacantes.formato import NOMBRES_FUENTE, empaquetar, escapar
@@ -39,6 +40,50 @@ class RespuestaResumen(BaseModel):
 
 
 @dataclass
+class MetricasAsistente:
+    """Cifras agregadas del asistente de postulación: sin ids, nombres ni contenido."""
+
+    usuarios_activos: int = 0
+    altas: int = 0
+    navegadores_en_linea: int = 0
+    enviadas: int = 0
+    respaldo: int = 0
+    verificaciones: int = 0
+    respuestas: int = 0
+    respuestas_con_ia: int = 0
+    preguntas_nuevas_banco: int = 0
+
+    @property
+    def pct_sin_ia(self) -> int | None:
+        if not self.respuestas:
+            return None
+        return round(100 * (self.respuestas - self.respuestas_con_ia) / self.respuestas)
+
+    @property
+    def hubo_actividad(self) -> bool:
+        return bool(
+            self.usuarios_activos
+            or self.altas
+            or self.enviadas
+            or self.respaldo
+            or self.verificaciones
+            or self.preguntas_nuevas_banco
+        )
+
+    def para_ia(self) -> dict[str, Any]:
+        return {
+            "usuarios_activos": self.usuarios_activos,
+            "altas_en_el_periodo": self.altas,
+            "navegadores_en_linea": self.navegadores_en_linea,
+            "postulaciones_enviadas": self.enviadas,
+            "postulaciones_de_respaldo": self.respaldo,
+            "verificaciones": self.verificaciones,
+            "porcentaje_respuestas_sin_ia": self.pct_sin_ia,
+            "preguntas_nuevas_del_banco": self.preguntas_nuevas_banco,
+        }
+
+
+@dataclass
 class Metricas:
     desde: datetime
     hasta: datetime
@@ -62,6 +107,7 @@ class Metricas:
     tokens_in: int = 0
     tokens_out: int = 0
     keywords_sin_resultados_7d: list[str] = field(default_factory=list)
+    asistente: MetricasAsistente | None = None
 
     @property
     def enviadas(self) -> int:
@@ -69,7 +115,7 @@ class Metricas:
 
     def para_ia(self) -> dict[str, Any]:
         """Solo métricas agregadas: sin URLs, tokens, claves ni ids de chat."""
-        return {
+        datos = {
             "periodo": f"{self.desde.astimezone(ZONA):%Y-%m-%d %H:%M} a "
             f"{self.hasta.astimezone(ZONA):%Y-%m-%d %H:%M} (hora Colombia)",
             "corridas": self.corridas,
@@ -93,6 +139,9 @@ class Metricas:
             "ia_tokens": {"entrada": self.tokens_in, "salida": self.tokens_out},
             "palabras_clave_sin_resultados_7_dias": self.keywords_sin_resultados_7d,
         }
+        if self.asistente is not None:
+            datos["asistente"] = self.asistente.para_ia()
+        return datos
 
 
 def calcular_metricas(estado: Estado, ahora: datetime, *, prueba: bool = False) -> Metricas:
@@ -172,6 +221,51 @@ def calcular_metricas(estado: Estado, ahora: datetime, *, prueba: bool = False) 
     return m
 
 
+def calcular_metricas_asistente(
+    base: BaseAsistente, ahora: datetime, *, navegador_caido_min: int
+) -> MetricasAsistente:
+    """Métricas de 24 h del asistente, solo con conteos (nunca ids, nombres ni respuestas)."""
+    desde = ahora - timedelta(hours=24)
+    rango = (a_texto(desde), a_texto(ahora))
+    cx = base.cx
+
+    def contar(consulta: str, *parametros: Any) -> int:
+        return cx.execute(consulta, parametros).fetchone()[0]
+
+    m = MetricasAsistente()
+    m.usuarios_activos = contar("SELECT COUNT(*) FROM usuarios WHERE estado = 'activo'")
+    m.altas = contar("SELECT COUNT(*) FROM usuarios WHERE creado >= ? AND creado <= ?", *rango)
+    m.navegadores_en_linea = contar(
+        "SELECT COUNT(*) FROM navegadores WHERE revocado = 0 AND ultimo_latido >= ?",
+        a_texto(ahora - timedelta(minutes=navegador_caido_min)),
+    )
+    for estado, cantidad in cx.execute(
+        "SELECT estado, COUNT(*) FROM postulaciones WHERE tipo = 'postular' "
+        "AND estado IN ('enviada', 'respaldo') AND terminada_en >= ? AND terminada_en <= ? "
+        "GROUP BY estado",
+        rango,
+    ):
+        if estado == "enviada":
+            m.enviadas = cantidad
+        else:
+            m.respaldo = cantidad
+    m.verificaciones = contar(
+        "SELECT COUNT(DISTINCT postulacion_id) FROM postulacion_pasos "
+        "WHERE estado = 'verificacion' AND ts >= ? AND ts <= ?",
+        *rango,
+    )
+    m.respuestas, m.respuestas_con_ia = cx.execute(
+        "SELECT COUNT(*), COALESCE(SUM(r.origen = 'ia'), 0) FROM respuestas r "
+        "JOIN postulaciones p ON p.id = r.postulacion_id WHERE p.creada >= ? AND p.creada <= ?",
+        rango,
+    ).fetchone()
+    m.preguntas_nuevas_banco = contar(
+        "SELECT COUNT(*) FROM banco_preguntas WHERE origen = 'ia' AND creada >= ? AND creada <= ?",
+        *rango,
+    )
+    return m
+
+
 def _lista(contador: Counter, nombres: Callable[[str], str]) -> str:
     return " · ".join(f"{nombres(k)} {v}" for k, v in contador.most_common())
 
@@ -194,6 +288,17 @@ def _nombre_categoria(valor: str) -> str:
         return NOMBRES_CATEGORIA[Categoria(valor)]
     except ValueError:
         return valor
+
+
+def _lineas_asistente(a: MetricasAsistente) -> list[str]:
+    sin_ia = "sin respuestas" if a.pct_sin_ia is None else f"{a.pct_sin_ia} % sin IA"
+    return [
+        f"⚡ Asistente: {a.usuarios_activos} usuarios activos ({a.altas} altas) · "
+        f"{a.navegadores_en_linea} navegadores en línea",
+        f"📝 Postulaciones: {a.enviadas} enviadas · {a.respaldo} de respaldo · "
+        f"{a.verificaciones} verificaciones · respuestas: {sin_ia} · "
+        f"preguntas nuevas del banco: {a.preguntas_nuevas_banco}",
+    ]
 
 
 def componer_resumen(
@@ -224,6 +329,8 @@ def componer_resumen(
     llamadas = sum(m.ia_llamadas.values())
     tokens = f"{m.tokens_in + m.tokens_out:,}".replace(",", ".")
     lineas.append(f"💳 Consumo IA: {llamadas} llamadas · {tokens} tokens")
+    if m.asistente is not None and m.asistente.hubo_actividad:
+        lineas.extend(_lineas_asistente(m.asistente))
     bloques.append("\n".join(lineas))
 
     if recomendaciones:
@@ -244,6 +351,8 @@ class Resumen:
         chat_id: str,
         *,
         prueba: bool = False,
+        asistente: BaseAsistente | None = None,
+        navegador_caido_min: int = 2,
         reloj: Callable[[], datetime] = lambda: datetime.now(ZONA),
     ) -> None:
         self.config = config
@@ -252,6 +361,8 @@ class Resumen:
         self.notificador = notificador
         self.chat_id = chat_id
         self.prueba = prueba
+        self.asistente = asistente
+        self.navegador_caido_min = navegador_caido_min
         self.reloj = reloj
 
     @property
@@ -290,6 +401,10 @@ class Resumen:
             log.info("El resumen de hoy ya se envió")
             return False
         metricas = calcular_metricas(self.estado, ahora, prueba=self.prueba)
+        if self.asistente is not None:
+            metricas.asistente = calcular_metricas_asistente(
+                self.asistente, ahora, navegador_caido_min=self.navegador_caido_min
+            )
         titular, recomendaciones, motivo = self._recomendaciones(metricas)
         if motivo:
             log.warning("Resumen sin recomendaciones IA: %s", motivo)
