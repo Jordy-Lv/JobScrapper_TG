@@ -33,7 +33,7 @@ from buscador_vacantes.asistente.cv_lectura import (
     validar_archivo,
 )
 from buscador_vacantes.asistente.enlaces import PREFIJO_VACANTE
-from buscador_vacantes.asistente.ia import ErrorIA, Saturado
+from buscador_vacantes.asistente.ia import ClaveInvalida, CuotaAgotada, ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Paquete
 from buscador_vacantes.asistente.respuestas import (
@@ -270,7 +270,7 @@ class Conversacion:
             if self.n.tiene_navegador(usuario.id):  # ya lo vinculó: no se le pide otra vez
                 await self._terminar_alta(usuario)
             else:
-                await self._mostrar_navegador(usuario, al_terminar_alta=True)
+                await self._mostrar_navegador(usuario)
 
     async def _ir_a(self, usuario: Usuario, paso: str) -> None:
         self.n.usuarios.fijar_paso(usuario, paso)
@@ -299,11 +299,16 @@ class Conversacion:
                 "completa desde aistudio.google.com e inténtalo de nuevo.",
             )
             return
+        retomar_cv = bool((self._esperando(usuario) or {}).get("retomar_cv"))
         self.n.guardar_clave_gemini(usuario.id, clave)
         self._esperar(usuario, None)
         await self._enviar(usuario, f"✅ Clave guardada (termina en …{t.e(clave[-4:])}).")
         if usuario.paso_alta == "clave":
             await self._ir_a(usuario, "cv")
+        elif retomar_cv:
+            ruta = self.n.usuarios.directorio(usuario) / "cv_original.pdf"
+            if ruta.exists():
+                await self._leer_cv(usuario, ruta.read_bytes(), permitir=False)
 
     async def al_documento(self, tid: int, contenido: bytes, nombre: str | None) -> None:
         usuario = self.n.usuarios.obtener(tid)
@@ -324,27 +329,33 @@ class Conversacion:
         await self._leer_cv(usuario, contenido, permitir=False)
 
     REINTENTOS_CV_S = (120, 300)  # Gemini saturado: se reintenta solo a los 2 y a los 7 min
+    INTENTOS_CV = 3  # fallos seguidos que se reintentan antes de preguntarle al usuario
+    PAUSA_INTENTOS_CV_S = 3
+    ESPERA_CUOTA_CV_S = 1800  # al esperar que se restablezca la cuota, se prueba cada 30 min
+    AVISOS_CUOTA_CV = 48  # hasta 24 h
 
     async def _leer_cv(
-        self, usuario: Usuario, contenido: bytes, *, permitir: bool, reintento: int = 0
-    ) -> None:
+        self,
+        usuario: Usuario,
+        contenido: bytes,
+        *,
+        permitir: bool,
+        reintento: int = 0,
+        silencioso: bool = False,
+    ) -> bool:
+        """Lee el CV con la IA. Con ``silencioso`` no molesta si falla; devuelve si quedó resuelto."""
         clave = self.n.clave_gemini(usuario.id)
         if not clave:
             await self._enviar(
                 usuario, "Como no tengo clave de Gemini, armemos tu perfil con unas preguntas."
             )
             await self._perfil_manual(usuario, 0)
-            return
-        if reintento == 0:
+            return True
+        if reintento == 0 and not silencioso:
             await self._enviar(usuario, "📄 Leyendo tu hoja de vida…")
         try:
-            lectura = await leer_cv(
-                self.n.cliente_ia(usuario.id),
-                clave,
-                usuario.id,
-                contenido,
-                self.config.cv,
-                permitir_archivo_completo=permitir,
+            lectura = await self._leer_cv_con_intentos(
+                usuario, clave, contenido, permitir=permitir, intentos=1 if silencioso else None
             )
         except RequiereConfirmacion:
             await self._enviar(
@@ -357,11 +368,13 @@ class Conversacion:
                     ]
                 ],
             )
-            return
+            return True
         except CVInvalido as exc:
             await self._enviar(usuario, f"❌ {t.e(exc)}")
-            return
+            return True
         except Saturado:
+            if silencioso:
+                return False
             if reintento < len(self.REINTENTOS_CV_S):
                 espera = self.REINTENTOS_CV_S[reintento]
                 if reintento == 0:
@@ -375,21 +388,19 @@ class Conversacion:
                 self._en_segundo_plano(
                     self._reintentar_cv(usuario.id, contenido, permitir, reintento + 1, espera)
                 )
-                return
+                return True
             await self._enviar(
                 usuario,
                 "Google sigue saturado. Armemos tu perfil con unas preguntas (podrás "
                 "reemplazarlo luego enviando tu CV desde /perfil).",
             )
             await self._perfil_manual(usuario, 0)
-            return
+            return True
         except ErrorIA as exc:
-            await self._enviar(
-                usuario,
-                f"No pude leerla con la IA ({t.e(exc)}). Armemos tu perfil con unas preguntas.",
-            )
-            await self._perfil_manual(usuario, 0)
-            return
+            if silencioso:
+                return False
+            await self._preguntar_fallo_cv(usuario, exc)
+            return True
         self.n.guardar_perfil(usuario.id, lectura.perfil)
         datos = self.n.datos_usuario(usuario.id)
         locales = {c: getattr(lectura.locales, c) for c in ("correo", "telefono", "documento")}
@@ -402,6 +413,93 @@ class Conversacion:
         else:
             await self._enviar(
                 usuario, "✅ Perfil actualizado con tu nueva hoja de vida. Revísalo con /perfil."
+            )
+        return True
+
+    async def _leer_cv_con_intentos(
+        self, usuario: Usuario, clave: str, contenido: bytes, *, permitir: bool, intentos=None
+    ):
+        """Llama a la IA y reintenta los fallos pasajeros (red, error del proveedor) hasta 3 veces.
+
+        La saturación, la cuota y la clave inválida no se reintentan aquí: no se arreglan en segundos.
+        """
+        intentos = intentos or self.INTENTOS_CV
+        for numero in range(1, intentos + 1):
+            try:
+                return await leer_cv(
+                    self.n.cliente_ia(usuario.id),
+                    clave,
+                    usuario.id,
+                    contenido,
+                    self.config.cv,
+                    permitir_archivo_completo=permitir,
+                )
+            except (Saturado, CuotaAgotada, ClaveInvalida):
+                raise
+            except ErrorIA:
+                if numero == intentos:
+                    raise
+                await self.dormir(self.PAUSA_INTENTOS_CV_S)
+
+    @staticmethod
+    def _causa_fallo_cv(exc: ErrorIA) -> str:
+        if isinstance(exc, CuotaAgotada):
+            return (
+                "Lo más probable es que se llenó la cuota de tu clave de Gemini "
+                "(el plan gratuito se agota por día y por minuto)."
+            )
+        if isinstance(exc, ClaveInvalida):
+            return "Gemini rechazó tu clave: puede estar mal copiada, revocada o desactivada."
+        if (exc.motivo or "").startswith("HTTP"):
+            return (
+                f"Gemini respondió con un error ({t.e(exc.motivo)}). Suele ser un fallo "
+                "pasajero del servicio de Google."
+            )
+        return (
+            "No logré conectarme con Gemini. Puede ser una caída momentánea de Google "
+            "o un problema de red del servidor."
+        )
+
+    async def _preguntar_fallo_cv(self, usuario: Usuario, exc: ErrorIA) -> None:
+        botones = [[("✍️ Llenarla a mano", cb("cv", "manual"))]]
+        if isinstance(exc, CuotaAgotada):
+            botones += [
+                [("🔄 Seguir intentando", cb("cv", "reintentar"))],
+                [("🔑 Cambiar API key", cb("cv", "clave"))],
+                [("🔔 Avísame cuando se restablezca la cuota", cb("cv", "avisar"))],
+            ]
+        elif isinstance(exc, ClaveInvalida):
+            botones += [[("🔑 Cambiar API key", cb("cv", "clave"))]]
+        else:
+            botones += [[("🔄 Seguir intentando", cb("cv", "reintentar"))]]
+        intentos = (
+            "" if isinstance(exc, (CuotaAgotada, ClaveInvalida)) else f" tras {self.INTENTOS_CV} intentos"
+        )
+        await self._enviar(
+            usuario,
+            f"⚠️ No pude leer tu hoja de vida con la IA{intentos}.\n\n"
+            f"{self._causa_fallo_cv(exc)}\n\n¿Qué prefieres hacer?",
+            botones,
+        )
+
+    async def _esperar_cuota_cv(self, usuario_id: int, contenido: bytes) -> None:
+        """Prueba cada 30 min (hasta 24 h) y retoma solo cuando la IA vuelve a responder."""
+        for _ in range(self.AVISOS_CUOTA_CV):
+            await self.dormir(self.ESPERA_CUOTA_CV_S)
+            usuario = self.n.usuarios.por_id(usuario_id)
+            # Si eligió otra cosa (a mano, otra clave), el aviso queda cancelado
+            if usuario is None or (self._esperando(usuario) or {}).get("tipo") != "cuota_cv":
+                return
+            if await self._leer_cv(usuario, contenido, permitir=False, silencioso=True):
+                return
+        usuario = self.n.usuarios.por_id(usuario_id)
+        if usuario is not None and (self._esperando(usuario) or {}).get("tipo") == "cuota_cv":
+            self._esperar(usuario, None)
+            await self._enviar(
+                usuario,
+                "La cuota de Gemini sigue sin restablecerse. Cuando quieras, envía tu CV de nuevo "
+                "o usa /perfil.",
+                [[("✍️ Llenarla a mano", cb("cv", "manual"))]],
             )
 
     async def _reintentar_cv(
@@ -691,13 +789,11 @@ class Conversacion:
             self._esperar(usuario, None)
             await self._enviar(usuario, "✅ Guardado.")
 
-    async def _mostrar_navegador(self, usuario: Usuario, *, al_terminar_alta: bool) -> None:
+    async def _mostrar_navegador(self, usuario: Usuario) -> None:
         tienda = (
             f" desde {self.config.extension.url_edge}" if self.config.extension.url_edge else ""
         )
         botones: Botones = [[("🔗 Vincular mi navegador", cb("vincular"))]]
-        if al_terminar_alta:
-            botones.append([("Lo haré después", cb("alta", "fin"))])
         await self._enviar(usuario, t.NAVEGADOR.format(tienda=t.e(tienda)), botones)
 
     async def _terminar_alta(self, usuario: Usuario) -> None:
@@ -1083,6 +1179,20 @@ class Conversacion:
                 )
                 if args[0] == "escaneado":
                     await self._leer_cv(usuario, ruta.read_bytes(), permitir=True)
+                elif args[0] == "reintentar":
+                    await self._leer_cv(usuario, ruta.read_bytes(), permitir=False)
+                elif args[0] == "clave":
+                    self._esperar(usuario, {"tipo": "clave", "retomar_cv": True})
+                    await self._enviar(usuario, t.PEDIR_CLAVE)
+                elif args[0] == "avisar":
+                    self._esperar(usuario, {"tipo": "cuota_cv"})
+                    await self._enviar(
+                        usuario,
+                        "🔔 Listo. Reviso cada 30 minutos y, apenas Gemini responda, leo tu hoja "
+                        "de vida y te aviso. Si prefieres, puedes llenarla a mano cuando quieras.",
+                        [[("✍️ Llenarla a mano", cb("cv", "manual"))]],
+                    )
+                    self._en_segundo_plano(self._esperar_cuota_cv(usuario.id, ruta.read_bytes()))
                 else:
                     await self._perfil_manual(usuario, 0)
             case "seccion":
@@ -1433,7 +1543,7 @@ class Conversacion:
         )
 
     async def _c_vincular(self, usuario: Usuario, args) -> None:
-        await self._mostrar_navegador(usuario, al_terminar_alta=False)
+        await self._mostrar_navegador(usuario)
 
     async def _c_navegadores(self, usuario: Usuario, args) -> None:
         navegadores = vinculos.navegadores_de(self.n.base, usuario.id)

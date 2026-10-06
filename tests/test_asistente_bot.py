@@ -154,11 +154,13 @@ async def responder_faltantes(m, tid):
 
 
 async def alta_completa(m, tid, *, payload=None):
-    """Camino corto: "Información correcta", solo las preguntas que faltan y navegador después."""
+    """Camino corto: "Información correcta", solo las preguntas que faltan y vincula el navegador."""
     await hasta_resumen(m, tid, payload=payload)
     await m.c.al_boton(tid, cb("resumen", "ok"))
     await responder_faltantes(m, tid)
-    await m.c.al_boton(tid, cb("alta", "fin"))
+    await m.c.al_boton(tid, cb("vincular"))
+    usuario = m.n.usuarios.obtener(tid)
+    await m.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
     await m.c.esperar_tareas()
 
 
@@ -175,7 +177,7 @@ def test_alta_desde_el_enlace_retoma_la_vacante(mundo):
     usuario = mundo.n.usuarios.obtener(ANA)
     assert usuario.estado == EstadoUsuario.ACTIVO and usuario.vacante_pendiente is None
     mensajes = "\n".join(mundo.s.de(ANA))
-    assert t.ALTA_LISTA in mensajes
+    assert t.ALTA_LISTA in mundo.s.ediciones[-1][2]  # el cierre entra en la tarjeta del navegador
     assert "Practicante de sistemas" in mensajes and "Mensaje de presentación" in mensajes
     assert any(nombre.startswith("CV_") for _, nombre in mundo.s.documentos)
     datos = mundo.n.datos_usuario(usuario.id)
@@ -365,7 +367,8 @@ def test_cuenta_por_confirmar_muestra_el_correo_y_botones(mundo):
     aviso = {"tipo": "cuenta_por_confirmar", "usuario_id": usuario.id,
              "plataforma": "computrabajo", "asociado": "ana@gmail.com"}  # fmt: skip
     correr(mundo.c.notificar(aviso))
-    chat, texto, botones = mundo.s.ultimo(ANA)
+    chat, mensaje, texto = mundo.s.ediciones[-1]
+    botones = mundo.s.botones_editados[mensaje]
     assert "Conexión con tus portales" in texto
     assert "Computrabajo</b>: sesión iniciada con <b>ana@gmail.com</b>" in texto
     assert botones[0][0][1] == cb("cuenta", "computrabajo", "si")
@@ -461,6 +464,119 @@ def test_gemini_saturado_reintenta_solo_el_cv(mundo):
     assert 120 in esperas
     assert mundo.n.usuarios.obtener(ANA).paso_alta == "resumen"
     assert "Revisa tu información" in mensajes[-1]
+
+
+def _subir_cv_con_fallo(mundo, efecto):
+    """Sube el CV con Gemini fallando con ``efecto``; devuelve la ruta mockeada de generación."""
+    respx.get(MODELOS).mock(return_value=httpx.Response(200, json={"models": []}))
+    ruta = respx.post(url__startswith=MODELOS + "/").mock(side_effect=efecto)
+
+    async def dormir(segundos):
+        return None
+
+    mundo.c.dormir = dormir
+    mundo.n.ia["gemini"].dormir = dormir
+
+    async def flujo():
+        c = mundo.c
+        await c.al_iniciar(ANA, "Ana", None)
+        await c.al_boton(ANA, cb("politica", "si"))
+        await c.al_texto(ANA, CLAVE, mensaje_id=1)
+        await c.al_documento(ANA, pdf_cv(), "cv.pdf")
+
+    correr(flujo())
+    return ruta
+
+
+def _etiquetas(botones):
+    return [b[0] for fila in botones for b in fila]
+
+
+@respx.mock
+def test_cv_sin_contacto_reintenta_y_pregunta_que_hacer(mundo):
+    def caida(_):
+        raise httpx.ConnectError("sin red")
+
+    ruta = _subir_cv_con_fallo(mundo, caida)
+    assert ruta.call_count >= 3
+    _, texto, botones = mundo.s.ultimo(ANA)
+    assert "No logré conectarme con Gemini" in texto
+    assert "3 intentos" in texto
+    etiquetas = _etiquetas(botones)
+    assert any("a mano" in e for e in etiquetas)
+    assert any("Seguir intentando" in e for e in etiquetas)
+    assert not any("API key" in e for e in etiquetas)
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == "cv"
+
+
+@respx.mock
+def test_cv_con_cuota_llena_ofrece_cambiar_clave_o_esperar(mundo):
+    _subir_cv_con_fallo(mundo, lambda _: httpx.Response(429, json={}))
+    _, texto, botones = mundo.s.ultimo(ANA)
+    assert "cuota" in texto
+    etiquetas = _etiquetas(botones)
+    assert any("a mano" in e for e in etiquetas)
+    assert any("Seguir intentando" in e for e in etiquetas)
+    assert any("Cambiar API key" in e for e in etiquetas)
+    assert any("restablezca" in e for e in etiquetas)
+
+
+@respx.mock
+def test_cv_cambiar_clave_retoma_la_lectura(mundo):
+    estado = {"falla": True}
+
+    def generar(_):
+        if estado["falla"]:
+            return httpx.Response(429, json={})
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": (
+                '{"es_cv": true, "nombre": "Ana Pérez", "habilidades_tecnicas": ["Python"]}'
+            )}]}}]},
+        )  # fmt: skip
+
+    _subir_cv_con_fallo(mundo, generar)
+    estado["falla"] = False
+
+    async def cambiar():
+        await mundo.c.al_boton(ANA, cb("cv", "clave"))
+        await mundo.c.al_texto(ANA, "AIzaOtraClave1234567890", mensaje_id=2)
+
+    correr(cambiar())
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == "resumen"
+
+
+@respx.mock
+def test_cv_avisar_cuando_vuelva_la_cuota(mundo):
+    estado = {"falla": True}
+
+    def generar(_):
+        if estado["falla"]:
+            return httpx.Response(429, json={})
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": (
+                '{"es_cv": true, "nombre": "Ana Pérez", "habilidades_tecnicas": ["Python"]}'
+            )}]}}]},
+        )  # fmt: skip
+
+    _subir_cv_con_fallo(mundo, generar)
+    pausas = []
+
+    async def dormir(segundos):
+        pausas.append(segundos)
+        if len(pausas) == 2:  # la cuota vuelve tras el segundo aviso
+            estado["falla"] = False
+
+    mundo.c.dormir = dormir
+
+    async def flujo():
+        await mundo.c.al_boton(ANA, cb("cv", "avisar"))
+        await mundo.c.esperar_tareas()
+
+    correr(flujo())
+    assert pausas == [mundo.c.ESPERA_CUOTA_CV_S] * 2
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == "resumen"
 
 
 # --- botón ⚡ en los mensajes del canal ----------------------------------------------------
