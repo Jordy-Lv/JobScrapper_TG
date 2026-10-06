@@ -591,11 +591,12 @@ class Conversacion:
         sugerido = datos.cuestionario.get(f"sugerido_{item.clave}") if datos else None
         if item.clave == "ciudad" and datos and datos.perfil.ciudad:
             sugerido = datos.perfil.ciudad
+        pregunta, opciones = self._pregunta_y_opciones(usuario, item)
         botones: Botones = []
-        if item.opciones:
+        if opciones:
             botones = [
-                [(o, cb("cuest", indice, n)) for n, o in enumerate(item.opciones[i : i + 4], i)]
-                for i in range(0, len(item.opciones), 4)
+                [(o, cb("cuest", indice, n)) for n, o in enumerate(opciones[i : i + 4], i)]
+                for i in range(0, len(opciones), 4)
             ]
         if sugerido:
             botones.append([(f"Usar {sugerido}", cb("cuest", indice, "sug"))])
@@ -607,7 +608,22 @@ class Conversacion:
             progreso = f"<b>Faltan {restantes}</b>\n" if restantes > 1 else "<b>Última</b>\n"
         if usuario.estado != EstadoUsuario.ALTA:
             progreso = ""
-        await self._enviar(usuario, progreso + t.e(item.pregunta), botones or None)
+        await self._enviar(usuario, progreso + t.e(pregunta), botones or None)
+
+    def _pregunta_y_opciones(self, usuario: Usuario, item) -> tuple[str, tuple[str, ...]]:
+        """La modalidad se pregunta según la ciudad donde vive: lo presencial es en esa ciudad."""
+        if item.clave != "modalidades":
+            return item.pregunta, item.opciones
+        datos = self.n.datos_usuario(usuario.id)
+        ciudad = ""
+        if datos:
+            ciudad = (datos.cuestionario.get("ciudad") or datos.perfil.ciudad or "").strip()
+        if not ciudad:
+            return item.pregunta, item.opciones
+        return (
+            f"Vives en {ciudad}. ¿Qué modalidades aceptas?",
+            (f"Presencial en {ciudad}", "Híbrido y remoto", "Cualquiera"),
+        )
 
     def _faltantes(self, usuario: Usuario) -> list[int]:
         """Índices del cuestionario que el CV no respondió ni el usuario contestó todavía."""
@@ -1040,7 +1056,7 @@ class Conversacion:
                         or ""
                     )
                 else:
-                    valor = item.opciones[int(eleccion)]
+                    valor = self._pregunta_y_opciones(usuario, item)[1][int(eleccion)]
                 self._guardar_respuesta_cuestionario(usuario, indice, valor)
                 await self._siguiente_cuestionario(usuario, indice)
             case "resumen":

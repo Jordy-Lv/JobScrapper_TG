@@ -732,3 +732,19 @@ def test_paso_cv_con_botones_adjuntar_y_desde_cero_proximamente(mundo):
     assert "Próximamente" in mundo.s.de(ANA)[-1]
     correr(mundo.c.al_boton(ANA, cb("cvopc", "adjuntar")))
     assert "Adjunta aquí tu hoja de vida" in mundo.s.de(ANA)[-1]
+
+
+def test_modalidad_se_pregunta_segun_la_ciudad_del_usuario(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    datos = mundo.n.datos_usuario(usuario.id)
+    cuestionario = datos.cuestionario
+    cuestionario["ciudad"] = "Cali"
+    mundo.n.guardar_cuestionario(usuario.id, cuestionario)
+    indice = next(i for i, x in enumerate(t.CUESTIONARIO) if x.clave == "modalidades")
+    correr(mundo.c._preguntar_cuestionario(usuario, indice))
+    _, texto, botones = mundo.s.mensajes[-1]
+    assert "Vives en Cali" in texto
+    assert [b[0] for b in botones[0]] == ["Presencial en Cali", "Híbrido y remoto", "Cualquiera"]
+    correr(mundo.c.al_boton(ANA, cb("cuest", indice, 0)))
+    assert mundo.n.datos_usuario(usuario.id).cuestionario["modalidades"] == "Presencial en Cali"

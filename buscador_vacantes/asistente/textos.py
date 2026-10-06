@@ -169,7 +169,7 @@ CUESTIONARIO: tuple[ItemCuestionario, ...] = (
     ItemCuestionario("horario", "¿Qué disponibilidad de horario tienes?",
                      ("Tiempo completo", "Medio tiempo", "Flexible")),
     ItemCuestionario("modalidades", "¿Qué modalidades aceptas?",
-                     ("Presencial", "Híbrido", "Remoto", "Cualquiera")),
+                     ("Presencial", "Híbrido y remoto", "Cualquiera")),
     ItemCuestionario("estudia_actualmente", "¿Estudias actualmente?", ("Sí", "No")),
     ItemCuestionario("tipo_practica", "¿Qué buscas?",
                      ("Contrato de aprendizaje", "Práctica universitaria", "Pasantía",
