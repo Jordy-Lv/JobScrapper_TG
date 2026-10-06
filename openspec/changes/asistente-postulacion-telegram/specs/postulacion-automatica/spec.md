@@ -172,17 +172,16 @@ Cada usuario SHALL poder activar con `/automatico [umbral]` que el sistema encol
 - **THEN** se encola su postulación y recibe el resultado sin haber tocado ⚡
 
 ### Requirement: Resumen de la postulación confirmada
-Cuando el portal confirma una postulación, el bot SHALL enviar al usuario un resumen detallado con:
-- la vacante: título, empresa, ubicación, salario, tipo de empleo y fechas cuando el portal los publica (datos schema.org/JobPosting), y el enlace a la oferta;
-- de qué trata: el inicio de la descripción, los requisitos detectados, el nivel, la modalidad y la afinidad;
-- la hoja de vida que recibió el portal: el CV adaptado adjunto (y se le envía el PDF), el CV del perfil del portal actualizado, o la hoja de vida que el usuario ya tenía guardada en el portal;
-- cada pregunta del formulario con la respuesta enviada y su origen explicado (perfil, banco, aprendida, IA o usuario).
+Cuando el portal confirma una postulación, el bot SHALL enviar al usuario una tarjeta de tres líneas con el título y la empresa, la confirmación del portal con su hora, y si fue **con encuesta** (con el número de respuestas) o **sin encuesta** y qué hoja de vida recibió el portal. Debajo MUST ir un botón por cada detalle:
+- **📝 Ver respuestas** (solo con encuesta): cada pregunta con la respuesta enviada y su origen como icono (👤 perfil, 💬 lo que dijo el usuario, 🤖 IA) con una leyenda;
+- **📋 De qué trata**: ficha (ubicación, salario, tipo, fechas), descripción plegable, lo que piden y la afinidad;
+- **🔗 Oferta**: enlace a la vacante.
 
-El resumen MUST escapar el HTML y partirse en varios mensajes si supera el límite de Telegram.
+Si el CV adaptado se adjuntó o se cargó en el portal, el bot MUST enviarle el PDF. Todo texto MUST escaparse como HTML y partirse si supera el límite de Telegram. Si el portal no muestra la confirmación, la tarjeta MUST decirlo y los botones siguen disponibles.
 
 #### Scenario: Postulación con preguntas de selección
-- **WHEN** Computrabajo confirma una postulación con 3 preguntas respondidas y sin campo de archivo
-- **THEN** el usuario recibe la ficha de la vacante, las 3 preguntas con su respuesta y origen, y el aviso de que el portal envió la hoja de vida guardada en su perfil
+- **WHEN** Computrabajo confirma una postulación con 4 preguntas respondidas y sin campo de archivo
+- **THEN** el usuario recibe la tarjeta «Con encuesta · 4 respuestas · HdV del perfil» con los tres botones, y al tocar «Ver respuestas» recibe las 4 preguntas con su respuesta y su origen
 
 ### Requirement: Bloqueos de la cuenta del portal
 Si el portal no abre la postulación porque pide una acción en la cuenta del usuario (correo marcado como incorrecto, cuenta sin verificar o redirección al inicio de la cuenta), la extensión SHALL terminar como `bloqueada` con el motivo `portal_*` sin llenar ningún formulario de esa página. El bot MUST explicarle al usuario qué resolver en el portal, ofrecer 🔁 Reintentar y no enviar el paquete de respaldo (el portal tampoco acepta la postulación a mano).

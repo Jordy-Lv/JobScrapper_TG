@@ -161,6 +161,9 @@ def extraer(html: str, url: str, hoy: date) -> Detalle:
             return Detalle(EstadoPagina.OK, texto[:MAX_DETALLE], ficha_de(oferta) or None)
     host = urlparse(url).hostname or ""
     selectores = {
+        # Sin JSON-LD, el texto de la oferta está en los párrafos de div[div-link]; sin esto
+        # se leía toda la página (menús, "Ocultaste esta oferta", "Volver al listado"…)
+        "computrabajo.com": "div[div-link] p.mbB",
         "getonbrd.com": "div.gb-rich-txt",
         "linkedin.com": "div.description__text, section.show-more-less-html",
     }

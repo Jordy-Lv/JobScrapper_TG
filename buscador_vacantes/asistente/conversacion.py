@@ -1065,6 +1065,9 @@ class Conversacion:
                     await self._enviar(
                         usuario, f"Escribe tu respuesta para:\n<b>{t.e(pregunta)}</b>"
                     )
+            case "res":
+                await self._ver_resumen(usuario, int(args[0]), args[1])
+                return None
             case "rei":
                 p = self.n.cola.obtener(int(args[0]))
                 if p is None or p.usuario_id != usuario.id or not p.id_corto:
@@ -1546,12 +1549,11 @@ class Conversacion:
                 pass
         await self._enviar(usuario, f"<b>{t.e(fila['titulo'] if fila else '')}</b>\n{estado}")
 
-    async def _enviar_resumen(self, usuario: Usuario, p, *, confirmada: bool = True) -> None:
-        """Resumen detallado de una postulación confirmada: la vacante, la hoja de vida que
-        recibió el portal y cada pregunta con su respuesta y su origen."""
+    def _datos_resumen(self, p, *, confirmada: bool = True):
+        """Datos de una postulación para el resumen: (datos, CV usado o None)."""
         vacante = self.n.indice.obtener(p.id_corto) if p.id_corto else None
         if vacante is None:
-            return
+            return None, None
         cx = self.n.base.cx
         fila = cx.execute(
             "SELECT p.afinidad, p.cv_archivo, p.terminada_en, v.requisitos_json "
@@ -1579,12 +1581,38 @@ class Conversacion:
             respuestas=[dict(r) for r in respuestas], pasos=[x["paso"] for x in pasos],
             cv_adjunto=adjunto, confirmada=confirmada,
         )  # fmt: skip
-        for texto in resumen_postulacion.mensajes(datos):
-            await self._enviar(usuario, texto)
         usado = adjunto or ("cv_subir" in datos.pasos and "cv_verificar_fallo" not in datos.pasos)
-        if usado and fila["cv_archivo"] and Path(fila["cv_archivo"]).is_file():
-            await self.s.documento(usuario.telegram_id, Path(fila["cv_archivo"]),
-                                   "La hoja de vida que recibió el portal")  # fmt: skip
+        cv = Path(fila["cv_archivo"]) if usado and fila["cv_archivo"] else None
+        return datos, cv if cv and cv.is_file() else None
+
+    async def _enviar_resumen(self, usuario: Usuario, p, *, confirmada: bool = True) -> None:
+        """Tarjeta corta de una postulación confirmada. El detalle va en sus botones: las
+        respuestas con su origen, de qué trata la vacante y el enlace a la oferta."""
+        datos, cv = self._datos_resumen(p, confirmada=confirmada)
+        if datos is None:
+            return
+        fila = []
+        if datos.respuestas:
+            fila.append(("📝 Ver respuestas", cb("res", p.id, "r")))
+        if datos.vacante.detalle or datos.requisitos or datos.vacante.ficha:
+            fila.append(("📋 De qué trata", cb("res", p.id, "d")))
+        if datos.vacante.url:
+            fila.append(("🔗 Oferta", "url:" + datos.vacante.url))
+        await self._enviar(usuario, resumen_postulacion.tarjeta(datos), [fila] if fila else None)
+        if cv is not None:
+            await self.s.documento(usuario.telegram_id, cv, "La hoja de vida que recibió el portal")
+
+    async def _ver_resumen(self, usuario: Usuario, pid: int, parte: str) -> None:
+        p = self.n.cola.obtener(pid)
+        if p is None or p.usuario_id != usuario.id:
+            return
+        datos, _ = self._datos_resumen(p, confirmada=p.estado != E.INCIERTA)
+        if datos is None:
+            return
+        textos = (resumen_postulacion.respuestas(datos) if parte == "r"
+                  else resumen_postulacion.de_que_trata(datos))  # fmt: skip
+        for texto in textos:
+            await self._enviar(usuario, texto)
 
     async def _avisar_evento(self, ev: Evento) -> None:
         usuario = self.n.usuarios.por_id(ev.usuario_id)

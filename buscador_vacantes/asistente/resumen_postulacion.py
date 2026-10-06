@@ -18,14 +18,6 @@ from buscador_vacantes.asistente.vacantes import VacanteIndexada
 MAX_MENSAJE = 4000  # Telegram corta en 4096; se deja margen para las etiquetas HTML
 MAX_DESCRIPCION = 700
 
-ORIGENES = {
-    "perfil": "dato de tu perfil",
-    "banco": "pregunta conocida, respondida con tu perfil",
-    "aprendida": "lo que me respondiste en otra postulación",
-    "ia": "redactada con IA a partir de tu CV y la vacante",
-    "usuario": "me lo dijiste para esta vacante",
-}
-
 
 @dataclass
 class DatosResumen:
@@ -64,64 +56,79 @@ def _fecha(valor: str | None) -> str | None:
     return f"{dia}/{mes}/{año}"
 
 
+ICONOS_ORIGEN = {"perfil": "👤", "banco": "👤", "aprendida": "💬", "usuario": "💬", "ia": "🤖"}
+LEYENDA_ORIGEN = {"👤": "tu perfil", "💬": "lo que me dijiste", "🤖": "redactada con IA"}
+
+
+def _portal(d: DatosResumen) -> str:
+    return t.NOMBRES_PLATAFORMA.get(d.plataforma or "", d.plataforma or "el portal")
+
+
 def hoja_de_vida(d: DatosResumen) -> str:
     """Qué hoja de vida recibió el portal, según los pasos que reportó la extensión."""
-    portal = t.NOMBRES_PLATAFORMA.get(d.plataforma or "", d.plataforma or "el portal")
     if d.cv_adjunto:
-        return f"Adjunté tu CV adaptado a esta vacante (te lo paso abajo): {t.e(d.cv_adjunto)}"
+        return "CV adaptado adjunto"
     if "cv_subir" in d.pasos and "cv_verificar_fallo" not in d.pasos:
-        return (
-            f"Actualicé la hoja de vida de tu perfil de {portal} con tu CV adaptado a esta "
-            "vacante y con esa se postuló (te lo paso abajo)."
-        )
-    if "cv_sin_autorizacion" in d.pasos:
-        return (
-            f"{portal} envió la hoja de vida que tienes guardada en tu perfil del portal: no me "
-            "autorizaste a cambiarla."
-        )
-    return (
-        f"{portal} envió la hoja de vida que tienes guardada en tu perfil del portal (su "
-        "formulario no permite adjuntar otra)."
-    )
+        return "CV adaptado en tu perfil"
+    return "HdV del perfil"
 
 
-def mensajes(d: DatosResumen) -> list[str]:
-    """El resumen en uno o más mensajes HTML de Telegram (se parte por líneas si es largo)."""
+def tarjeta(d: DatosResumen) -> str:
+    """El mensaje corto de una postulación confirmada: tres líneas y los botones aparte."""
+    v = d.vacante
+    portal = t.e(_portal(d))
+    empresa = v.empresa or (v.ficha or {}).get("empresa")
+    titulo = f"<b>{t.e(v.titulo or 'Vacante')}</b>" + (f" · {t.e(empresa)}" if empresa else "")
+    cuando = d.enviada_en.astimezone().strftime("%d/%m, %H:%M") if d.enviada_en else ""
+    fecha = f" ({cuando})" if cuando else ""
+    if d.confirmada:
+        primera = f"✅ {titulo}"
+        segunda = f"{portal} confirmó tu postulación{fecha}"
+    else:
+        primera = f"❔ {titulo}"
+        segunda = (
+            f"Se envió{fecha}, pero {portal} no mostró la confirmación: revísala en "
+            "«Mis postulaciones»"
+        )
+    encuesta = "Sin encuesta"
+    if d.con_encuesta:
+        encuesta = f"Con encuesta · {len(d.respuestas)} respuestas"
+    return "\n".join([primera, segunda, f"{encuesta} · {hoja_de_vida(d)}"])
+
+
+def respuestas(d: DatosResumen) -> list[str]:
+    """Cada pregunta con su respuesta; el origen va como icono con una leyenda al final."""
+    lineas = [f"📝 <b>Tus respuestas</b> · {t.e(d.vacante.titulo or 'Vacante')}"]
+    usados: list[str] = []
+    for n, resp in enumerate(d.respuestas, 1):
+        icono = ICONOS_ORIGEN.get(resp.get("origen") or "", "")
+        if icono and icono not in usados:
+            usados.append(icono)
+        respuesta = t.e(resp.get("respuesta") or "—")
+        lineas += ["", f"{n}· {t.e(resp['pregunta'])}", f"<b>{respuesta}</b> {icono}"]
+    if usados:
+        lineas += ["", " · ".join(f"{i} {LEYENDA_ORIGEN[i]}" for i in usados)]
+    return partir(lineas)
+
+
+def de_que_trata(d: DatosResumen) -> list[str]:
+    """Ficha de la vacante, su descripción (plegable) y lo que piden."""
     v = d.vacante
     ficha = v.ficha or {}
-    portal = t.NOMBRES_PLATAFORMA.get(d.plataforma or "", d.plataforma or "el portal")
-    lineas = ["📋 <b>Resumen de tu postulación</b>"]
-    cuando = d.enviada_en.astimezone().strftime(" el %d/%m a las %H:%M") if d.enviada_en else ""
-    if d.confirmada:
-        lineas.append(f"✅ Confirmada por {t.e(portal)}{cuando}")
-    else:
-        lineas.append(
-            f"❔ Enviada{cuando}, pero {t.e(portal)} no mostró la confirmación: revísala en "
-            "«Mis postulaciones» del portal"
-        )
-    if d.con_encuesta:
-        lineas.append(f"📝 Con encuesta: {len(d.respuestas)} preguntas respondidas")
-    else:
-        lineas.append("⚡ Sin encuesta: el portal recibió la postulación al tocar Aplicar")
-    lineas += ["", f"💼 <b>{t.e(v.titulo or 'Vacante')}</b>"]
+    lineas = [f"📋 <b>{t.e(v.titulo or 'Vacante')}</b>"]
     empresa = v.empresa or ficha.get("empresa")
-    if empresa:
-        lineas.append(f"🏢 {t.e(empresa)}")
-    if ficha.get("ubicacion"):
-        lineas.append(f"📍 {t.e(ficha['ubicacion'])}")
-    if ficha.get("salario"):
-        lineas.append(f"💰 {t.e(ficha['salario'])}")
-    if ficha.get("tipo"):
-        lineas.append(f"🕒 {t.e(ficha['tipo'])}")
+    datos = [f"🏢 {t.e(empresa)}" if empresa else ""]
+    for icono, clave in (("📍", "ubicacion"), ("💰", "salario"), ("🕒", "tipo")):
+        if ficha.get(clave):
+            datos.append(f"{icono} {t.e(ficha[clave])}")
+    if linea := " · ".join(x for x in datos if x):
+        lineas.append(linea)
     publicada, vence = _fecha(ficha.get("publicada")), _fecha(ficha.get("vence"))
     if publicada or vence:
         partes = [f"publicada {publicada}" if publicada else "", f"vence {vence}" if vence else ""]
-        lineas.append("📅 " + " · ".join(p for p in partes if p).capitalize())
-    if v.url:
-        lineas.append(f'🔗 <a href="{t.e(v.url)}">Ver la oferta</a>')
-
+        lineas.append("📅 " + " · ".join(x for x in partes if x).capitalize())
     if v.detalle:
-        lineas += ["", "<b>De qué trata</b>", t.e(descripcion_corta(v.detalle))]
+        lineas += ["", f"<blockquote expandable>{t.e(descripcion_corta(v.detalle))}</blockquote>"]
     r = d.requisitos or {}
     piden = []
     if r.get("obligatorios"):
@@ -132,24 +139,10 @@ def mensajes(d: DatosResumen) -> list[str]:
               if r.get(c)]  # fmt: skip
     if extras:
         piden.append(" · ".join(extras))
-    if piden or d.afinidad is not None:
-        lineas += ["", "<b>Lo que piden</b>", *piden]
-        if d.afinidad is not None:
-            lineas.append(f"🎯 Tu afinidad: {d.afinidad} %")
-
-    lineas += ["", "📄 <b>Hoja de vida enviada</b>", hoja_de_vida(d)]
-
-    lineas.append("")
-    if d.respuestas:
-        lineas.append(f"📝 <b>Lo que respondí ({len(d.respuestas)})</b>")
-        for n, resp in enumerate(d.respuestas, 1):
-            origen = ORIGENES.get(resp.get("origen") or "", resp.get("origen") or "")
-            lineas.append(f"{n}. <b>{t.e(resp['pregunta'])}</b>")
-            lineas.append(f"   → {t.e(resp.get('respuesta') or '—')}")
-            if origen:
-                lineas.append(f"   <i>{t.e(origen)}</i>")
-    else:
-        lineas.append(f"📝 {t.e(portal)} no pidió encuesta en esta postulación.")
+    if d.afinidad is not None:
+        piden.append(f"🎯 Tu afinidad: {d.afinidad} %")
+    if piden:
+        lineas += ["", *piden]
     return partir(lineas)
 
 

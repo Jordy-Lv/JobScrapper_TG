@@ -331,4 +331,5 @@
 - [x] 10.7 Resumen detallado de la postulación confirmada (`asistente/resumen_postulacion.py`): ficha del JobPosting guardada en `vacantes.ficha_json` (esquema 2), descripción, requisitos, hoja de vida enviada (paso `cv_adjunto`) y cada respuesta con su origen. Verificar con `tests/test_asistente_resumen_postulacion.py` y las pruebas del bot.
 - [x] 10.8 Encuesta que el portal no acepta (el formulario sigue en pantalla tras enviar, postulaciones 12 a 14): queda `formulario_desconocido` y se puede reintentar, en vez de `incierta`.
 - [x] 10.9 El reporte dice si la postulación fue con encuesta o sin encuesta, y también se envía (con la advertencia) cuando la postulación queda `incierta`.
+- [x] 10.11 Plantilla del resumen: tarjeta de tres líneas con botones (respuestas, de qué trata, oferta) y la descripción de Computrabajo sin ruido de la página (`div[div-link] p.mbB`).
 - [ ] 10.10 Reintentar en el piloto las postulaciones 6 y 7 con la extensión recargada y comprobar el resumen en el bot.

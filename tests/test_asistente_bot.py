@@ -533,31 +533,51 @@ def postulacion_enviada_con_datos(mundo):
     return usuario, p, cv
 
 
-def test_resumen_detallado_al_confirmar_la_postulacion(mundo):
+def tarjeta_de(mundo):
+    return next(m for m in mundo.s.mensajes if m[0] == ANA and "confirmó tu postulación" in m[1])
+
+
+def test_tarjeta_corta_con_botones_al_confirmar_la_postulacion(mundo):
     usuario, p, cv = postulacion_enviada_con_datos(mundo)
     mundo.s.documentos.clear()
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
-    resumen = next(m for m in mundo.s.de(ANA) if "Resumen de tu postulación" in m)
-    for esperado in (
-        "Practicante de sistemas", "ACME", "Medellín, Antioquia", "$ 1.423.500 mensual",
-        "De qué trata", "soporte de equipos", "Piden: Sistemas, Redes", "Tu afinidad: 60 %",
-        "Hoja de vida enviada", cv.name, "Lo que respondí (2)", "¿En qué institución estudias?",
-        "→ SENA", "dato de tu perfil", "redactada con IA",
-    ):  # fmt: skip
-        assert esperado in resumen, esperado
+    _, texto, botones = tarjeta_de(mundo)
+    assert texto.count("\n") == 2
+    assert "Practicante de sistemas</b> · ACME" in texto
+    assert "Con encuesta · 2 respuestas · CV adaptado adjunto" in texto
+    assert botones == [[
+        ("📝 Ver respuestas", cb("res", p.id, "r")),
+        ("📋 De qué trata", cb("res", p.id, "d")),
+        ("🔗 Oferta", "url:" + URL_LI),
+    ]]  # fmt: skip
     assert mundo.s.documentos == [(ANA, cv.name)]
     assert "¿Cómo te fue?" in mundo.s.de(ANA)[-1]
 
 
-def test_resumen_sin_adjunto_dice_que_fue_la_hoja_de_vida_del_portal(mundo):
+def test_botones_de_la_tarjeta_muestran_respuestas_y_descripcion(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.al_boton(ANA, cb("res", p.id, "r")))
+    respuestas = mundo.s.de(ANA)[-1]
+    assert "<b>SENA</b> 👤" in respuestas and "¿Por qué te interesa?" in respuestas
+    assert "🤖 redactada con IA" in respuestas
+    correr(mundo.c.al_boton(ANA, cb("res", p.id, "d")))
+    trata = mundo.s.de(ANA)[-1]
+    for esperado in ("Medellín, Antioquia", "$ 1.423.500 mensual", "soporte de equipos",
+                     "Piden: Sistemas, Redes", "Tu afinidad: 60 %"):  # fmt: skip
+        assert esperado in trata, esperado
+    # Los botones de otra persona no muestran nada
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.al_boton(LUIS, cb("res", p.id, "r")))
+    assert len(mundo.s.mensajes) == antes
+
+
+def test_tarjeta_sin_adjunto_dice_hdv_del_perfil_y_no_manda_pdf(mundo):
     usuario, p, _ = postulacion_enviada_con_datos(mundo)
     with mundo.base.transaccion() as cx:
         cx.execute("DELETE FROM postulacion_pasos WHERE paso = 'cv_adjunto'")
-        cx.execute("UPDATE postulaciones SET plataforma = 'computrabajo' WHERE id = ?", (p.id,))
     mundo.s.documentos.clear()
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
-    resumen = next(m for m in mundo.s.de(ANA) if "Resumen de tu postulación" in m)
-    assert "Computrabajo envió la hoja de vida que tienes guardada en tu perfil" in resumen
+    assert "HdV del perfil" in tarjeta_de(mundo)[1]
     assert not mundo.s.documentos
 
 
@@ -577,10 +597,10 @@ def test_bloqueo_del_portal_explica_que_hacer_sin_paquete(mundo):
     assert not mundo.s.de(DUENO)  # no es un formulario roto: no se avisa al dueño
 
 
-def test_sin_confirmacion_igual_envia_el_reporte_con_la_encuesta(mundo):
+def test_sin_confirmacion_igual_envia_la_tarjeta_con_las_respuestas(mundo):
     usuario, p, _ = postulacion_enviada_con_datos(mundo)
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.INCIERTA)))
-    resumen = next(m for m in mundo.s.de(ANA) if "Resumen de tu postulación" in m)
-    assert "no mostró la confirmación" in resumen
-    assert "Con encuesta: 2 preguntas respondidas" in resumen
-    assert "→ SENA" in resumen
+    texto = next(m[1] for m in mundo.s.mensajes if "no mostró la confirmación" in m[1])
+    assert "Con encuesta · 2 respuestas" in texto
+    correr(mundo.c.al_boton(ANA, cb("res", p.id, "r")))
+    assert "<b>SENA</b>" in mundo.s.de(ANA)[-1]

@@ -210,3 +210,19 @@ def test_ficha_con_rango_salarial_y_sin_datos():
                                       "unitText": "MONTH"}}}  # fmt: skip
     assert ficha_de(rango) == {"salario": "$ 1.300.000 – $ 1.800.000 mensual"}
     assert ficha_de({"employmentType": "OTHER", "baseSalary": {"value": 0}}) == {}
+
+
+def test_computrabajo_sin_jsonld_lee_solo_la_descripcion():
+    """Marcado real de la oferta (2026-10-06): el texto va en div[div-link] p.mbB."""
+    html = (
+        "<html><body><main><a>Volver al listado</a><p>Ocultaste esta oferta, pulsa Recuperar</p>"
+        "<div class='box_detail fl w100_m'><div><div class='mb40 pb40 bb1' div-link=''>"
+        "<h2>Descripción de la oferta</h2><p class='fs16'>$ 1.750.905,00 (Mensual)</p>"
+        "<p class='mbB'>Multinacional de bebidas busca aprendices SENA con inicio inmediato "
+        + "de etapa práctica. " * 5
+        + "</p></div></div></div></main></body></html>"
+    )
+    detalle = extraer(html, "https://co.computrabajo.com/ofertas-de-trabajo/x-ABC", HOY)
+    assert detalle.estado == EstadoPagina.OK
+    assert detalle.texto.startswith("Multinacional de bebidas")
+    assert "Volver al listado" not in detalle.texto and "Ocultaste" not in detalle.texto
