@@ -575,3 +575,12 @@ def test_bloqueo_del_portal_explica_que_hacer_sin_paquete(mundo):
     assert botones == [[("🔁 Reintentar", cb("rei", p.id))]]
     assert not any("paquete" in m for m in mundo.s.de(ANA)[antes:])
     assert not mundo.s.de(DUENO)  # no es un formulario roto: no se avisa al dueño
+
+
+def test_sin_confirmacion_igual_envia_el_reporte_con_la_encuesta(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.INCIERTA)))
+    resumen = next(m for m in mundo.s.de(ANA) if "Resumen de tu postulación" in m)
+    assert "no mostró la confirmación" in resumen
+    assert "Con encuesta: 2 preguntas respondidas" in resumen
+    assert "→ SENA" in resumen

@@ -1,6 +1,6 @@
 {
-  "version": "2026.10.06-1",
-  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Con sesión (2026-10-05): [data-info-user] muestra el nombre del candidato; el correo está en candidato.co.computrabajo.com/candidate/home dentro de .header_popup strong; el enlace Ingresar (span.js_login) queda oculto. Postulación real (2026-10-05, postulación 4): la página de 'Preguntas de selección' manda a un formulario en /candidate/kq (KillerQuestions[]) cuyo botón de envío es <input id=\"btnKiller\" type=\"submit\"> sin texto (motor.js no leía el value de los <input>, se corrigió); se agregó input#btnKiller como respaldo directo. Revisión 2026-10-05 (postulaciones 6 y 7): las preguntas de selección marcan lo obligatorio con data-rule-required/data-val-requiredif (no con required); la pregunta de los radios está en un <label class='fs16'> fuera del div.group. Con el correo de la cuenta marcado como incorrecto ('Email incorrecto') o sin verificar ('Tu cuenta está pendiente de verificar'), el enlace de Aplicar redirige a /candidate/home (?uvma=true) y no postula. La página de una postulación ya hecha (/match/) se titula 'Aplicación enviada …' y dice 'Ya aplicaste a esta oferta'. Enviar las preguntas recarga la página: el paso enviar navega.",
+  "version": "2026.10.06-2",
+  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Con sesión (2026-10-05): [data-info-user] muestra el nombre del candidato; el correo está en candidato.co.computrabajo.com/candidate/home dentro de .header_popup strong; el enlace Ingresar (span.js_login) queda oculto. Postulación real (2026-10-05, postulación 4): la página de 'Preguntas de selección' manda a un formulario en /candidate/kq (KillerQuestions[]) cuyo botón de envío es <input id=\"btnKiller\" type=\"submit\"> sin texto (motor.js no leía el value de los <input>, se corrigió); se agregó input#btnKiller como respaldo directo. Revisión 2026-10-05 (postulaciones 6 y 7): las preguntas de selección marcan lo obligatorio con data-rule-required/data-val-requiredif (no con required); la pregunta de los radios está en un <label class='fs16'> fuera del div.group. Con el correo de la cuenta marcado como incorrecto ('Email incorrecto') o sin verificar ('Tu cuenta está pendiente de verificar'), el enlace de Aplicar redirige a /candidate/home (?uvma=true) y no postula. La página de una postulación ya hecha (/match/) se titula 'Aplicación enviada …' y dice 'Ya aplicaste a esta oferta'. Enviar las preguntas recarga la página: el paso enviar navega. Piloto 2026-10-06 (postulaciones 12 a 14, con encuesta): tras pulsar 'Enviar mi HdV' el formulario /candidate/kq seguía en pantalla 25 s después; se reporta como no enviado.",
   "verificado": {
     "vacante": true,
     "postulacion": false,
@@ -191,6 +191,10 @@
           "resultado": "bloqueada",
           "motivo": "portal_redirige_inicio"
         }
+      ],
+      "no_enviado": [
+        "form#kqForm",
+        "form[action*='/candidate/kq']"
       ]
     }
   ]

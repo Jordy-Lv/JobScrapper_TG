@@ -37,6 +37,12 @@ class DatosResumen:
     respuestas: list[dict] = field(default_factory=list)  # pregunta, respuesta, origen
     pasos: list[str] = field(default_factory=list)  # nombres de los pasos registrados
     cv_adjunto: str | None = None  # nombre del PDF que la extensión adjuntó
+    confirmada: bool = True  # False: se envió pero el portal no mostró la confirmación
+
+    @property
+    def con_encuesta(self) -> bool:
+        """El portal pidió responder preguntas (encuesta) antes de recibir la postulación."""
+        return bool(self.respuestas) or "llenado" in self.pasos
 
 
 def descripcion_corta(texto: str | None, limite: int = MAX_DESCRIPCION) -> str:
@@ -85,9 +91,18 @@ def mensajes(d: DatosResumen) -> list[str]:
     ficha = v.ficha or {}
     portal = t.NOMBRES_PLATAFORMA.get(d.plataforma or "", d.plataforma or "el portal")
     lineas = ["📋 <b>Resumen de tu postulación</b>"]
-    if d.enviada_en:
-        cuando = d.enviada_en.astimezone().strftime("%d/%m a las %H:%M")
-        lineas.append(f"✅ Confirmada por {t.e(portal)} el {cuando}")
+    cuando = d.enviada_en.astimezone().strftime(" el %d/%m a las %H:%M") if d.enviada_en else ""
+    if d.confirmada:
+        lineas.append(f"✅ Confirmada por {t.e(portal)}{cuando}")
+    else:
+        lineas.append(
+            f"❔ Enviada{cuando}, pero {t.e(portal)} no mostró la confirmación: revísala en "
+            "«Mis postulaciones» del portal"
+        )
+    if d.con_encuesta:
+        lineas.append(f"📝 Con encuesta: {len(d.respuestas)} preguntas respondidas")
+    else:
+        lineas.append("⚡ Sin encuesta: el portal recibió la postulación al tocar Aplicar")
     lineas += ["", f"💼 <b>{t.e(v.titulo or 'Vacante')}</b>"]
     empresa = v.empresa or ficha.get("empresa")
     if empresa:
@@ -134,7 +149,7 @@ def mensajes(d: DatosResumen) -> list[str]:
             if origen:
                 lineas.append(f"   <i>{t.e(origen)}</i>")
     else:
-        lineas.append(f"📝 {t.e(portal)} no hizo preguntas en esta postulación.")
+        lineas.append(f"📝 {t.e(portal)} no pidió encuesta en esta postulación.")
     return partir(lineas)
 
 

@@ -1546,7 +1546,7 @@ class Conversacion:
                 pass
         await self._enviar(usuario, f"<b>{t.e(fila['titulo'] if fila else '')}</b>\n{estado}")
 
-    async def _enviar_resumen(self, usuario: Usuario, p) -> None:
+    async def _enviar_resumen(self, usuario: Usuario, p, *, confirmada: bool = True) -> None:
         """Resumen detallado de una postulación confirmada: la vacante, la hoja de vida que
         recibió el portal y cada pregunta con su respuesta y su origen."""
         vacante = self.n.indice.obtener(p.id_corto) if p.id_corto else None
@@ -1577,7 +1577,7 @@ class Conversacion:
             enviada_en=de_texto(fila["terminada_en"]) if fila["terminada_en"] else None,
             afinidad=fila["afinidad"], requisitos=requisitos,
             respuestas=[dict(r) for r in respuestas], pasos=[x["paso"] for x in pasos],
-            cv_adjunto=adjunto,
+            cv_adjunto=adjunto, confirmada=confirmada,
         )  # fmt: skip
         for texto in resumen_postulacion.mensajes(datos):
             await self._enviar(usuario, texto)
@@ -1638,6 +1638,8 @@ class Conversacion:
             await self._editar_progreso(
                 usuario, p.id, estado + ". Revisa «Mis postulaciones» en el portal."
             )
+            # Igual se le cuenta qué se respondió y con qué hoja de vida, para que pueda revisar
+            await self._enviar_resumen(usuario, p, confirmada=False)
         elif ev.estado == E.BLOQUEADA and (ev.detalle or "") in t.BLOQUEOS_PORTAL:
             nombre = t.NOMBRES_PLATAFORMA.get(p.plataforma, p.plataforma or "el portal")
             await self._editar_progreso(

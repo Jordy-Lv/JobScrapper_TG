@@ -459,6 +459,11 @@
           if (hayCaptcha(sel)) return { captcha: true };
           await dormir(500);
         } while (Date.now() < limite);
+        // El formulario sigue en pantalla: el portal no aceptó el envío (validación propia,
+        // un campo que no aceptó la respuesta…). No es "sin confirmación": no se envió nada.
+        if (paso.no_enviado && buscar(paso.no_enviado)) {
+          return error(paso, "el portal no aceptó el envío: el formulario sigue en pantalla");
+        }
         return { confirmado: false, html: htmlSinValores() };
       }
       default:

@@ -966,3 +966,25 @@ def test_olvidar_cuenta_pide_confirmar_dos_veces(tmp_path, api):
     assert "Seguro" in texto_1
     assert api.de("olvidar") == [{"plataforma": "computrabajo"}]
     assert "computrabajo" not in api.cuentas
+
+
+def test_encuesta_que_el_portal_no_acepta_queda_como_no_enviada(tmp_path, api):
+    """El formulario sigue en pantalla tras enviar (postulaciones 12 a 14 del piloto)."""
+    portales = portales_listos()
+    portales.poner(VACANTE, "ct_vacante.html")
+    portales.redirecciones[MATCH] = KQ
+    portales.poner(KQ, "ct_kq.html", {"if (falta) e.preventDefault();": "e.preventDefault();"})
+    api.trabajos = [trabajo()]
+    api.respuestas = respuestas_kq
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido"
+    assert "no aceptó el envío" in resultado["motivo"]

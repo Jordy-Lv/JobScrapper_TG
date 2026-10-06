@@ -41,7 +41,7 @@ def test_mensajes_escapan_html_y_no_pasan_el_limite_de_telegram():
 
 def test_sin_preguntas_lo_dice():
     d = DatosResumen(vacante(), "computrabajo", None)
-    assert "Computrabajo no hizo preguntas" in mensajes(d)[-1]
+    assert "Computrabajo no pidió encuesta" in mensajes(d)[-1]
 
 
 def test_hoja_de_vida_segun_los_pasos():
@@ -58,3 +58,8 @@ def test_partir_no_corta_lineas():
         "a" * 10 + "\n" + "b" * 10,
         "c" * 10,
     ]
+
+
+def test_sin_encuesta_lo_dice_en_la_cabecera():
+    d = DatosResumen(vacante(), "computrabajo", None)
+    assert "Sin encuesta" in mensajes(d)[0]
