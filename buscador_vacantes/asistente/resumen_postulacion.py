@@ -74,26 +74,23 @@ def hoja_de_vida(d: DatosResumen) -> str:
 
 
 def tarjeta(d: DatosResumen) -> str:
-    """El mensaje corto de una postulación confirmada: tres líneas y los botones aparte."""
+    """El mensaje corto de una postulación: título, empresa y una cita con el estado."""
     v = d.vacante
     portal = t.e(_portal(d))
     empresa = v.empresa or (v.ficha or {}).get("empresa")
-    titulo = f"<b>{t.e(v.titulo or 'Vacante')}</b>" + (f" · {t.e(empresa)}" if empresa else "")
+    icono = "✅" if d.confirmada else "❔"
+    cabecera = [f"{icono} <b>{t.e(v.titulo or 'Vacante')}</b>"]
+    if empresa:
+        cabecera.append(t.e(empresa))
     cuando = d.enviada_en.astimezone().strftime("%d/%m, %H:%M") if d.enviada_en else ""
-    fecha = f" ({cuando})" if cuando else ""
     if d.confirmada:
-        primera = f"✅ {titulo}"
-        segunda = f"{portal} confirmó tu postulación{fecha}"
+        estado = f"{portal} confirmó tu postulación"
     else:
-        primera = f"❔ {titulo}"
-        segunda = (
-            f"Se envió{fecha}, pero {portal} no mostró la confirmación: revísala en "
-            "«Mis postulaciones»"
-        )
-    encuesta = "Sin encuesta"
-    if d.con_encuesta:
-        encuesta = f"Con encuesta · {len(d.respuestas)} respuestas"
-    return "\n".join([primera, segunda, f"{encuesta} · {hoja_de_vida(d)}"])
+        estado = f"{portal} no mostró la confirmación: revísala en «Mis postulaciones»"
+    detalle = [cuando] if cuando else []
+    detalle.append(f"Encuesta de {len(d.respuestas)}" if d.con_encuesta else "Sin encuesta")
+    detalle.append(hoja_de_vida(d))
+    return "\n".join([*cabecera, "", f"<blockquote>{estado}\n{' · '.join(detalle)}</blockquote>"])
 
 
 def respuestas(d: DatosResumen) -> list[str]:

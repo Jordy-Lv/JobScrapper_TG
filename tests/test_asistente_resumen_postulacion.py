@@ -34,21 +34,21 @@ def test_descripcion_corta_corta_en_un_final_de_frase():
     assert descripcion_corta("corta") == "corta"
 
 
-def test_tarjeta_con_encuesta_son_tres_lineas():
+def test_tarjeta_con_encuesta_titulo_empresa_y_cita():
     d = DatosResumen(vacante(), "computrabajo", CUANDO, respuestas=[resp(i) for i in range(4)])
     lineas = tarjeta(d).split("\n")
-    assert len(lineas) == 3
-    assert lineas[0] == "✅ <b>Aprendiz &lt;SENA&gt;</b> · Euro"
-    assert lineas[1].startswith("Computrabajo confirmó tu postulación (")
-    assert lineas[2] == "Con encuesta · 4 respuestas · HdV del perfil"
+    assert lineas[0] == "✅ <b>Aprendiz &lt;SENA&gt;</b>"
+    assert lineas[1] == "Euro" and lineas[2] == ""
+    assert lineas[3] == "<blockquote>Computrabajo confirmó tu postulación"
+    assert lineas[4].endswith(" · Encuesta de 4 · HdV del perfil</blockquote>")
 
 
 def test_tarjeta_sin_encuesta_y_sin_confirmacion():
     d = DatosResumen(vacante(), "computrabajo", CUANDO)
-    assert tarjeta(d).endswith("Sin encuesta · HdV del perfil")
+    assert tarjeta(d).endswith("Sin encuesta · HdV del perfil</blockquote>")
     d = DatosResumen(vacante(), "computrabajo", CUANDO, respuestas=[resp(1)], confirmada=False)
-    lineas = tarjeta(d).split("\n")
-    assert lineas[0].startswith("❔") and "no mostró la confirmación" in lineas[1]
+    texto = tarjeta(d)
+    assert texto.startswith("❔") and "no mostró la confirmación" in texto
 
 
 def test_hoja_de_vida_segun_los_pasos():

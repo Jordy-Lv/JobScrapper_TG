@@ -542,9 +542,8 @@ def test_tarjeta_corta_con_botones_al_confirmar_la_postulacion(mundo):
     mundo.s.documentos.clear()
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
     _, texto, botones = tarjeta_de(mundo)
-    assert texto.count("\n") == 2
-    assert "Practicante de sistemas</b> · ACME" in texto
-    assert "Con encuesta · 2 respuestas · CV adaptado adjunto" in texto
+    assert "Practicante de sistemas</b>\nACME\n" in texto
+    assert "Encuesta de 2 · CV adaptado adjunto</blockquote>" in texto
     assert botones == [[
         ("📝 Ver respuestas", cb("res", p.id, "r")),
         ("📋 De qué trata", cb("res", p.id, "d")),
@@ -601,7 +600,7 @@ def test_sin_confirmacion_igual_envia_la_tarjeta_con_las_respuestas(mundo):
     usuario, p, _ = postulacion_enviada_con_datos(mundo)
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.INCIERTA)))
     texto = next(m[1] for m in mundo.s.mensajes if "no mostró la confirmación" in m[1])
-    assert "Con encuesta · 2 respuestas" in texto
+    assert "Encuesta de 2" in texto
     correr(mundo.c.al_boton(ANA, cb("res", p.id, "r")))
     assert "<b>SENA</b>" in mundo.s.de(ANA)[-1]
 
