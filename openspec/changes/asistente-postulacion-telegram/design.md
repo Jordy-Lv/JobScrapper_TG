@@ -322,6 +322,15 @@ asistente:
   saltan si no hay Chromium.
 - El buscador solo importa `asistente/enlaces.py`.
 
+### Tarjeta única de conexión (`asistente/tarjeta.py`)
+
+- El estado de la tarjeta vive en `kv` bajo `tarjeta:{usuario_id}` como JSON: `mensaje_id`, `navegador`, `cuentas` (por plataforma: estado y correo), `listo` (el alta terminó) y `pid` (postulación que se muestra dentro). `tarjeta.py` son funciones puras que arman el texto; `conversacion.py` edita el mensaje.
+- Los avisos `navegador_vinculado`, `cuenta_por_confirmar`, `cuenta_distinta`, `portal_listo`, `portal_incompleto`, el cierre del alta y las respuestas a los botones `cuenta:*` actualizan ese estado y reeditan la tarjeta; ya no envían mensajes propios. Si no hay tarjeta abierta se crea una; si la edición falla (mensaje borrado) se envía una nueva y se guarda su `mensaje_id`.
+- La vacante pendiente del alta se absorbe en la tarjeta: `procesar_toque` recibe `tarjeta=True` desde `_terminar_alta`, guarda el `mensaje_id` de la tarjeta en la postulación y el progreso (`_pintar_progreso`) pinta el encabezado de la tarjeta más las etapas. Un ⚡ posterior sigue creando su propio mensaje de progreso.
+- Los botones Confirmar y Cancelar se pasan en cada edición mientras haya una cuenta por confirmar, porque editar sin botones los quita.
+- Al terminar la postulación, `_editar_progreso` deja el resultado en el mismo mensaje y borra el estado de la tarjeta; una cuenta aún por confirmar vuelve a pedirse con el siguiente aviso de la extensión.
+- Editar no genera notificación en Telegram: se acepta porque el proceso ocurre en el chat que el usuario tiene abierto mientras vincula e inicia sesión.
+
 ## Análisis de casos
 
 | Caso | Comportamiento |

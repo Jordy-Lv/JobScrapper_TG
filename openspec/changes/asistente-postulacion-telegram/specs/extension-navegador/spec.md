@@ -31,7 +31,7 @@ El servidor MUST guardar solo el hash del token. Un usuario MUST poder ver y rev
 
 #### Scenario: Vinculación automática
 - **WHEN** el usuario con la extensión instalada toca "Vincular mi navegador"
-- **THEN** la página confirma la vinculación y el bot avisa "✅ Navegador vinculado"
+- **THEN** la página confirma la vinculación y el bot abre la tarjeta de conexión con "✓ Navegador vinculado"
 
 #### Scenario: Extensión no instalada
 - **WHEN** el usuario abre el enlace de vinculación sin la extensión
@@ -47,7 +47,7 @@ Lo hace al vincularse, al visitar el portal y antes de cada postulación. MUST N
 
 #### Scenario: Portal listo
 - **WHEN** el usuario inicia sesión en Computrabajo en el navegador vinculado
-- **THEN** el bot avisa "Computrabajo listo ✅ · cuenta: ana.perez@gmail.com"
+- **THEN** la tarjeta de conexión marca "✓ Computrabajo · ana.perez@gmail.com"
 
 ### Requirement: Cuenta del portal asociada a cada usuario
 La primera vez que se detecta una sesión en un portal, el bot SHALL mostrar al usuario el correo de esa cuenta y pedirle que confirme que es la suya. Desde la confirmación, ese correo queda como **cuenta asociada** del usuario para ese portal. El correo se guarda cifrado, con un hash para compararlo.
@@ -63,7 +63,7 @@ Si el correo no se puede leer, la postulación MUST detenerse como `formulario_d
 
 #### Scenario: Confirmación inicial
 - **WHEN** la extensión detecta por primera vez la sesión de Magneto con el correo ana.perez@gmail.com
-- **THEN** el bot pregunta "¿Esta es tu cuenta de Magneto: ana.perez@gmail.com?" y, al confirmar, queda asociada
+- **THEN** la tarjeta de conexión pregunta "¿Esta es tu cuenta de Magneto: ana.perez@gmail.com?" con los botones Confirmar y Cancelar y, al confirmar, esa misma línea queda "✓" y la cuenta asociada
 
 #### Scenario: Otra persona inició sesión en el navegador
 - **WHEN** la cuenta asociada de Ana en Computrabajo es ana.perez@gmail.com y en su navegador hay una sesión abierta de luis.g@hotmail.com
@@ -76,6 +76,23 @@ Si el correo no se puede leer, la postulación MUST detenerse como `formulario_d
 #### Scenario: Consulta de cuentas
 - **WHEN** el usuario envía `/estado`
 - **THEN** ve, por plataforma, el estado (listo, sin sesión, incompleto) y el correo asociado
+
+### Requirement: Tarjeta única del proceso de conexión
+El bot SHALL mostrar el proceso desde la vinculación del navegador hasta la primera postulación en curso en **un solo mensaje** (la tarjeta de conexión) que edita conforme avanzan los pasos, en lugar de enviar un mensaje por cada paso. La tarjeta MUST mostrar solo lo necesario:
+- el navegador vinculado;
+- una línea por portal con su estado: sesión pendiente, cuenta por confirmar (con los botones Confirmar y Cancelar dentro de la tarjeta), cuenta confirmada, perfil en preparación, cuenta distinta (con sus botones) o cuenta no aceptada;
+- el cierre del alta («¡Listo! Ya puedes tocar ⚡ Postularme…») cuando el alta termina;
+- si el alta termina con una vacante pendiente, esa vacante con las etapas de su postulación (abrir la oferta, hoja de vida, formulario, envío) en la misma tarjeta.
+
+Al terminar esa postulación, la tarjeta pasa al resultado de la postulación. Si no hay una tarjeta abierta cuando llega un aviso de cuenta (por ejemplo, el segundo portal días después), el bot MUST abrir una tarjeta nueva solo con esas líneas. Si el mensaje de la tarjeta ya no se puede editar, MUST enviarse uno nuevo. Los botones de la tarjeta MUST conservarse en cada edición mientras haya una cuenta pendiente. La tarjeta de progreso de las postulaciones siguientes y el aviso de afinidad no cambian.
+
+#### Scenario: Primera vez, de la vinculación a la postulación
+- **WHEN** el usuario vincula su navegador, inicia sesión en Computrabajo, confirma la cuenta y su vacante pendiente empieza a postularse
+- **THEN** todo ocurre en un único mensaje que va marcando "✓ Navegador vinculado", "✓ Computrabajo · correo" y las etapas de la postulación, sin mensajes sueltos intermedios
+
+#### Scenario: Cuenta por confirmar dentro de la tarjeta
+- **WHEN** la extensión detecta la sesión de un portal con un correo sin confirmar
+- **THEN** la línea de ese portal muestra el correo y los botones Confirmar y Cancelar en la misma tarjeta, y al pulsarlos la línea se actualiza sin enviar otro mensaje
 
 ### Requirement: Cuenta y perfil del portal
 La extensión SHALL distinguir tres estados por portal: sin sesión o sin cuenta, perfil incompleto y listo.

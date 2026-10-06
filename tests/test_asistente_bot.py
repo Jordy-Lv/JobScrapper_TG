@@ -41,6 +41,7 @@ class SalidaFalsa:
     def __init__(self):
         self.mensajes = []  # (chat, texto, botones)
         self.ediciones = []
+        self.botones_editados = {}  # mensaje → botones de su última edición
         self.documentos = []
         self.borrados = []
         self._id = 0
@@ -52,6 +53,7 @@ class SalidaFalsa:
 
     async def editar(self, chat_id, mensaje_id, texto, botones=None):
         self.ediciones.append((chat_id, mensaje_id, texto))
+        self.botones_editados[mensaje_id] = botones
 
     async def documento(self, chat_id, ruta, texto=None):
         self.documentos.append((chat_id, Path(ruta).name))
@@ -364,8 +366,10 @@ def test_cuenta_por_confirmar_muestra_el_correo_y_botones(mundo):
              "plataforma": "computrabajo", "asociado": "ana@gmail.com"}  # fmt: skip
     correr(mundo.c.notificar(aviso))
     chat, texto, botones = mundo.s.ultimo(ANA)
-    assert "Sesión iniciada en Computrabajo" in texto and "ana@gmail.com" in texto
+    assert "Conexión con tus portales" in texto
+    assert "Computrabajo</b>: sesión iniciada con <b>ana@gmail.com</b>" in texto
     assert botones[0][0][1] == cb("cuenta", "computrabajo", "si")
+    assert botones[0][1][1] == cb("cuenta", "computrabajo", "no")
 
 
 @respx.mock
@@ -785,7 +789,10 @@ def test_al_vincular_el_navegador_el_alta_termina_sin_boton_terminar(mundo):
     correr(flujo())
     assert mundo.n.usuarios.obtener(ANA).estado != EstadoUsuario.ALTA
     assert not any("Cuando termines" in m[1] for m in mundo.s.mensajes)
-    assert t.ALTA_LISTA in mundo.s.de(ANA)
+    tarjetas = [m for m in mundo.s.mensajes if "Conexión con tus portales" in m[1]]
+    assert len(tarjetas) == 1 and "✓ Navegador vinculado" in tarjetas[0][1]
+    assert t.ALTA_LISTA in mundo.s.ediciones[-1][2]  # el cierre del alta entra en la misma tarjeta
+    assert not any(m[1] == t.ALTA_LISTA for m in mundo.s.mensajes)
 
 
 @respx.mock
@@ -810,6 +817,113 @@ def test_start_con_el_navegador_ya_vinculado_cierra_el_alta_y_retoma_la_vacante(
     correr(flujo())
     assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ACTIVO
     mensajes = "\n".join(mundo.s.de(ANA))
-    assert t.ALTA_LISTA in mensajes
-    assert "Paso 5 de 5" not in mensajes.split(t.ALTA_LISTA)[-1]
+    assert "Conexión con tus portales" in mensajes and "✓ Navegador vinculado" in mensajes
+    assert "Paso 5 de 5" not in mensajes.split("Conexión con tus portales")[-1]
     assert "Practicante de sistemas" in mensajes
+
+
+async def vincular_navegador(m, tid):
+    """Alta hasta el paso del navegador; la prueba vincula con el evento de la API."""
+    await m.c.al_boton(tid, cb("resumen", "ok"))
+    await responder_faltantes(m, tid)
+    await m.c.al_boton(tid, cb("vincular"))
+    usuario = m.n.usuarios.obtener(tid)
+    with m.n.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO navegadores(usuario_id, token_hash, creado, ultimo_latido) "
+            "VALUES (?, 'h', 'x', 'x')",
+            (usuario.id,),
+        )
+    await m.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+    await m.c.esperar_tareas()
+    return m.n.usuarios.obtener(tid)
+
+
+def aviso_cuenta(usuario, plataforma, correo, tipo="cuenta_por_confirmar"):
+    return {"tipo": tipo, "usuario_id": usuario.id, "plataforma": plataforma, "asociado": correo}
+
+
+def kv_tarjeta(mundo, usuario):
+    return mundo.n.base.kv_obtener(f"tarjeta:{usuario.id}")
+
+
+def test_cuentas_se_confirman_en_la_misma_tarjeta_sin_mensajes_nuevos(mundo):
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        usuario = await vincular_navegador(mundo, ANA)
+        await mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com"))
+        enviados = len(mundo.s.mensajes)
+        await mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si"))
+        assert len(mundo.s.mensajes) == enviados  # confirmar solo edita la tarjeta
+
+    correr(flujo())
+    id_tarjeta = next(i for i, m in enumerate(mundo.s.mensajes, 1) if "Conexión" in m[1])
+    chat, mensaje, texto = mundo.s.ediciones[-1]
+    assert mensaje == id_tarjeta and "✓ Computrabajo · ana@gmail.com" in texto
+    assert mundo.s.botones_editados[mensaje] is None  # ya no queda nada por confirmar
+    assert not any("quedó asociada" in m[1] or "Sesión iniciada" in m[1] for m in mundo.s.mensajes)
+
+
+def test_cancelar_la_cuenta_deja_la_linea_pendiente_en_la_tarjeta(mundo):
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        usuario = await vincular_navegador(mundo, ANA)
+        await mundo.c.notificar(aviso_cuenta(usuario, "magneto", "otra@gmail.com"))
+        await mundo.c.al_boton(ANA, cb("cuenta", "magneto", "no"))
+
+    correr(flujo())
+    assert "· Magneto: inicia sesión con tu cuenta" in mundo.s.ediciones[-1][2]
+
+
+@respx.mock
+def test_la_vacante_del_alta_se_postula_dentro_de_la_misma_tarjeta(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    mundo.c.intervalo_animacion = 0.01
+    mundo.n.camino_automatico = lambda *_: None  # la vacante de la prueba es de LinkedIn
+
+    async def flujo():
+        await hasta_resumen(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
+        usuario = await vincular_navegador(mundo, ANA)
+        fila = mundo.n.base.cx.execute("SELECT id, mensaje_id FROM postulaciones").fetchone()
+        base = {"postulacion_id": fila["id"], "usuario_id": usuario.id}
+        await mundo.c.notificar({"tipo": "postulando", **base})
+        await mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com"))
+        await asyncio.sleep(0.05)  # la animación sigue editando con los botones puestos
+        con_botones = mundo.s.botones_editados[fila["mensaje_id"]]
+        await mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si"))
+        await mundo.c.notificar({"tipo": "paso", "paso": "llenado", **base})
+        await asyncio.sleep(0.05)
+        await mundo.c.notificar(Evento("resultado", fila["id"], usuario.id, E.ENVIADA))
+        return usuario, fila, con_botones
+
+    usuario, fila, con_botones = correr(flujo())
+    assert con_botones[0][0][1] == cb("cuenta", "computrabajo", "si")
+    textos = [e[2] for e in mundo.s.ediciones if e[1] == fila["mensaje_id"]]
+    assert any("✓ Navegador vinculado" in x and "Abriendo la oferta" in x for x in textos)
+    assert any("✓ Computrabajo · ana@gmail.com" in x and "Respondiendo el formulario…" in x
+               for x in textos)  # fmt: skip
+    assert "Postulación enviada" in textos[-1] and "Conexión" not in textos[-1]
+    assert not kv_tarjeta(mundo, usuario)
+    # Un solo mensaje para todo el proceso: nada de avisos sueltos de cuenta ni de alta
+    todos = "\n".join(mundo.s.de(ANA))
+    assert "Sesión iniciada" not in todos and "quedó asociada" not in todos
+    assert t.ALTA_LISTA not in todos
+
+
+def test_si_la_tarjeta_fue_borrada_se_envia_una_nueva(mundo):
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        usuario = await vincular_navegador(mundo, ANA)
+
+        async def editar(chat, mensaje, texto, botones=None):
+            raise RuntimeError("Message to edit not found")
+
+        mundo.s.editar = editar
+        aviso = aviso_cuenta(usuario, "computrabajo", "ana@gmail.com", "portal_listo")
+        await mundo.c.notificar(aviso)
+        return usuario
+
+    usuario = correr(flujo())
+    chat, texto, _ = mundo.s.ultimo(ANA)
+    assert "✓ Computrabajo · ana@gmail.com" in texto
+    assert f'"mensaje_id": {len(mundo.s.mensajes)}' in kv_tarjeta(mundo, usuario)

@@ -42,10 +42,12 @@ gratuito. La versión con diagramas está en `docs/guia-asistente-postulacion.pd
      *Cargar descomprimida*. Cuando haya versión nueva, el bot te avisa.
    - Fija el ícono de la extensión en la barra para ver su estado.
 6. **Vincula tu navegador.** En el bot toca *Vincular mi navegador*: se abre una página que la
-   extensión reconoce sola. El bot confirma «Navegador vinculado».
+   extensión reconoce sola. El bot abre una **tarjeta de conexión** con «✓ Navegador vinculado».
+   Esa misma tarjeta se va actualizando sola: no llegan mensajes sueltos por cada paso.
 7. **Inicia sesión en Computrabajo y Magneto** en ese mismo navegador, como siempre. La extensión
-   lo detecta y el bot te avisa «Computrabajo listo» y «Magneto listo», con el correo de cada
-   cuenta para que confirmes que es la tuya.
+   lo detecta y, en la misma tarjeta, el bot te muestra el correo de cada cuenta con los botones
+   *Confirmar* y *Cancelar* para que confirmes que es la tuya. Si ya tocaste una vacante, la
+   tarjeta sigue con las etapas de esa postulación hasta el resultado.
    - *Si no tienes cuenta:* el bot te da el enlace de registro. La cuenta la creas tú, porque
      requiere tu contraseña y la verificación de tu correo.
    - *Si tu perfil del portal está incompleto:* la extensión lo completa con tu perfil y tu CV.
@@ -122,7 +124,8 @@ En cada postulación hay botones para marcar entrevista, rechazo u oferta y llev
 - La extensión solo tiene permiso sobre Computrabajo, Magneto y el servidor del asistente.
 - Los portales pueden restringir el uso automatizado de las cuentas. Por eso se postula con
   pausas, con tope diario y deteniéndose ante cualquier verificación.
-- Con `/borrarme` se elimina todo: perfil, CV, clave, historial y vínculos.
+- Con `/borrarme` se elimina todo: perfil, CV, clave, historial y vínculos. La conversación de
+  Telegram no se borra; si quieres limpiarla, elimina el chat desde Telegram.
 
 ## Preguntas frecuentes
 

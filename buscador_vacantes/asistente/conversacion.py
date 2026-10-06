@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from buscador_vacantes.asistente import progreso, resumen_postulacion, vinculos
+from buscador_vacantes.asistente import progreso, resumen_postulacion, tarjeta, vinculos
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.cola import CON_RESPALDO, E, Evento
 from buscador_vacantes.asistente.cv_lectura import (
@@ -43,6 +43,7 @@ from buscador_vacantes.asistente.respuestas import (
     resolver,
     separar_preguntas,
 )
+from buscador_vacantes.asistente.tarjeta import Tarjeta
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuario
 from buscador_vacantes.estado import a_texto, de_texto
 
@@ -709,15 +710,73 @@ class Conversacion:
                 cx.execute(
                     "UPDATE usuarios SET cv_base_archivo = ? WHERE id = ?", (str(ruta), usuario.id)
                 )
-        await self._enviar(usuario, t.ALTA_LISTA)
+        if self._tarjeta(usuario) or self.n.tiene_navegador(usuario.id):
+            await self._actualizar_tarjeta(usuario, self._alta_lista)
+        else:  # el alta cerró sin vincular el navegador: no hay proceso que mostrar
+            await self._enviar(usuario, t.ALTA_LISTA)
         if usuario.vacante_pendiente:
             pendiente = usuario.vacante_pendiente
             self.n.usuarios.fijar_vacante_pendiente(usuario, None)
-            await self.procesar_toque(self.n.usuarios.por_id(usuario.id), pendiente)
+            await self.procesar_toque(
+                self.n.usuarios.por_id(usuario.id), pendiente, en_tarjeta=True
+            )
+
+    @staticmethod
+    def _alta_lista(tj: Tarjeta) -> None:
+        tj.navegador = tj.listo = True
+
+    # --- tarjeta de conexión ----------------------------------------------------------
+
+    def _tarjeta(self, usuario: Usuario) -> Tarjeta | None:
+        return Tarjeta.de_texto(self.n.base.kv_obtener(f"tarjeta:{usuario.id}"))
+
+    def _guardar_tarjeta(self, usuario: Usuario, tj: Tarjeta | None) -> None:
+        self.n.base.kv_guardar(f"tarjeta:{usuario.id}", tj.a_texto() if tj else "")
+
+    async def _actualizar_tarjeta(self, usuario: Usuario, cambiar: Callable[[Tarjeta], None]):
+        """Aplica el cambio al estado de la tarjeta y la vuelve a pintar (la crea si no existe)."""
+        tj = self._tarjeta(usuario) or Tarjeta()
+        cambiar(tj)
+        self._guardar_tarjeta(usuario, tj)
+        await self._pintar_tarjeta(usuario, tj)
+
+    async def _pintar_tarjeta(
+        self, usuario: Usuario, tj: Tarjeta, cuadro: int = 0, *, animacion: bool = False
+    ) -> None:
+        """Edita la tarjeta; si el mensaje ya no existe envía uno nuevo (salvo en la animación)."""
+        vacante = etapa = None
+        if tj.pid is not None:
+            fila = self.n.base.cx.execute(
+                "SELECT v.titulo, v.empresa FROM postulaciones p LEFT JOIN vacantes v "
+                "ON v.id_corto = p.id_corto WHERE p.id = ?",
+                (tj.pid,),
+            ).fetchone()
+            vacante = (fila["titulo"], fila["empresa"]) if fila else (None, None)
+            etapa = self._etapas.get(tj.pid)
+        texto = tarjeta.texto(tj, vacante, etapa, cuadro)
+        botones = tarjeta.botones(tj, cb)
+        if tj.mensaje_id:
+            if animacion:  # un cuadro perdido no se reenvía: lo atrapa la animación
+                await self.s.editar(usuario.telegram_id, tj.mensaje_id, texto, botones)
+                return
+            try:
+                await self.s.editar(usuario.telegram_id, tj.mensaje_id, texto, botones)
+                return
+            except Exception:  # noqa: BLE001 - mensaje borrado: se envía uno nuevo
+                log.info("No se pudo editar la tarjeta de %s", usuario.id)
+        tj.mensaje_id = await self._enviar(usuario, texto, botones)
+        self._guardar_tarjeta(usuario, tj)
+        if tj.pid is not None and tj.mensaje_id:
+            with self.n.base.transaccion() as cx:
+                cx.execute(
+                    "UPDATE postulaciones SET mensaje_id = ? WHERE id = ?", (tj.mensaje_id, tj.pid)
+                )
 
     # --- toque de ⚡ ----------------------------------------------------------------
 
-    async def procesar_toque(self, usuario: Usuario, id_corto: str, *, origen: str = "boton"):
+    async def procesar_toque(
+        self, usuario: Usuario, id_corto: str, *, origen: str = "boton", en_tarjeta: bool = False
+    ):
         """Encola la vacante. Devuelve el toque, o None si las postulaciones están en pausa."""
         async with self._candados[usuario.id]:
             if usuario.pausado:
@@ -735,9 +794,16 @@ class Conversacion:
             await self._enviar(usuario, f"<b>{titulo}</b>\nYa la tienes: {estado}.")
             return toque
         if toque.camino == Camino.AUTOMATICA:
-            mensaje = await self._enviar(
-                usuario, f"<b>{titulo}</b>\n⏳ En cola. Te aviso el resultado."
-            )
+            tj = self._tarjeta(usuario) if en_tarjeta else None
+            if tj is not None and tj.pid is None:  # la vacante del alta sigue en la tarjeta
+                tj.pid = toque.postulacion.id
+                self._guardar_tarjeta(usuario, tj)
+                await self._pintar_tarjeta(usuario, tj)
+                mensaje = tj.mensaje_id
+            else:
+                mensaje = await self._enviar(
+                    usuario, f"<b>{titulo}</b>\n⏳ En cola. Te aviso el resultado."
+                )
             if mensaje:
                 with self.n.base.transaccion() as cx:
                     cx.execute(
@@ -1135,26 +1201,20 @@ class Conversacion:
                 plataforma, decision = args
                 if decision == "si":
                     self.n.cuentas.confirmar(usuario.id, plataforma, ahora)
-                    await self._enviar(
-                        usuario,
-                        f"✅ {t.NOMBRES_PLATAFORMA.get(plataforma, plataforma)}"
-                        " quedó asociada a tu perfil.",
+                    await self._actualizar_tarjeta(
+                        usuario, lambda tj: tj.poner_cuenta(plataforma, tarjeta.CONFIRMADA)
                     )
                 elif decision == "nueva":
                     # No se guarda el correo ajeno: se olvida la asociación y en el próximo
                     # latido se pide confirmar la cuenta abierta, mostrando su correo completo
                     self.n.cuentas.olvidar(usuario.id, plataforma)
-                    await self._enviar(
-                        usuario,
-                        "Listo: en unos segundos te pido confirmar la "
-                        "cuenta abierta en tu navegador.",
+                    await self._actualizar_tarjeta(
+                        usuario, lambda tj: tj.poner_cuenta(plataforma, tarjeta.REVISANDO)
                     )
                 else:
                     self.n.cuentas.olvidar(usuario.id, plataforma)
-                    await self._enviar(
-                        usuario,
-                        "Entendido: no postularé con esa cuenta. Inicia "
-                        "sesión con la tuya en ese navegador.",
+                    await self._actualizar_tarjeta(
+                        usuario, lambda tj: tj.poner_cuenta(plataforma, tarjeta.PENDIENTE)
                     )
             case "nav":
                 vinculos.revocar(self.n.base, usuario.id, int(args[0]))
@@ -1516,46 +1576,31 @@ class Conversacion:
         tipo = d["tipo"]
         nombre = t.NOMBRES_PLATAFORMA.get(d.get("plataforma", ""), d.get("plataforma", ""))
         if tipo == "navegador_vinculado":
-            await self._enviar(
-                usuario,
-                "✅ Navegador vinculado. Ahora inicia sesión en "
-                "Computrabajo y Magneto en ese navegador.",
-            )
+            await self._actualizar_tarjeta(usuario, lambda tj: setattr(tj, "navegador", True))
             if usuario.estado == EstadoUsuario.ALTA:  # vincular era lo último del alta
                 await self._terminar_alta(usuario)
         elif tipo == "cuenta_por_confirmar":
-            await self._enviar(
+            await self._actualizar_tarjeta(
                 usuario,
-                f"🔓 Sesión iniciada en {nombre} mediante la extensión.\n"
-                f"Cuenta: <b>{t.e(d['asociado'])}</b>\n\n"
-                "¿La confirmas para postular con ella?",
-                [
-                    [
-                        ("✅ Confirmar", cb("cuenta", d["plataforma"], "si")),
-                        ("Cancelar", cb("cuenta", d["plataforma"], "no")),
-                    ]
-                ],
+                lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.POR_CONFIRMAR, d["asociado"]),
             )
         elif tipo == "cuenta_distinta":
-            await self._enviar(
+            await self._actualizar_tarjeta(
                 usuario,
-                f"⚠️ La cuenta de {nombre} abierta en tu navegador ({t.e(d['encontrado'])}) no es "
-                f"la tuya ({t.e(d['asociado'])}). No postularé con ella.",
-                [
-                    [
-                        ("Es mi cuenta nueva, usarla", cb("cuenta", d["plataforma"], "nueva")),
-                        ("No es mía", cb("cuenta", d["plataforma"], "no")),
-                    ]
-                ],
+                lambda tj: tj.poner_cuenta(
+                    d["plataforma"], tarjeta.DISTINTA, d["asociado"], d["encontrado"]
+                ),
             )
         elif tipo == "cuenta_sin_correo":
             log.info("No se pudo leer el correo de %s para el usuario %s", nombre, usuario.id)
         elif tipo == "portal_listo":
-            await self._enviar(usuario, f"✅ {nombre} listo · cuenta: {t.e(d.get('asociado'))}")
-        elif tipo == "portal_incompleto":
-            await self._enviar(
+            await self._actualizar_tarjeta(
                 usuario,
-                f"🛠 Tu perfil de {nombre} está incompleto: lo completo con tus datos y tu CV.",
+                lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.CONFIRMADA, d.get("asociado")),
+            )
+        elif tipo == "portal_incompleto":
+            await self._actualizar_tarjeta(
+                usuario, lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.COMPLETANDO)
             )
         elif tipo == "verificacion":
             await self._enviar(
@@ -1582,6 +1627,10 @@ class Conversacion:
                 await self._pintar_progreso(usuario, pid, 0)
 
     async def _pintar_progreso(self, usuario: Usuario, pid: int, cuadro: int) -> None:
+        tj = self._tarjeta(usuario)
+        if tj is not None and tj.pid == pid:  # la postulación vive dentro de la tarjeta
+            await self._pintar_tarjeta(usuario, tj, cuadro, animacion=True)
+            return
         fila = self.n.base.cx.execute(
             "SELECT p.mensaje_id, v.titulo, v.empresa FROM postulaciones p LEFT JOIN vacantes v "
             "ON v.id_corto = p.id_corto WHERE p.id = ?",
@@ -1619,6 +1668,9 @@ class Conversacion:
 
     async def _editar_progreso(self, usuario: Usuario, pid: int, estado: str) -> None:
         await self._detener_progreso(pid)
+        tj = self._tarjeta(usuario)
+        if tj is not None and tj.pid == pid:  # el mensaje pasa a ser el de la postulación
+            self._guardar_tarjeta(usuario, None)
         fila = self.n.base.cx.execute(
             "SELECT p.mensaje_id, v.titulo FROM postulaciones p LEFT JOIN vacantes v "
             "ON v.id_corto = p.id_corto WHERE p.id = ?",
