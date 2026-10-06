@@ -88,6 +88,33 @@ de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat d
 - **`.env`** (permisos 600, nunca en git): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
   `TELEGRAM_CHAT_PRUEBA`, `DEEPSEEK_API_KEY` y `HEALTHCHECK_URL`. Si `TELEGRAM_BOT_TOKEN` está
   vacío, el token se lee del archivo indicado en `telegram.token_hermes` (el bot de Hermes).
+  Con el asistente activo se suman `ASISTENTE_BOT_TOKEN` y `ASISTENTE_CLAVE_CIFRADO`.
+
+## Asistente de postulación (opcional)
+
+Servicio aparte, desactivado por defecto (`asistente.activo: false`), que permite a los miembros
+del grupo privado postularse a una vacante tocando **⚡ Postularme** en la ficha del canal. Tiene
+tres partes: un bot de Telegram (alta, perfil y avisos), una API local que se expone con Tailscale
+Funnel y una extensión de navegador (`extension/`, Edge/Chrome) que llena y envía el formulario con
+la sesión del propio usuario, con un CV levemente adaptado a cada vacante. Hoy postula solo en
+Computrabajo y Magneto; en las demás entrega un paquete para copiar.
+
+```bash
+uv sync --group asistente                       # dependencias del asistente
+uv run --group asistente buscador.py asistente generar-clave        # clave maestra (respaldarla)
+uv run --group asistente buscador.py asistente servicio             # bot, API y tareas (systemd)
+uv run --group asistente buscador.py asistente enlace computrabajo:ABC123   # enlace ⚡ de una vacante
+uv run --group asistente buscador.py asistente selectores recargar  # tras editar assets/selectores/
+uv run --group asistente buscador.py asistente empaquetar-extension # .zip para la tienda de Edge
+```
+
+- Instalación y operación del servicio: `deploy/INSTALAR.md`, sección 11.
+- Lo que ve el usuario (alta, extensión, comandos, preguntas frecuentes): `docs/guia-usuario.md`.
+- Plan y decisiones: `openspec/changes/asistente-postulacion-telegram/`.
+- Su configuración va en `asistente:` de `config.yaml`; lo propio de cada PC (bot, URL pública,
+  rutas) en `config.local.yaml`, que no se sube a git.
+- Con el asistente activo, el resumen diario agrega sus métricas agregadas (usuarios, navegadores
+  en línea, postulaciones, % de respuestas sin IA).
 
 ## Estado y logs
 
@@ -112,14 +139,16 @@ buscador_vacantes/          código del buscador
   incidentes.py             detección determinista de incidentes
   reportero.py              diagnóstico IA de incidentes y alertas planas
   resumen.py                resumen diario con métricas y recomendaciones
+  asistente/                bot, API, cola y CV del asistente de postulación (opcional)
   simulacion.py             --simular-incidente
   salud.py                  heartbeat a healthchecks.io
   migrar_historial.py       importación del historial de Hermes
+extension/                  extensión de navegador del asistente (Manifest V3)
 tests/                      pruebas (pytest + respx) y fixtures
 deploy/                     unidades systemd y guía de instalación en Fedora
 assets/                     banner del canal y certs/ (certificado intermedio del SPE)
-docs/                       especificación de origen y referencia_hermes/ (scripts
-                            originales de Hermes y NOTAS.md, solo referencia)
+docs/                       especificación de origen, guía del usuario del asistente y
+                            referencia_hermes/ (scripts originales de Hermes, solo referencia)
 ```
 
 Para agregar una fuente: crear `buscador_vacantes/fuentes/<nombre>.py` con

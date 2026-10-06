@@ -298,7 +298,7 @@
   - día con actividad;
   - asistente desactivado con el resumen idéntico al de antes;
   - el cuerpo a DeepSeek no contiene ids ni nombres.
-- [ ] 9.2 Crear `deploy/buscador-asistente.service` y la sección del asistente en `deploy/INSTALAR.md`:
+- [x] 9.2 Crear `deploy/buscador-asistente.service` y la sección del asistente en `deploy/INSTALAR.md`:
   - BotFather;
   - agregar el bot asistente como administrador sin permisos del grupo privado;
   - clave maestra y su **respaldo**;

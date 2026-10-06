@@ -216,3 +216,143 @@ systemctl --user disable --now buscador.timer buscador-resumen.timer
 
 Luego reactivar en Hermes el cronjob `d6381ce58395` y `send_encabezado.py`. El estado
 (`data/vacantes.db`) se conserva para cuando se vuelva a activar el buscador.
+
+## 11. Asistente de postulación (opcional)
+
+El asistente (bot de Telegram, API para la extensión y CV adaptado) corre como **otro servicio**
+de systemd de usuario, aparte del buscador: si se detiene, el buscador sigue publicando igual.
+Viene desactivado (`asistente.activo: false`). Orden: instalar → piloto privado → piloto con
+invitados → tienda de Edge → `enlace_canal: true`. Lo que ven los usuarios está en
+`docs/guia-usuario.md`.
+
+### 11.1 Bot en BotFather
+
+1. En Telegram, hablar con [@BotFather](https://t.me/BotFather) → `/newbot`. Debe ser un bot
+   **nuevo**, distinto del de Hermes. Anotar el token y el usuario (sin `@`).
+2. Agregar el bot al **grupo privado** (el de `TELEGRAM_CHAT_ID`) como **administrador sin
+   ningún permiso**: lo necesita para comprobar con `getChatMember` quién es miembro.
+3. Averiguar el id de Telegram del administrador (el del dueño): escribirle al bot
+   [@userinfobot](https://t.me/userinfobot).
+
+### 11.2 Clave maestra y su respaldo
+
+La clave maestra cifra las claves de Gemini y los correos de las cuentas de los usuarios.
+
+```bash
+cd ~/buscador-vacantes
+~/.local/bin/uv sync --frozen --group asistente
+~/.local/bin/uv run --group asistente buscador.py asistente generar-clave
+```
+
+Pegar el resultado y el token del bot en `.env`:
+
+```bash
+ASISTENTE_BOT_TOKEN=<token de BotFather>
+ASISTENTE_CLAVE_CIFRADO=<clave generada>
+```
+
+**Hacer el respaldo de la clave ahora**, fuera del PC (gestor de contraseñas o papel). Si se pierde,
+las claves de Gemini no se recuperan: cada usuario tendría que registrar la suya de nuevo. Sin
+clave válida el servicio no arranca. Para cambiarla:
+`uv run --group asistente buscador.py asistente rotar-clave --nueva <clave nueva>` (genera la
+nueva con `generar-clave`; vuelve a cifrar todo sin perder datos), y luego actualizar `.env`.
+
+### 11.3 Tailscale Funnel (URL pública de la API)
+
+La extensión de cada usuario necesita llegar a la API del PC. La API escucha solo en
+`127.0.0.1:8787` y se expone con Tailscale Funnel (gratis, sin abrir puertos del router).
+
+```bash
+sudo dnf install -y tailscale   # o el instalador de tailscale.com
+sudo systemctl enable --now tailscaled
+sudo tailscale up
+# En la consola de Tailscale (login.tailscale.com): activar HTTPS y Funnel para este equipo.
+tailscale funnel --bg 8787
+tailscale funnel status          # muestra https://<equipo>.<tailnet>.ts.net
+```
+
+Verificar **desde fuera de la red** (por ejemplo, con los datos del celular):
+
+```bash
+curl -i https://<equipo>.<tailnet>.ts.net/api/v1/latido   # sin token: debe dar 401
+curl -i https://<equipo>.<tailnet>.ts.net/otra-ruta       # fuera de /api/v1/: debe dar 404
+```
+
+### 11.4 Configuración (`config.local.yaml`)
+
+Lo propio de este PC va en `config.local.yaml` (no se sube a git y reemplaza lo de `config.yaml`):
+
+```yaml
+asistente:
+  activo: true
+  enlace_canal: false            # solo true tras el piloto y la tienda de Edge
+  bot_usuario: "NombreDelBot"    # sin @
+  dueno_telegram_id: 123456789
+  api:
+    url_publica: "https://<equipo>.<tailnet>.ts.net"
+  extension:
+    url_edge: ""                 # el enlace de la tienda, cuando esté publicada
+```
+
+Revisar y aprobar el texto de `asistente.politica` (autorización de datos, versión 1). Si se
+cambia el texto, **subir `politica.version`**: todos los usuarios deben aceptarlo de nuevo. El
+mismo texto lo sirve la API en `/api/v1/privacidad` como política de privacidad de la tienda.
+
+### 11.5 Servicio
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/buscador-asistente.service ~/.config/systemd/user/
+# Solo en el piloto desde la copia de desarrollo (~/buscador-asistente):
+mkdir -p ~/.config/systemd/user/buscador-asistente.service.d
+cp deploy/prueba/buscador-asistente.service.d.conf \
+   ~/.config/systemd/user/buscador-asistente.service.d/prueba.conf
+
+systemd-analyze --user verify ~/.config/systemd/user/buscador-asistente.service
+systemctl --user daemon-reload
+systemctl --user enable --now buscador-asistente.service
+journalctl --user -u buscador-asistente -n 50 --no-pager
+```
+
+El servicio sale al instante si `activo` es `false`, y avisa si faltan dependencias
+(`uv sync --group asistente`). Para comprobar el enlace ⚡ de una vacante sin tocar el canal:
+`uv run --group asistente buscador.py asistente enlace computrabajo:<ID>`.
+
+### 11.6 Extensión y selectores
+
+- **Extensión para el piloto:** cargarla descomprimida desde la carpeta `extension/`
+  (`edge://extensions` → Modo de desarrollador → *Cargar descomprimida*).
+- **Para la tienda de Edge:** `uv run --group asistente buscador.py asistente empaquetar-extension`
+  deja `dist/asistente-postulacion-<versión>.zip`. El material de la ficha está en
+  `docs/tienda-edge/ficha.md`.
+- **Selectores de los portales:** son datos, no código. Viven en `assets/selectores/<portal>.json`
+  y la extensión los pide al servidor cuando cambia su `version`. Si un portal cambia su HTML
+  (el bot avisa al dueño con evidencia de `formulario_desconocido`): corregir el JSON, **subir
+  su `version`**, correr `uv run --group asistente buscador.py asistente selectores recargar` y
+  probar con una postulación. No hace falta publicar una versión nueva de la extensión.
+
+### 11.7 Operación, administración, borrado y rollback
+
+| Necesidad | Cómo |
+|---|---|
+| Estado del servicio | `systemctl --user status buscador-asistente` |
+| Log del servicio | `journalctl --user -u buscador-asistente -n 200 --no-pager` |
+| Reiniciar tras cambiar la configuración | `systemctl --user restart buscador-asistente` |
+| Usuarios y métricas | comandos del dueño en el bot: `/usuarios`, `/stats`, `/plataformas` |
+| Suspender o reactivar a alguien | `/suspender ID` y `/reactivar ID`, con el ID que muestra `/usuarios` (quedan en la auditoría) |
+| Postulaciones recientes | `sqlite3 data/asistente.db "select id, plataforma, estado, creada from postulaciones order by id desc limit 20"` |
+| Resumen diario | incluye usuarios, navegadores en línea, enviadas, respaldo y % de respuestas sin IA |
+
+- **Borrado de datos:** cada usuario se borra a sí mismo con `/borrarme` (perfil, CV, clave,
+  historial y vínculos, sin dejar archivos ni filas). Quien sale del grupo queda suspendido, y
+  quien no usa el asistente en 12 meses recibe un aviso y luego se borra.
+- **Actualizar:** como en la sección 10, y después `systemctl --user restart buscador-asistente`.
+- **Rollback del asistente** (el buscador no se toca):
+
+  ```bash
+  systemctl --user disable --now buscador-asistente.service
+  tailscale funnel reset             # cierra la URL pública
+  ```
+
+  Poner `enlace_canal: false` (las fichas del canal vuelven a quedar como antes) y, si se quiere,
+  `activo: false`. Los datos de `data/asistente.db` y `data/asistente/` se conservan.
