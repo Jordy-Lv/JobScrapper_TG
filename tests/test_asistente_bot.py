@@ -11,6 +11,7 @@ import respx
 pytest.importorskip("telegram", reason="requiere uv sync --group asistente")
 fpdf = pytest.importorskip("fpdf", reason="requiere uv sync --group asistente")
 
+from buscador_vacantes.asistente import preguntas_tarjeta as pt  # noqa: E402
 from buscador_vacantes.asistente import textos as t  # noqa: E402
 from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa: E402
 from buscador_vacantes.asistente.cola import E, Evento  # noqa: E402
@@ -25,7 +26,7 @@ from buscador_vacantes.asistente.respuestas import sembrar_banco  # noqa: E402
 from buscador_vacantes.asistente.usuarios import EstadoUsuario  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
 from buscador_vacantes.config import cargar_configuracion  # noqa: E402
-from buscador_vacantes.estado import Estado  # noqa: E402
+from buscador_vacantes.estado import Estado, a_texto  # noqa: E402
 from buscador_vacantes.modelo import Vacante  # noqa: E402
 
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
@@ -136,14 +137,18 @@ async def hasta_resumen(m, tid, *, payload=None):
 
 
 async def responder_faltantes(m, tid):
-    """Responde las preguntas que el CV no cubrió: botones o texto (salario)."""
-    for _ in range(len(t.CUESTIONARIO)):
-        usuario = m.n.usuarios.obtener(tid)
-        if not (usuario.paso_alta or "").startswith("faltantes:"):
+    """Responde las preguntas de la tarjeta (botones o texto) y confirma el resumen."""
+    for _ in range(2 * len(t.CUESTIONARIO)):
+        estado = m.c._preguntas(m.n.usuarios.obtener(tid))
+        if estado is None:
             return
-        indice = m.c._esperando(usuario)["indice"]
+        if estado.fase == pt.RESUMEN:
+            await m.c.al_boton(tid, cb("cuest", "ok"))
+            continue
+        indice = estado.actual
         item = t.CUESTIONARIO[indice]
         if item.otro:  # botones de rango, pero la prueba escribe su propio valor
+            await m.c.al_boton(tid, cb("cuest", indice, "otro"))
             await m.c.al_texto(tid, "1300000")
         elif item.opciones:
             await m.c.al_boton(tid, cb("cuest", indice, 0))
@@ -194,38 +199,228 @@ def test_resumen_unico_con_dos_botones_y_sin_cuestionario(mundo):
     for dato in ("Ana Pérez", "ana@gmail.com", "3105551234", "Tecnólogo en ADSO", "Python"):
         assert dato in texto
     assert [b[1] for b in botones[0]] == [cb("resumen", "ok"), cb("resumen", "editar")]
-    antes = len(mundo.s.de(ANA))
+    antes = len(mundo.s.mensajes)
     correr(mundo.c.al_boton(ANA, cb("resumen", "ok")))
     correr(responder_faltantes(mundo, ANA))
     assert mundo.n.usuarios.obtener(ANA).paso_alta == "navegador"
-    preguntadas = "\n".join(mundo.s.de(ANA)[antes:])
+    # Un solo mensaje de preguntas (la tarjeta, que se edita) más el aviso previo y el del navegador
+    textos = [m[1] for m in mundo.s.mensajes[antes:]]
+    assert len(textos) == 3 and "Faltan" in textos[1]
+    preguntadas = "\n".join(textos + [e[2] for e in mundo.s.ediciones])
     # Lo que el CV (o el perfil manual) ya respondió no se vuelve a preguntar
     for clave in ("nombre", "correo", "telefono", "ciudad"):
         item = next(i for i in t.CUESTIONARIO if i.clave == clave)
-        assert item.pregunta not in preguntadas
+        assert t.e(item.pregunta) not in preguntadas
     # Sí se preguntan las que suelen pedir las vacantes y el CV no dice
     for clave in ("salario", "disponibilidad_inicio", "actualizar_cv_portal"):
         item = next(i for i in t.CUESTIONARIO if i.clave == clave)
         assert t.e(item.pregunta) in preguntadas
 
 
-def test_salario_con_botones_de_rango_y_otro_valor(mundo):
-    indice = next(i for i, it in enumerate(t.CUESTIONARIO) if it.clave == "salario")
+def abrir_preguntas(mundo):
+    """Alta hasta la primera pregunta de la tarjeta (el documento, que es opcional)."""
     correr(hasta_resumen(mundo, ANA))
     correr(mundo.c.al_boton(ANA, cb("resumen", "ok")))
+    return mundo.c._preguntas(mundo.n.usuarios.obtener(ANA))
+
+
+def responder_hasta_resumen(mundo):
+    async def flujo():
+        while (est := mundo.c._preguntas(mundo.n.usuarios.obtener(ANA))).fase != pt.RESUMEN:
+            item = t.CUESTIONARIO[est.actual]
+            if item.opciones:
+                await mundo.c.al_boton(ANA, cb("cuest", est.actual, 0))
+            elif item.opcional:
+                await mundo.c.al_boton(ANA, cb("cuest", est.actual, "omitir"))
+            else:
+                await mundo.c.al_texto(ANA, "x")
+
+    correr(flujo())
+
+
+def botones_tarjeta(mundo):
+    return mundo.s.botones_editados[mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)).mensaje_id]
+
+
+def datos_ana(mundo):
+    return mundo.n.datos_usuario(mundo.n.usuarios.obtener(ANA).id).cuestionario
+
+
+def test_preguntas_en_una_sola_tarjeta_que_se_edita(mundo):
+    estado = abrir_preguntas(mundo)
+    assert estado.mensaje_id and estado.fase == pt.PREGUNTANDO
+    enviados = len(mundo.s.mensajes)
+    primera = mundo.s.ultimo(ANA)[1]
+    assert primera.startswith("<b>Faltan")
+    responder_hasta_resumen(mundo)
+    assert len(mundo.s.mensajes) == enviados  # ninguna pregunta salió como mensaje nuevo
+    assert len(mundo.s.ediciones) >= 3
+    assert all(e[1] == estado.mensaje_id for e in mundo.s.ediciones)
+    assert "Revisa tus respuestas" in mundo.s.ediciones[-1][2]
+    ultima_antes = [e[2] for e in mundo.s.ediciones if e[2].startswith("<b>Última")]
+    assert len(ultima_antes) == 1
+
+
+def test_estado_de_la_tarjeta_va_a_la_base(mundo):
+    estado = abrir_preguntas(mundo)
+    usuario = mundo.n.usuarios.obtener(ANA)
+    estado.fase, estado.editando = pt.RESUMEN, True
+    mundo.c._guardar_preguntas(usuario, estado)
+    assert mundo.c._preguntas(usuario) == estado
+    mundo.c._guardar_preguntas(usuario, None)
+    assert mundo.c._preguntas(usuario) is None
+
+
+def test_salario_con_botones_de_rango_y_otro_valor(mundo):
+    indice = next(i for i, it in enumerate(t.CUESTIONARIO) if it.clave == "salario")
+    abrir_preguntas(mundo)
     correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))  # el documento es opcional
-    assert mundo.c._esperando(mundo.n.usuarios.obtener(ANA))["indice"] == indice
-    _, texto, botones = mundo.s.ultimo(ANA)
-    etiquetas = [b[0] for fila in botones for b in fila]
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)).actual == indice
+    etiquetas = [b[0] for fila in botones_tarjeta(mundo) for b in fila]
     assert etiquetas == [*t.CUESTIONARIO[indice].opciones, "✏️ Otro valor"]
-    # «Otro valor» no guarda nada: pide el número y sigue esperando
+    enviados = len(mundo.s.mensajes)
+    # «Otro valor» no guarda nada: la tarjeta pide el número, con «Volver», sin mensajes extra
     correr(mundo.c.al_boton(ANA, cb("cuest", indice, "otro")))
-    assert "Escribe el valor" in mundo.s.ultimo(ANA)[1]
-    assert not mundo.n.datos_usuario(mundo.n.usuarios.obtener(ANA).id).cuestionario.get("salario")
-    # Un botón guarda el número, no la etiqueta
+    assert len(mundo.s.mensajes) == enviados
+    assert "Escribe el valor" in mundo.s.ediciones[-1][2]
+    assert botones_tarjeta(mundo) == [[("↩️ Volver", cb("cuest", "volver"))]]
+    assert not datos_ana(mundo).get("salario")
+    # Volver regresa a las opciones; un botón guarda el número, no la etiqueta
+    correr(mundo.c.al_boton(ANA, cb("cuest", "volver")))
+    assert "Escribe el valor" not in mundo.s.ediciones[-1][2]
     correr(mundo.c.al_boton(ANA, cb("cuest", indice, 0)))
-    datos = mundo.n.datos_usuario(mundo.n.usuarios.obtener(ANA).id)
-    assert datos.cuestionario["salario"] == str(t.SMMLV)
+    assert datos_ana(mundo)["salario"] == str(t.SMMLV)
+
+
+def test_otro_valor_borra_lo_escrito_y_valida_el_numero(mundo):
+    indice = next(i for i, it in enumerate(t.CUESTIONARIO) if it.clave == "salario")
+    abrir_preguntas(mundo)
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))
+    correr(mundo.c.al_boton(ANA, cb("cuest", indice, "otro")))
+    enviados = len(mundo.s.mensajes)
+    correr(mundo.c.al_texto(ANA, "mucho", mensaje_id=501))  # no es un número
+    assert mundo.s.borrados == [(ANA, 501)]
+    assert "Escribe solo el número" in mundo.s.ediciones[-1][2]
+    assert not datos_ana(mundo).get("salario")
+    correr(mundo.c.al_texto(ANA, "$2.200.000", mensaje_id=502))
+    assert mundo.s.borrados == [(ANA, 501), (ANA, 502)]
+    assert datos_ana(mundo)["salario"] == "2200000"
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)).fase == pt.PREGUNTANDO
+    assert "Escribe solo el número" not in mundo.s.ediciones[-1][2]
+    assert len(mundo.s.mensajes) == enviados
+
+
+def test_documento_escrito_se_guarda_y_se_borra_del_chat(mundo):
+    abrir_preguntas(mundo)
+    correr(mundo.c.al_texto(ANA, " 1012345678 ", mensaje_id=77))
+    assert datos_ana(mundo)["documento"] == "1012345678"
+    assert mundo.s.borrados == [(ANA, 77)]
+
+
+def test_si_no_se_puede_borrar_la_respuesta_igual_queda_guardada(mundo):
+    abrir_preguntas(mundo)
+
+    async def borrar(chat, mensaje):
+        raise RuntimeError("Message can't be deleted")
+
+    mundo.s.borrar = borrar
+    correr(mundo.c.al_texto(ANA, "1012345678", mensaje_id=77))
+    assert datos_ana(mundo)["documento"] == "1012345678"
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)).actual != 3
+
+
+def test_texto_fuera_de_turno_se_borra_sin_guardarse(mundo):
+    abrir_preguntas(mundo)
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))
+    estado = mundo.c._preguntas(mundo.n.usuarios.obtener(ANA))
+    item = t.CUESTIONARIO[estado.actual]
+    assert item.opciones  # la pregunta se contesta con botones: el texto no cuenta
+    enviados = len(mundo.s.mensajes)
+    correr(mundo.c.al_texto(ANA, "hola", mensaje_id=88))
+    assert mundo.s.borrados == [(ANA, 88)]
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)) == estado
+    assert not datos_ana(mundo).get(item.clave)
+    assert len(mundo.s.mensajes) == enviados
+
+
+def test_resumen_confirmar_cierra_la_tarjeta_y_sigue_con_el_navegador(mundo):
+    abrir_preguntas(mundo)
+    responder_hasta_resumen(mundo)
+    resumen = mundo.s.ediciones[-1][2]
+    assert "• Documento: —" in resumen and "• Aspiración salarial:" in resumen
+    assert [b[1] for b in botones_tarjeta(mundo)[0]] == [cb("cuest", "ok"), cb("cuest", "editar")]
+    mid = mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)).mensaje_id
+    correr(mundo.c.al_boton(ANA, cb("cuest", "ok")))
+    assert mundo.s.ediciones[-1][2] == pt.CIERRE and mundo.s.botones_editados[mid] is None
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == "navegador"
+    assert "navegador" in mundo.s.ultimo(ANA)[1].lower()
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)) is None
+    assert mundo.c._esperando(mundo.n.usuarios.obtener(ANA)) is None
+    # Un toque viejo sobre la tarjeta ya cerrada no cambia nada
+    mensajes = len(mundo.s.mensajes)
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))
+    correr(mundo.c.al_boton(ANA, cb("cuest", "ok")))
+    assert len(mundo.s.mensajes) == mensajes and not datos_ana(mundo).get("documento")
+
+
+def test_toque_de_una_pregunta_vieja_no_guarda_y_repinta_la_vigente(mundo):
+    abrir_preguntas(mundo)
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))  # documento contestado
+    estado = mundo.c._preguntas(mundo.n.usuarios.obtener(ANA))
+    ediciones = len(mundo.s.ediciones)
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))  # botón de la pregunta anterior
+    correr(mundo.c.al_boton(ANA, cb("cuest", "ok")))  # y el Confirmar aún no existe
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)) == estado
+    assert len(mundo.s.ediciones) == ediciones + 2
+
+
+def test_editar_una_respuesta_con_boton_y_volver_al_resumen(mundo):
+    abrir_preguntas(mundo)
+    responder_hasta_resumen(mundo)
+    indice = next(i for i, it in enumerate(t.CUESTIONARIO) if it.clave == "disponibilidad_inicio")
+    assert datos_ana(mundo)["disponibilidad_inicio"] == "Inmediata"
+    enviados = len(mundo.s.mensajes)
+    correr(mundo.c.al_boton(ANA, cb("cuest", "editar")))
+    assert "¿Cuál respuesta quieres corregir?" in mundo.s.ediciones[-1][2]
+    # Volver sin elegir deja todo igual
+    correr(mundo.c.al_boton(ANA, cb("cuest", "volver")))
+    assert "Revisa tus respuestas" in mundo.s.ediciones[-1][2]
+    correr(mundo.c.al_boton(ANA, cb("cuest", "editar")))
+    correr(mundo.c.al_boton(ANA, cb("cuest", "campo", indice)))
+    assert "Editando" in mundo.s.ediciones[-1][2]
+    correr(mundo.c.al_boton(ANA, cb("cuest", indice, 2)))  # «En 1 mes»
+    assert datos_ana(mundo)["disponibilidad_inicio"] == "En 1 mes"
+    assert "• Cuándo empiezas: En 1 mes" in mundo.s.ediciones[-1][2]
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)).fase == pt.RESUMEN
+    assert len(mundo.s.mensajes) == enviados
+
+
+def test_editar_el_documento_con_texto_vuelve_al_resumen(mundo):
+    abrir_preguntas(mundo)
+    responder_hasta_resumen(mundo)
+    assert not datos_ana(mundo).get("documento")
+    correr(mundo.c.al_boton(ANA, cb("cuest", "editar")))
+    correr(mundo.c.al_boton(ANA, cb("cuest", "campo", 3)))
+    correr(mundo.c.al_texto(ANA, "1012345678", mensaje_id=91))
+    assert datos_ana(mundo)["documento"] == "1012345678"
+    assert mundo.s.borrados == [(ANA, 91)]
+    assert "• Documento: 1012345678" in mundo.s.ediciones[-1][2]
+    # Omitirlo al corregir borra la respuesta anterior
+    correr(mundo.c.al_boton(ANA, cb("cuest", "editar")))
+    correr(mundo.c.al_boton(ANA, cb("cuest", "campo", 3)))
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))
+    assert not datos_ana(mundo).get("documento")
+    assert "• Documento: —" in mundo.s.ediciones[-1][2]
+
+
+def test_corregir_y_volver_con_el_boton_del_resumen(mundo):
+    abrir_preguntas(mundo)
+    responder_hasta_resumen(mundo)
+    correr(mundo.c.al_boton(ANA, cb("cuest", "editar")))
+    correr(mundo.c.al_boton(ANA, cb("cuest", "campo", 3)))
+    correr(mundo.c.al_boton(ANA, cb("cuest", "volver")))  # sin responder
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)).fase == pt.RESUMEN
+    assert not datos_ana(mundo).get("documento")
 
 
 def test_editar_recorre_secciones_enfoque_y_cuestionario(mundo):
@@ -271,23 +466,62 @@ def test_no_acepta_la_politica_borra_todo(mundo):
 
 
 def test_cuestionario_se_retoma_tras_reinicio(mundo):
-    async def hasta_pregunta_5():
-        c = mundo.c
-        await hasta_resumen(mundo, ANA)
-        await c.al_boton(ANA, cb("resumen", "editar"))
-        for s in ("formacion", "experiencia", "proyectos", "habilidades", "idiomas"):
-            await c.al_boton(ANA, cb("seccion", s, "ok"))
-        await c.al_boton(ANA, cb("enfoque", "ok"))
-        for valor in ("Ana Pérez", "ana@gmail.com", "3105551234"):
-            await c.al_texto(ANA, valor)
-        await c.al_boton(ANA, cb("cuest", 3, "omitir"))
-
-    correr(hasta_pregunta_5())
-    assert mundo.n.usuarios.obtener(ANA).paso_alta == "cuestionario:4"
-    # Un servicio nuevo (reinicio) retoma en la misma pregunta
+    abrir_preguntas(mundo)
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))
+    estado = mundo.c._preguntas(mundo.n.usuarios.obtener(ANA))
+    enviados = len(mundo.s.mensajes)
+    # Un servicio nuevo (reinicio) repinta la misma tarjeta en la pregunta en que iba
     otra = Conversacion(mundo.n, mundo.s, mundo.comprobador)
     correr(otra.al_iniciar(ANA, "Ana", None))
-    assert t.CUESTIONARIO[4].pregunta in mundo.s.de(ANA)[-1]
+    assert len(mundo.s.mensajes) == enviados
+    assert mundo.s.ediciones[-1][1] == estado.mensaje_id
+    assert t.e(t.CUESTIONARIO[estado.actual].pregunta) in mundo.s.ediciones[-1][2]
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)) == estado
+
+
+def test_reinicio_en_el_resumen_repinta_el_resumen(mundo):
+    abrir_preguntas(mundo)
+    responder_hasta_resumen(mundo)
+    otra = Conversacion(mundo.n, mundo.s, mundo.comprobador)
+    correr(otra.al_comando(ANA, "estado", []))  # cualquier comando durante el alta
+    assert "Revisa tus respuestas" in mundo.s.ediciones[-1][2]
+    assert [b[1] for b in botones_tarjeta(mundo)[0]] == [cb("cuest", "ok"), cb("cuest", "editar")]
+
+
+def test_si_la_tarjeta_fue_borrada_se_envia_una_nueva_con_el_estado(mundo):
+    abrir_preguntas(mundo)
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))
+    estado = mundo.c._preguntas(mundo.n.usuarios.obtener(ANA))
+
+    async def editar(chat, mensaje, texto, botones=None):
+        raise RuntimeError("Message to edit not found")
+
+    mundo.s.editar = editar
+    enviados = len(mundo.s.mensajes)
+    correr(mundo.c.al_boton(ANA, cb("cuest", estado.actual, 0)))
+    assert len(mundo.s.mensajes) == enviados + 1
+    nuevo = mundo.c._preguntas(mundo.n.usuarios.obtener(ANA))
+    assert nuevo.mensaje_id == mundo.s._id and nuevo.mensaje_id != estado.mensaje_id
+    assert nuevo.actual != estado.actual
+
+
+def test_el_comando_cuestionario_usa_la_tarjeta(mundo):
+    correr(alta_completa(mundo, ANA))
+    enviados = len(mundo.s.mensajes)
+    correr(mundo.c.al_comando(ANA, "cuestionario", []))
+    assert len(mundo.s.mensajes) == enviados + 1
+    estado = mundo.c._preguntas(mundo.n.usuarios.obtener(ANA))
+    assert estado.indices == list(range(len(t.CUESTIONARIO))) and estado.mensaje_id
+    correr(mundo.c.al_texto(ANA, "Ana María Pérez", mensaje_id=12))
+    assert datos_ana(mundo)["nombre"] == "Ana María Pérez"
+    assert mundo.s.borrados == [(ANA, 12)] and len(mundo.s.mensajes) == enviados + 1
+    responder_hasta_resumen(mundo)
+    assert len(mundo.s.mensajes) == enviados + 1
+    paso = mundo.n.usuarios.obtener(ANA).paso_alta
+    correr(mundo.c.al_boton(ANA, cb("cuest", "ok")))  # fuera del alta solo se cierra la tarjeta
+    assert mundo.s.ediciones[-1][2] == pt.CIERRE and len(mundo.s.mensajes) == enviados + 1
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == paso
+    assert mundo.c._preguntas(mundo.n.usuarios.obtener(ANA)) is None
 
 
 def test_dato_pedido_por_un_formulario_queda_en_el_perfil(mundo):
@@ -884,7 +1118,7 @@ def test_modalidad_se_pregunta_segun_la_ciudad_del_usuario(mundo):
     cuestionario["ciudad"] = "Cali"
     mundo.n.guardar_cuestionario(usuario.id, cuestionario)
     indice = next(i for i, x in enumerate(t.CUESTIONARIO) if x.clave == "modalidades")
-    correr(mundo.c._preguntar_cuestionario(usuario, indice))
+    correr(mundo.c._iniciar_preguntas(usuario, [indice]))
     _, texto, botones = mundo.s.mensajes[-1]
     assert "Vives en Cali" in texto
     assert [b[0] for b in botones[0]] == ["Presencial en Cali", "Híbrido y remoto", "Cualquiera"]
@@ -953,6 +1187,45 @@ async def vincular_navegador(m, tid):
     await m.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
     await m.c.esperar_tareas()
     return m.n.usuarios.obtener(tid)
+
+
+def test_vincular_con_navegador_ya_vinculado_avisa_y_no_genera_codigo(mundo):
+    def codigos():
+        return mundo.n.base.cx.execute("SELECT COUNT(*) FROM codigos_vinculo").fetchone()[0]
+
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        await vincular_navegador(mundo, ANA)
+        with mundo.n.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE navegadores SET creado = ?, ultimo_latido = ?, nombre = 'Edge'",
+                (a_texto(mundo.n.ahora()),) * 2,
+            )
+        antes, mensajes = codigos(), len(mundo.s.mensajes)
+        await mundo.c.al_comando(ANA, "vincular", [])
+        await mundo.c.al_boton(ANA, cb("vincular"))  # botón de un mensaje viejo
+        return antes, mensajes
+
+    antes, mensajes = correr(flujo())
+    nuevos = mundo.s.mensajes[mensajes:]
+    assert len(nuevos) == 2
+    assert all("Dispositivo ya vinculado" in m[1] for m in nuevos)
+    assert all("/navegadores" in m[1] for m in nuevos)
+    assert codigos() == antes
+    assert not any("🔗 Vincular mi navegador" in str(m) for m in nuevos)
+
+
+def test_vincular_sin_navegador_sigue_ofreciendo_el_enlace(mundo):
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("resumen", "ok"))
+        await responder_faltantes(mundo, ANA)
+        antes = len(mundo.s.mensajes)
+        await mundo.c.al_boton(ANA, cb("vincular"))
+        return antes
+
+    antes = correr(flujo())
+    assert not any("Dispositivo ya vinculado" in m[1] for m in mundo.s.mensajes[antes:])
 
 
 def aviso_cuenta(usuario, plataforma, correo, tipo="cuenta_por_confirmar"):

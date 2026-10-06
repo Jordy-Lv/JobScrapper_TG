@@ -72,6 +72,11 @@ NAVEGADOR = (
     "3. Inicia sesión en Computrabajo y Magneto en ese navegador.\n"
     "Tu PC debe estar encendido con el navegador abierto (puede estar minimizado)."
 )
+YA_VINCULADO = (
+    "✅ <b>Dispositivo ya vinculado</b>\n{navegadores}\n"
+    "No necesitas vincular de nuevo. Si cambiaste de navegador o reinstalaste la extensión, "
+    "revoca el anterior con /navegadores y vuelve a usar /vincular."
+)
 ALTA_LISTA = (
     "✅ <b>¡Listo!</b> Ya puedes tocar <b>⚡ Postularme</b> en cualquier vacante del grupo.\n"
     "Usa /ayuda para ver todo lo que puedo hacer."

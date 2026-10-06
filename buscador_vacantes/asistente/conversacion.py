@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+from buscador_vacantes.asistente import preguntas_tarjeta as pt
 from buscador_vacantes.asistente import progreso, resumen_postulacion, tarjeta, vinculos
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.cola import CON_RESPALDO, E, Evento
@@ -263,9 +264,13 @@ class Conversacion:
         elif paso == "enfoque":
             await self._mostrar_enfoque(usuario)
         elif paso.startswith("cuestionario:"):
-            await self._preguntar_cuestionario(usuario, int(paso.split(":", 1)[1]))
+            await self._reanudar_preguntas(
+                usuario, list(range(len(t.CUESTIONARIO))), int(paso.split(":", 1)[1])
+            )
         elif paso.startswith("faltantes:"):
-            await self._preguntar_faltante(usuario, int(paso.split(":", 1)[1]))
+            await self._reanudar_preguntas(
+                usuario, self._faltantes(usuario), int(paso.split(":", 1)[1])
+            )
         elif paso == "navegador":
             if self.n.tiene_navegador(usuario.id):  # ya lo vinculó: no se le pide otra vez
                 await self._terminar_alta(usuario)
@@ -473,7 +478,9 @@ class Conversacion:
         else:
             botones += [[("🔄 Seguir intentando", cb("cv", "reintentar"))]]
         intentos = (
-            "" if isinstance(exc, (CuotaAgotada, ClaveInvalida)) else f" tras {self.INTENTOS_CV} intentos"
+            ""
+            if isinstance(exc, (CuotaAgotada, ClaveInvalida))
+            else f" tras {self.INTENTOS_CV} intentos"
         )
         await self._enviar(
             usuario,
@@ -682,41 +689,6 @@ class Conversacion:
             [[("✅ Correcto", cb("enfoque", "ok")), ("✏️ Cambiar", cb("enfoque", "cambiar"))]],
         )
 
-    async def _preguntar_cuestionario(
-        self, usuario: Usuario, indice: int, *, restantes: int | None = None, modo: str = "todo"
-    ) -> None:
-        if indice >= len(t.CUESTIONARIO):
-            await self._ir_a(usuario, "navegador")
-            return
-        item = t.CUESTIONARIO[indice]
-        datos = self.n.datos_usuario(usuario.id)
-        sugerido = datos.cuestionario.get(f"sugerido_{item.clave}") if datos else None
-        if item.clave == "ciudad" and datos and datos.perfil.ciudad:
-            sugerido = datos.perfil.ciudad
-        pregunta, opciones = self._pregunta_y_opciones(usuario, item)
-        botones: Botones = []
-        if opciones:
-            botones = [
-                [
-                    (o, cb("cuest", indice, n))
-                    for n, o in enumerate(opciones[i : i + item.por_fila], i)
-                ]
-                for i in range(0, len(opciones), item.por_fila)
-            ]
-        if item.otro:
-            botones.append([(item.otro, cb("cuest", indice, "otro"))])
-        if sugerido:
-            botones.append([(f"Usar {sugerido}", cb("cuest", indice, "sug"))])
-        if item.opcional:
-            botones.append([("Omitir", cb("cuest", indice, "omitir"))])
-        self._esperar(usuario, {"tipo": "cuestionario", "indice": indice, "modo": modo})
-        progreso = f"<b>Pregunta {indice + 1} de {len(t.CUESTIONARIO)}</b>\n"
-        if restantes is not None:
-            progreso = f"<b>Faltan {restantes}</b>\n" if restantes > 1 else "<b>Última</b>\n"
-        if usuario.estado != EstadoUsuario.ALTA:
-            progreso = ""
-        await self._enviar(usuario, progreso + t.e(pregunta), botones or None)
-
     def _pregunta_y_opciones(self, usuario: Usuario, item) -> tuple[str, tuple[str, ...]]:
         """La modalidad se pregunta según la ciudad donde vive: lo presencial es en esa ciudad."""
         if item.clave != "modalidades":
@@ -750,15 +722,6 @@ class Conversacion:
                 faltan.append(indice)
         return faltan
 
-    async def _preguntar_faltante(self, usuario: Usuario, desde: int) -> None:
-        pendientes = [i for i in self._faltantes(usuario) if i >= desde]
-        if not pendientes:
-            await self._ir_a(usuario, "navegador")
-            return
-        await self._preguntar_cuestionario(
-            usuario, pendientes[0], restantes=len(pendientes), modo="faltantes"
-        )
-
     def _guardar_respuesta_cuestionario(self, usuario: Usuario, indice: int, valor: str) -> None:
         item = t.CUESTIONARIO[indice]
         datos = self.n.datos_usuario(usuario.id)
@@ -772,22 +735,186 @@ class Conversacion:
         if valor:
             cuestionario[item.clave] = valor
         elif item.opcional:  # omitida: no se vuelve a preguntar en el alta
+            cuestionario.pop(item.clave, None)  # al corregir, omitir borra la respuesta anterior
             cuestionario["_omitidos"] = cuestionario.get("_omitidos", "") + f" {item.clave}"
         cuestionario.pop(f"sugerido_{item.clave}", None)
         self.n.guardar_cuestionario(usuario.id, cuestionario)
 
-    async def _siguiente_cuestionario(self, usuario: Usuario, indice: int) -> None:
-        modo = (self._esperando(usuario) or {}).get("modo")
-        if usuario.estado == EstadoUsuario.ALTA and modo == "faltantes":
-            await self._ir_a(usuario, f"faltantes:{indice + 1}")
-        elif usuario.estado == EstadoUsuario.ALTA:
-            await self._ir_a(usuario, f"cuestionario:{indice + 1}")
-        elif indice + 1 < len(t.CUESTIONARIO) and (self._esperando(usuario) or {}).get("todo"):
-            await self._preguntar_cuestionario(usuario, indice + 1)
-            self._esperar(usuario, {"tipo": "cuestionario", "indice": indice + 1, "todo": True})
+    # --- tarjeta de preguntas rápidas ---------------------------------------------------
+
+    def _preguntas(self, usuario: Usuario) -> pt.Preguntas | None:
+        return pt.Preguntas.de_texto(self.n.base.kv_obtener(f"preguntas:{usuario.id}"))
+
+    def _guardar_preguntas(self, usuario: Usuario, estado: pt.Preguntas | None) -> None:
+        self.n.base.kv_guardar(f"preguntas:{usuario.id}", estado.a_texto() if estado else "")
+
+    async def _iniciar_preguntas(self, usuario: Usuario, indices: list[int]) -> None:
+        """Abre una tarjeta nueva con el bloque de preguntas."""
+        estado = pt.Preguntas(indices=indices, actual=indices[0])
+        self._guardar_preguntas(usuario, estado)
+        self._esperar(usuario, {"tipo": "cuestionario"})
+        await self._pintar_preguntas(usuario, estado)
+
+    async def _reanudar_preguntas(self, usuario: Usuario, indices: list[int], desde: int) -> None:
+        """Repinta la tarjeta guardada según su fase; sin estado, abre el bloque."""
+        estado = self._preguntas(usuario)
+        if estado is not None:
+            self._esperar(usuario, {"tipo": "cuestionario"})
+            await self._pintar_preguntas(usuario, estado)
+            return
+        pendientes = [i for i in indices if i >= desde]
+        if not pendientes:
+            await self._ir_a(usuario, "navegador")
+            return
+        await self._iniciar_preguntas(usuario, pendientes)
+
+    def _vista_preguntas(
+        self, usuario: Usuario, estado: pt.Preguntas
+    ) -> tuple[str, Botones | None]:
+        datos = self.n.datos_usuario(usuario.id)
+        respuestas = datos.cuestionario if datos else {}
+        if estado.fase == pt.RESUMEN:
+            return pt.texto_resumen(estado, respuestas), pt.botones_resumen(cb)
+        if estado.fase == pt.LISTA:
+            return pt.texto_lista(), pt.botones_lista(estado, cb)
+        item = t.CUESTIONARIO[estado.actual]
+        pregunta, opciones = self._pregunta_y_opciones(usuario, item)
+        if estado.fase == pt.OTRO:
+            return pt.texto_otro(estado, pregunta), pt.botones_otro(cb)
+        sugerido = respuestas.get(f"sugerido_{item.clave}")
+        if item.clave == "ciudad" and datos and datos.perfil.ciudad:
+            sugerido = datos.perfil.ciudad
+        botones = pt.botones_pregunta(
+            estado,
+            cb,
+            opciones=opciones,
+            por_fila=item.por_fila,
+            otro=item.otro,
+            sugerido=sugerido,
+            opcional=item.opcional,
+        )
+        return pt.texto_pregunta(estado, pregunta), botones or None
+
+    async def _pintar_preguntas(self, usuario: Usuario, estado: pt.Preguntas) -> None:
+        """Edita la tarjeta; si el mensaje ya no existe envía una nueva con el mismo estado."""
+        texto, botones = self._vista_preguntas(usuario, estado)
+        if estado.mensaje_id:
+            try:
+                await self.s.editar(usuario.telegram_id, estado.mensaje_id, texto, botones)
+                return
+            except Exception:  # noqa: BLE001 - mensaje borrado o vencido: se envía uno nuevo
+                log.info("No se pudo editar la tarjeta de preguntas de %s", usuario.id)
+        estado.mensaje_id = await self._enviar(usuario, texto, botones)
+        self._guardar_preguntas(usuario, estado)
+
+    async def _borrar_texto_usuario(self, usuario: Usuario, mensaje_id: int | None) -> None:
+        if mensaje_id is None:
+            return
+        try:
+            await self.s.borrar(usuario.telegram_id, mensaje_id)
+        except Exception:  # noqa: BLE001 - mejor esfuerzo: la respuesta ya quedó guardada
+            log.info("No se pudo borrar la respuesta escrita de %s", usuario.id)
+
+    async def _registrar_respuesta(
+        self, usuario: Usuario, estado: pt.Preguntas, valor: str, mensaje_id: int | None = None
+    ) -> None:
+        """Guarda la respuesta, borra el texto escrito y avanza (siguiente pregunta o resumen)."""
+        self._guardar_respuesta_cuestionario(usuario, estado.actual, valor)
+        await self._borrar_texto_usuario(usuario, mensaje_id)
+        estado.aviso = ""
+        siguiente = None if estado.editando else estado.siguiente()
+        if siguiente is None:
+            estado.fase, estado.editando = pt.RESUMEN, False
         else:
+            estado.actual, estado.fase = siguiente, pt.PREGUNTANDO
+        self._guardar_preguntas(usuario, estado)
+        await self._pintar_preguntas(usuario, estado)
+
+    async def _texto_cuestionario(
+        self, usuario: Usuario, texto: str, mensaje_id: int | None
+    ) -> None:
+        estado = self._preguntas(usuario)
+        valor = texto.strip()
+        if estado is None:  # sin tarjeta no hay a qué responder
             self._esperar(usuario, None)
-            await self._enviar(usuario, "✅ Guardado.")
+            await self._borrar_texto_usuario(usuario, mensaje_id)
+            return
+        item = t.CUESTIONARIO[estado.actual]
+        if valor and estado.fase == pt.PREGUNTANDO and not item.opciones:
+            await self._registrar_respuesta(usuario, estado, valor, mensaje_id)
+        elif valor and estado.fase == pt.OTRO:
+            numero = re.sub(r"[\s$.,]", "", valor)
+            if numero.isdigit():
+                await self._registrar_respuesta(usuario, estado, numero, mensaje_id)
+                return
+            estado.aviso = pt.AVISO_NUMERO
+            self._guardar_preguntas(usuario, estado)
+            await self._borrar_texto_usuario(usuario, mensaje_id)
+            await self._pintar_preguntas(usuario, estado)
+        else:  # la tarjeta no espera texto: se borra sin guardarse
+            await self._borrar_texto_usuario(usuario, mensaje_id)
+
+    async def _toque_cuestionario(self, usuario: Usuario, args: list[str]) -> None:
+        estado = self._preguntas(usuario)
+        if estado is None:
+            return
+        accion = args[0]
+        fase = estado.fase
+        if accion == "ok" and fase == pt.RESUMEN:
+            await self._confirmar_preguntas(usuario, estado)
+            return
+        if accion == "editar" and fase == pt.RESUMEN:
+            estado.fase = pt.LISTA
+        elif accion == "campo" and fase == pt.LISTA and int(args[1]) in estado.indices:
+            estado.actual, estado.fase, estado.editando = int(args[1]), pt.PREGUNTANDO, True
+            estado.aviso = ""
+        elif accion == "volver" and fase == pt.OTRO:
+            estado.fase, estado.aviso = pt.PREGUNTANDO, ""
+        elif accion == "volver" and (
+            fase == pt.LISTA or (fase == pt.PREGUNTANDO and estado.editando)
+        ):
+            estado.fase, estado.editando, estado.aviso = pt.RESUMEN, False, ""
+        elif accion.isdigit() and fase == pt.PREGUNTANDO and int(accion) == estado.actual:
+            await self._elegir_opcion(usuario, estado, args[1])
+            return
+        # cualquier otro toque es de una tarjeta vieja: no cambia nada y se repinta la vigente
+        self._guardar_preguntas(usuario, estado)
+        await self._pintar_preguntas(usuario, estado)
+
+    async def _elegir_opcion(self, usuario: Usuario, estado: pt.Preguntas, eleccion: str) -> None:
+        item = t.CUESTIONARIO[estado.actual]
+        if eleccion == "otro" and item.otro:  # la respuesta llega como texto, dentro de la tarjeta
+            estado.fase, estado.aviso = pt.OTRO, ""
+            self._guardar_preguntas(usuario, estado)
+            await self._pintar_preguntas(usuario, estado)
+            return
+        datos = self.n.datos_usuario(usuario.id)
+        if eleccion == "omitir" and item.opcional:
+            valor = ""
+        elif eleccion == "sug":
+            valor = (
+                datos.cuestionario.get(f"sugerido_{item.clave}")
+                or (datos.perfil.ciudad if item.clave == "ciudad" else "")
+                or ""
+            )
+        else:
+            opciones = item.valores or self._pregunta_y_opciones(usuario, item)[1]
+            if not eleccion.isdigit() or int(eleccion) >= len(opciones):
+                await self._pintar_preguntas(usuario, estado)
+                return
+            valor = opciones[int(eleccion)]
+        await self._registrar_respuesta(usuario, estado, valor)
+
+    async def _confirmar_preguntas(self, usuario: Usuario, estado: pt.Preguntas) -> None:
+        self._guardar_preguntas(usuario, None)
+        self._esperar(usuario, None)
+        if estado.mensaje_id:
+            try:
+                await self.s.editar(usuario.telegram_id, estado.mensaje_id, pt.CIERRE, None)
+            except Exception:  # noqa: BLE001 - la tarjeta ya no existe: no hay nada que cerrar
+                log.info("No se pudo cerrar la tarjeta de preguntas de %s", usuario.id)
+        if usuario.estado == EstadoUsuario.ALTA:
+            await self._ir_a(usuario, "navegador")
 
     async def _mostrar_navegador(self, usuario: Usuario) -> None:
         tienda = (
@@ -1060,9 +1187,7 @@ class Conversacion:
             self._esperar(usuario, None)
             await self._mostrar_enfoque(usuario)
         elif tipo == "cuestionario":
-            indice = esperando["indice"]
-            self._guardar_respuesta_cuestionario(usuario, indice, texto.strip())
-            await self._siguiente_cuestionario(usuario, indice)
+            await self._texto_cuestionario(usuario, texto, mensaje_id)
         elif tipo == "pendiente":
             await self._responder_pendiente(usuario, esperando["id"], texto.strip())
         elif tipo == "pegar":
@@ -1228,27 +1353,7 @@ class Conversacion:
                 elif usuario.estado == EstadoUsuario.ALTA:
                     await self._ir_a(usuario, "cuestionario:0")
             case "cuest":
-                indice, eleccion = int(args[0]), args[1]
-                item = t.CUESTIONARIO[indice]
-                if eleccion == "otro":  # sigue esperando: la respuesta llega como texto
-                    await self._enviar(
-                        usuario, "Escribe el valor (solo el número, en pesos; por ejemplo 2200000)."
-                    )
-                    return
-                if eleccion == "omitir":
-                    valor = ""
-                elif eleccion == "sug":
-                    datos = self.n.datos_usuario(usuario.id)
-                    valor = (
-                        datos.cuestionario.get(f"sugerido_{item.clave}")
-                        or (datos.perfil.ciudad if item.clave == "ciudad" else "")
-                        or ""
-                    )
-                else:
-                    opciones = item.valores or self._pregunta_y_opciones(usuario, item)[1]
-                    valor = opciones[int(eleccion)]
-                self._guardar_respuesta_cuestionario(usuario, indice, valor)
-                await self._siguiente_cuestionario(usuario, indice)
+                await self._toque_cuestionario(usuario, args)
             case "resumen":
                 if args[0] == "ok":
                     await self._enviar(
@@ -1341,7 +1446,23 @@ class Conversacion:
                 return "Postulaciones en pausa" if nuevo else "Postulaciones reanudadas"
         return None
 
+    async def _avisar_ya_vinculado(self, usuario: Usuario) -> bool:
+        """Si el usuario ya tiene un navegador vinculado, lo avisa y evita generar otro código."""
+        navegadores = vinculos.navegadores_de(self.n.base, usuario.id)
+        if not navegadores:
+            return False
+        lineas = []
+        for nav in navegadores:
+            ultimo = (
+                nav.ultimo_latido.astimezone().strftime("%d/%m %H:%M") if nav.ultimo_latido else "—"
+            )
+            lineas.append(f"• {t.e(nav.nombre or 'Navegador')} · último uso {ultimo}")
+        await self._enviar(usuario, t.YA_VINCULADO.format(navegadores="\n".join(lineas)))
+        return True
+
     async def _vincular(self, usuario: Usuario) -> None:
+        if await self._avisar_ya_vinculado(usuario):
+            return
         url_publica = self.config.api.url_publica
         if not url_publica:
             await self._enviar(
@@ -1513,9 +1634,7 @@ class Conversacion:
         await self._enviar(usuario, "\n\n".join(partes), botones)
 
     async def _c_cuestionario(self, usuario: Usuario, args) -> None:
-        self._esperar(usuario, {"tipo": "cuestionario", "indice": 0, "todo": True})
-        await self._preguntar_cuestionario(usuario, 0)
-        self._esperar(usuario, {"tipo": "cuestionario", "indice": 0, "todo": True})
+        await self._iniciar_preguntas(usuario, list(range(len(t.CUESTIONARIO))))
 
     async def _c_cv(self, usuario: Usuario, args) -> None:
         datos = self.n.datos_usuario(usuario.id)
@@ -1543,6 +1662,8 @@ class Conversacion:
         )
 
     async def _c_vincular(self, usuario: Usuario, args) -> None:
+        if await self._avisar_ya_vinculado(usuario):
+            return
         await self._mostrar_navegador(usuario)
 
     async def _c_navegadores(self, usuario: Usuario, args) -> None:
