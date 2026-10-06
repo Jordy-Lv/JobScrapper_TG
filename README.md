@@ -1,156 +1,268 @@
-# Buscador de vacantes TI → Telegram
+<p align="center">
+  <img src="assets/logo.jpg" alt="APOLO TI Logo" width="220" style="border-radius: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);">
+</p>
 
-Busca vacantes de **prácticas, aprendiz (incluido SENA) y junior en todos los roles de TI**
-(desarrollo, infraestructura/DevOps/cloud, redes, bases de datos, soporte IT, datos, QA y
-ciberseguridad) en Colombia y remoto LATAM, y publica solo las nuevas en el canal de Telegram
-"JOBS - PRACTICAS/APRENDIZ". Reemplaza al cronjob de Hermes + DeepSeek.
+<h1 align="center">APOLO TI 🏹⚡</h1>
 
-- Las reglas deciden los casos claros; DeepSeek clasifica las vacantes **dudosas**, incluidas
-  todas las prácticas y aprendices de áreas que no son TI (acepta solo las que tienen funciones
-  principales de TI). Topes diarios amplios (clasificador 300, reportero 20, resumen 3); la
-  protección económica es el saldo mínimo de DeepSeek.
-- Nunca se publica dos veces la misma vacante, aunque aparezca en varias fuentes.
-- Corre cada 30 minutos en el PC Fedora con systemd de usuario: guía completa de instalación,
-  fase de prueba, paso a producción, operación y rollback en `deploy/INSTALAR.md`.
+<p align="center">
+  <b>Radar Inteligente de Oportunidades & Copiloto Autónomo de Postulación en 1 Toque</b><br>
+  <i>Especializado en prácticas, aprendices (incluido SENA / ADSO) y roles junior de TI en Colombia y Remoto LATAM.</i>
+</p>
 
-La especificación completa está en `docs/buscador-vacantes-spec.md` y el plan en
-`openspec/changes/crear-buscador-vacantes/`.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/Package_Manager-uv-DE5FE9?style=flat-square" alt="uv">
+  <img src="https://img.shields.io/badge/Bot-Telegram-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram">
+  <img src="https://img.shields.io/badge/Navegador-Manifest_V3-4285F4?style=flat-square&logo=google-chrome&logoColor=white" alt="Manifest V3">
+  <img src="https://img.shields.io/badge/Arquitectura-Zero--Trust-00C853?style=flat-square" alt="Zero-Trust">
+  <img src="https://img.shields.io/badge/Licencia_Datos-Ley_1581_Colombia-blue?style=flat-square" alt="Habeas Data">
+</p>
 
-## Instalación local
+---
 
-Requiere [uv](https://docs.astral.sh/uv/) (instala Python 3.12 por su cuenta).
+## 💡 ¿Qué es APOLO TI?
 
+> **APOLO TI** elimina las dos mayores barreras para el talento tecnológico emergente: la saturación de ofertas con requisitos irreales y la lentitud al postular. Su motor determinista rastrea continuamente 6 portales líderes, filtra el seniority falso y arbitra casos dudosos con IA. Cuando el candidato pulsa **⚡ Postularme**, el ecosistema adapta su CV a formato ATS, responde los formularios de filtro y ejecuta la postulación en segundo plano desde su propio navegador bajo una estricta arquitectura Zero-Trust.
+
+En el competitivo mercado de tecnología para perfiles iniciales (**practicantes universitarios, aprendices SENA y desarrolladores junior**), existen dos barreras críticas:
+1. **El ruido en los portales:** Vacantes catalogadas como "junior" que exigen años de experiencia previa, o plazas de pasantía que no corresponden a roles reales de ingeniería/TI.
+2. **La ventana de tiempo:** En ofertas de prácticas y primeros empleos, **el primero en postular tiene una ventaja decisiva**. Llenar manualmente los mismos formularios y adaptar la hoja de vida una y otra vez genera una fricción agotadora.
+
+**APOLO TI** transforma este proceso en un flujo continuo y automatizado de punta a punta:
+- **Rastreo continuo (Radar):** Escanea 6 portales de empleo cada 30 minutos sin usar costosos agentes LLM.
+- **Filtros deterministas + Árbitro IA:** Descarta de forma matemática ofertas fuera de perfil y consulta a DeepSeek únicamente para arbitrar casos dudosos con coste mínimo.
+- **Canal de alertas en Telegram:** Publica fichas curadas al instante con un botón de acción directa: **`⚡ Postularme`**.
+- **Copiloto de postulación Zero-Trust:** Con un solo toque, adapta tu CV en formato ATS (sin inventar datos), resuelve las preguntas filtro mediante una cascada inteligente y ejecuta la postulación en segundo plano **desde tu propio navegador y con tu sesión activa**, sin que el servidor toque jamás tus contraseñas.
+
+---
+
+## 🏛️ Arquitectura del Sistema
+
+```mermaid
+flowchart TD
+    subgraph RADAR ["🛰️ 1. RADAR MULTIFUENTE (Costo $0)"]
+        F1["LinkedIn"] & F2["Computrabajo"] & F3["Magneto"] & F4["GetOnBoard"] & F5["El Empleo"] & F6["SPE Colombia"]
+        F1 & F2 & F3 & F4 & F5 & F6 --> SCRAPE["Motor de Rastreo & Rotación"]
+        SCRAPE --> RULES{"Filtro Determinista:<br/>Seniority / Área TI / Ubicación"}
+        RULES -- Caso Dudoso --> IA_DUDOSA["DeepSeek (Árbitro Quirúrgico)"]
+        RULES -- Aceptada --> DEDUP["Deduplicador Multi-Portal (SQLite)"]
+        IA_DUDOSA -- Aceptada --> DEDUP
+    end
+
+    subgraph TELEGRAM ["📢 2. DIFUSIÓN COMUNITARIA"]
+        DEDUP --> CANAL["Canal Telegram: JOBS - PRÁCTICAS/APRENDIZ<br/>Ficha enriquecida + Enlace ⚡ Postularme"]
+    end
+
+    subgraph ASISTENTE ["🧠 3. CEREBRO ASISTENTE (Servidor Local)"]
+        CANAL -->|Toque en ⚡ Postularme| BOT["Bot Asistente Telegram"]
+        BOT --> ADAPT["Adaptador ATS de CV (fpdf2)<br/>Resumen ejecutivo y habilidades alineadas"]
+        BOT --> CASCADA["Resolución en Cascada de Preguntas:<br/>1. Perfil ➔ 2. Banco Compartido ➔ 3. Historial ➔ 4. Gemini"]
+        ADAPT & CASCADA --> COLA["Cola de Postulación por Usuario"]
+    end
+
+    subgraph EXTENSION ["💻 4. MANOS DEL USUARIO (Extensión Navegador)"]
+        COLA -->|API Segura vía Tailscale Funnel| EXT["Extensión Manifest V3 (Edge / Chrome / Brave)"]
+        EXT --> AUTOFILL["Ejecución en segundo plano:<br/>Usa sesión e IP local del usuario<br/>Llena formulario, adjunta PDF adaptado y envía"]
+        AUTOFILL --> CONFIRM["Notificación al usuario en Telegram<br/>con detalle exacto de lo postulado"]
+    end
+```
+
+---
+
+## ⚡ Características Principales
+
+### 🛰️ 1. Radar Autónomo Determinista
+- **6 Fuentes Integradas:** LinkedIn, Computrabajo, El Empleo, Magneto, GetOnBoard y el Servicio Público de Empleo (SPE).
+- **Cero Spam y Cero Duplicados:** Huella digital única que impide duplicar la misma vacante aunque aparezca en diferentes portales con enlaces distintos.
+- **Rotación y Presupuesto de Requests:** Pausas aleatorias inteligentes, cooldowns escalonados ante bloqueos y límites por fuente.
+- **Árbitro IA Eficiente:** DeepSeek clasifica exclusivamente ofertas ambiguas (p. ej., prácticas no técnicas con funciones secundarias de software).
+- **Diagnóstico y Resumen Diario:** Detección determinista de incidentes, reporte automático de salud a `healthchecks.io` y resumen métrico a las 08:00 AM.
+
+### 🤖 2. Asistente y Adaptador de CV
+- **Lectura Inteligente de CV:** Onboarding mediante el bot de Telegram; Gemini extrae y estructura habilidades, proyectos, experiencia y formación.
+- **Adaptación Quirúrgica ATS:** Reordena hasta 6 habilidades clave, ajusta el resumen profesional y homologa hasta 3 términos de la vacante. **Nunca inventa experiencia ni adultera datos reales.** Genera un PDF ATS limpio con tipografía formal (`Liberation Sans`).
+- **Resolución de Preguntas en Cascada:**
+  1. Perfil directo del usuario.
+  2. Banco de preguntas compartidas del sistema.
+  3. Respuestas aprendidas de postulaciones anteriores.
+  4. Inferencia con la clave de Gemini del propio usuario (plan gratuito).
+- **Paquete de Respaldo:** Si la oferta es de un portal externo o manual (p. ej., LinkedIn o GetOnBoard), entrega un paquete listo para copiar y pegar (respuestas, carta de presentación y PDF adaptado).
+
+### 🛡️ 3. Extensión de Navegador Zero-Trust
+- **Ejecución Local:** La extensión corre en Microsoft Edge, Google Chrome o Brave. La postulación se emite desde la máquina, la IP y la sesión abierta del candidato.
+- **Zero Credenciales:** El servidor **nunca** conoce ni solicita contraseñas o tokens de sesión de los portales de empleo.
+- **Selectores Dinámicos:** Si Computrabajo o Magneto modifican su HTML, los selectores se actualizan en el servidor sin requerir una nueva versión de la extensión en la tienda.
+- **Manejo Ético de Verificaciones:** Si surge un CAPTCHA, la extensión se detiene y notifica al usuario para resolverlo manualmente.
+- **Privacidad y Legalidad:** Autorización explícita de tratamiento de datos personales bajo la **Ley 1581 de Colombia (Habeas Data)**. Borrado integral con comando `/borrarme`.
+
+---
+
+## 📦 Instalación y Configuración
+
+### Requisitos Previos
+- **Python 3.12+**
+- Gestor de paquetes **[uv](https://docs.astral.sh/uv/)**
+
+### 1. Clonar y Preparar el Entorno
 ```bash
-uv sync                      # crea .venv con las dependencias
-cp .env.example .env         # completar los secretos
+# Sincronizar el entorno base del buscador
+uv sync
+
+# Para habilitar el Asistente de Postulación (Bot, FastAPI, PDF y Cifrado)
+uv sync --group asistente
+
+# Para desarrollo y pruebas
+uv sync --group dev
+```
+
+### 2. Configurar Secretos (`.env`)
+Copia la plantilla y asigna los permisos necesarios:
+```bash
+cp .env.example .env
 chmod 600 .env
-uv run pytest                # pruebas (sin red)
-PRUEBA_REAL=1 uv run pytest  # incluye DeepSeek y healthchecks reales (usa la red)
 ```
 
-## Modos de ejecución
+Variables clave requeridas:
+```ini
+TELEGRAM_BOT_TOKEN="tu_token_de_bot_de_telegram"
+TELEGRAM_CHAT_ID="-100xxxxxxxxxx"         # Canal de producción
+TELEGRAM_CHAT_PRUEBA="-100yyyyyyyyyy"      # Chat/grupo de pruebas
+DEEPSEEK_API_KEY="sk-..."                 # Para clasificación de dudosas y reportero
+HEALTHCHECK_URL="https://hc-ping.com/..." # Opcional: monitoreo de latido
 
+# Requerido para el Asistente:
+ASISTENTE_CLAVE_CIFRADO="..."             # Generar con: uv run buscador.py asistente generar-clave
+```
+
+---
+
+## 🚀 Modos de Ejecución
+
+### 📡 Operación del Radar / Buscador
 ```bash
-uv run buscador.py --dry-run --fuente getonboard   # consulta una fuente e imprime el resultado
-uv run buscador.py --dry-run                       # todas las fuentes activas, sin enviar nada
-uv run buscador.py migrar --archivo docs/referencia_hermes/historial_vacantes.json
-uv run buscador.py --seed                          # marca lo actual como visto, sin enviar
-uv run buscador.py --chat-prueba                   # envía al chat de prueba
-uv run buscador.py                                 # corrida normal (la que ejecuta systemd)
-uv run buscador.py resumen                         # resumen diario (una vez al día, 08:00)
-uv run buscador.py --dry-run resumen               # muestra el resumen sin enviarlo
-uv run buscador.py promover-prueba                 # al pasar a producción (ver deploy/INSTALAR.md)
+# Corrida periódica estándar (la que ejecuta systemd cada 30 min)
+uv run buscador.py
+
+# Simulación en seco sin realizar envíos ni modificar la base de datos
+uv run buscador.py --dry-run
+
+# Probar una fuente específica en seco
+uv run buscador.py --dry-run --fuente getonboard
+
+# Marcar vacantes actuales como ya vistas (inicialización obligatoria en bases limpias)
+uv run buscador.py --seed
+
+# Envío de prueba hacia el chat de testeo
+uv run buscador.py --chat-prueba
+
+# Resumen diario matutino (estadísticas, recomendaciones y métricas)
+uv run buscador.py resumen
+
+# Simular incidentes para verificar alertas del reportero
 uv run buscador.py --simular-incidente linkedin:bloqueo --dry-run
-uv run buscador.py --simular-incidente magneto:cambio_html --simular-falla-ia saldo_bajo
 ```
 
-`--simular-incidente FUENTE:TIPO` arma evidencia de ejemplo y corre el reportero completo
-(diagnóstico IA o alerta plana) sobre una base en memoria: no toca el estado real. Tipos:
-`bloqueo`, `captcha`, `cambio_html`, `sin_resultados`, `caida_volumen`, `error_servidor`, además
-de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat de prueba.
+| Modo | Envía a Telegram | Registra Vistas | Invoca IA | Requiere Secretos |
+|---|:---:|:---:|:---:|:---:|
+| `--dry-run` | ❌ No | ❌ No | ❌ No | ❌ No |
+| `--seed` | ❌ No | ✅ Sí | ❌ No | ❌ No |
+| `--chat-prueba` | ✅ Al chat test | ✅ Sí | ✅ Sí | ✅ Sí |
+| `normal` | ✅ Al canal | ✅ Sí | ✅ Sí | ✅ Sí |
+| `resumen` | ✅ Al canal | ❌ No | ✅ Sí (1 llamada) | ✅ Sí |
 
-| Modo | Envía | Marca vistas | Llama a la IA | Necesita secretos |
-|---|---|---|---|---|
-| `--dry-run` | no | no | no | no |
-| `migrar` | no | sí (como enviadas) | no | no |
-| `--seed` | no | sí | no | no |
-| `--chat-prueba` | al chat de prueba | solo para el chat de prueba | sí | sí, más `TELEGRAM_CHAT_PRUEBA` |
-| normal | al canal | sí | sí | sí |
-| `resumen` | al canal (o al chat de prueba) | no | una llamada | sí |
+---
 
-- `--fuente <nombre>` limita la corrida a una fuente. En dry-run sirve también para probar una
-  fuente desactivada.
-- Antes de la primera corrida que envía hay que correr `migrar` o `--seed`. Si la base no
-  tiene historial, el buscador se niega a enviar para no inundar el canal.
-- Si hay otra corrida en curso, la nueva termina de inmediato sin hacer requests.
-
-## Configuración
-
-- **`config.yaml`**: fuentes (activa, presupuesto de requests, palabras clave del núcleo por
-  corrida y páginas leídas de cada una), palabras clave (núcleo y cola larga por rol), filtros
-  (seniority, nivel, áreas de TI, áreas
-  que no son TI, ubicación), Telegram, banner (`diario`, `nunca` o `siempre`), IA (modelo,
-  presupuesto diario, saldo mínimo, prompts), resumen diario, incidentes y retención. Se valida
-  al arrancar: un campo inválido detiene el programa indicando cuál es.
-- **Prioridad de prácticas**: el grupo núcleo contiene solo términos de prácticas, pasantías y
-  aprendizaje (practicante, aprendiz SENA/ADSO, pasantía, trainee). Se consulta en cada corrida
-  (`reservado_nucleo` palabras clave por fuente) y, en las fuentes que paginan (Computrabajo y
-  elempleo), se leen hasta `paginas_nucleo` páginas de cada una; una página incompleta corta
-  las siguientes. El presupuesto cuenta requests, así que cada página es uno. Los términos
-  junior van en la cola larga, que lee solo la primera página.
-- **Fuentes**: LinkedIn, Computrabajo, elempleo, Magneto, GetOnBoard y el Servicio Público de
-  Empleo (buscadordeempleo.gov.co). El SPE no usa palabras clave: pide las plazas de práctica
-  (`PLAZA_PRACTICA=1`) más recientes. Sus copias de elempleo y Magneto se identifican con la
-  clave y el enlace del portal de origen, para no duplicarlas, y se descartan las plazas
-  vencidas, sin enlace o cuyo enlace exige iniciar sesión (`opciones.dominios_con_login`). Su
-  servidor no envía el certificado intermedio: se completa la cadena con
-  `assets/certs/geotrust-tls-rsa-ca-g1.pem` (DigiCert), sin desactivar la verificación TLS.
-- **`.env`** (permisos 600, nunca en git): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
-  `TELEGRAM_CHAT_PRUEBA`, `DEEPSEEK_API_KEY` y `HEALTHCHECK_URL`. Si `TELEGRAM_BOT_TOKEN` está
-  vacío, el token se lee del archivo indicado en `telegram.token_hermes` (el bot de Hermes).
-  Con el asistente activo se suman `ASISTENTE_BOT_TOKEN` y `ASISTENTE_CLAVE_CIFRADO`.
-
-## Asistente de postulación (opcional)
-
-Servicio aparte, desactivado por defecto (`asistente.activo: false`), que permite a los miembros
-del grupo privado postularse a una vacante tocando **⚡ Postularme** en la ficha del canal. Tiene
-tres partes: un bot de Telegram (alta, perfil y avisos), una API local que se expone con Tailscale
-Funnel y una extensión de navegador (`extension/`, Edge/Chrome) que llena y envía el formulario con
-la sesión del propio usuario, con un CV levemente adaptado a cada vacante. Hoy postula solo en
-Computrabajo y Magneto; en las demás entrega un paquete para copiar.
-
+### 🤖 Operación del Asistente de Postulación
 ```bash
-uv sync --group asistente                       # dependencias del asistente
-uv run --group asistente buscador.py asistente generar-clave        # clave maestra (respaldarla)
-uv run --group asistente buscador.py asistente servicio             # bot, API y tareas (systemd)
-uv run --group asistente buscador.py asistente enlace computrabajo:ABC123   # enlace ⚡ de una vacante
-uv run --group asistente buscador.py asistente selectores recargar  # tras editar assets/selectores/
-uv run --group asistente buscador.py asistente empaquetar-extension # .zip para la tienda de Edge
+# 1. Generar la clave maestra de cifrado (guardar en .env como ASISTENTE_CLAVE_CIFRADO)
+uv run buscador.py asistente generar-clave
+
+# 2. Iniciar el servicio completo (Bot de Telegram + API FastAPI + Tareas periódicas)
+uv run buscador.py asistente servicio
+
+# 3. Obtener el enlace de postulación ⚡ para pruebas con una vacante
+uv run buscador.py asistente enlace computrabajo:ABC12345
+
+# 4. Recargar selectores dinámicos de los portales desde el servidor
+uv run buscador.py asistente selectores recargar
+
+# 5. Rotar la clave de cifrado de la base de datos
+uv run buscador.py asistente rotar-clave --nueva <CLAVE_NUEVA>
 ```
 
-- Instalación y operación del servicio: `deploy/INSTALAR.md`, sección 11.
-- Lo que ve el usuario (alta, extensión, comandos, preguntas frecuentes): `docs/guia-usuario.md`.
-- Plan y decisiones: `openspec/changes/asistente-postulacion-telegram/`.
-- Su configuración va en `asistente:` de `config.yaml`; lo propio de cada PC (bot, URL pública,
-  rutas) en `config.local.yaml`, que no se sube a git.
-- Con el asistente activo, el resumen diario agrega sus métricas agregadas (usuarios, navegadores
-  en línea, postulaciones, % de respuestas sin IA).
+---
 
-## Estado y logs
+### 🧩 Instalación de la Extensión del Navegador
 
-- `data/vacantes.db` (SQLite): vacantes vistas y enviadas, cooldowns, rotación, intentos,
-  corridas, clasificaciones de la IA e incidentes.
-- `logs/AAAA-MM-DD.log`: un archivo por día, se conservan 14 días. Los secretos se enmascaran.
+1. Abre tu navegador basado en Chromium (**Microsoft Edge**, **Google Chrome** o **Brave**).
+2. Dirígete a la gestión de extensiones (`edge://extensions` o `chrome://extensions`).
+3. Activa el **Modo de desarrollador** (Developer mode).
+4. Haz clic en **Cargar extensión sin empaquetar** (*Load unpacked*).
+5. Selecciona la carpeta `extension/` de este repositorio.
+6. Abre el popup de la extensión y pulsa en **Vincular**. El bot de Telegram te enviará el enlace de enlace seguro en 1 toque.
 
-## Estructura
+---
+
+## 📂 Estructura del Proyecto
 
 ```
-buscador.py                 punto de entrada (uv run buscador.py ...)
-config.yaml                 configuración funcional (fuentes, filtros, presupuestos)
-buscador_vacantes/          código del buscador
-  corrida.py                CLI y flujo de la corrida
-  config.py                 carga y validación de config.yaml y .env
-  fuentes/                  una clase por fuente sobre fuentes/base.py
-  filtros.py                veredicto aceptar/rechazar/dudosa y categoría
-  clasificador.py           dudosas → DeepSeek (ia_cliente.py)
-  estado.py                 SQLite
-  formato.py                mensajes HTML de Telegram
-  publicacion.py            banner y envío con confirmación (notificador_telegram.py)
-  incidentes.py             detección determinista de incidentes
-  reportero.py              diagnóstico IA de incidentes y alertas planas
-  resumen.py                resumen diario con métricas y recomendaciones
-  asistente/                bot, API, cola y CV del asistente de postulación (opcional)
-  simulacion.py             --simular-incidente
-  salud.py                  heartbeat a healthchecks.io
-  migrar_historial.py       importación del historial de Hermes
-extension/                  extensión de navegador del asistente (Manifest V3)
-tests/                      pruebas (pytest + respx) y fixtures
-deploy/                     unidades systemd y guía de instalación en Fedora
-assets/                     banner del canal y certs/ (certificado intermedio del SPE)
-docs/                       especificación de origen, guía del usuario del asistente y
-                            referencia_hermes/ (scripts originales de Hermes, solo referencia)
+JobScrapper_TG/
+├── buscador.py                     # Punto de entrada principal (CLI de uv)
+├── config.yaml                     # Configuración funcional (fuentes, filtros, límites)
+├── pyproject.toml                  # Dependencias y configuración de herramientas
+├── assets/                         # Recursos gráficos y certificados
+│   ├── logo.jpg                    # Logotipo e identidad visual de APOLO TI
+│   ├── certs/                      # Certificado intermedio del SPE (TLS)
+│   ├── fuentes/                    # Tipografías oficiales para generación de PDF (Liberation Sans)
+│   └── selectores/                 # Selectores dinámicos JSON para Computrabajo y Magneto
+├── buscador_vacantes/              # Núcleo del sistema
+│   ├── corrida.py                  # Orquestador del flujo y CLI del buscador
+│   ├── filtros.py                  # Reglas deterministas de filtrado (seniority, áreas, nivel)
+│   ├── clasificador.py             # Clasificación de vacantes dudosas con DeepSeek
+│   ├── estado.py                   # Persistencia en SQLite (data/vacantes.db)
+│   ├── formato.py                  # Generación de mensajes HTML para Telegram
+│   ├── publicacion.py              # Envío al canal y control de encabezados
+│   ├── reportero.py                # Diagnóstico y reporte automático de incidentes
+│   ├── resumen.py                  # Generador de métricas y resumen diario
+│   ├── fuentes/                    # Conectores modulares por portal
+│   │   ├── base.py                 # Clase abstracta e interfaz de fuentes
+│   │   ├── computrabajo.py         # Conector Computrabajo
+│   │   ├── elempleo.py             # Conector El Empleo
+│   │   ├── getonboard.py           # Conector GetOnBoard
+│   │   ├── linkedin.py             # Conector LinkedIn
+│   │   ├── magneto.py              # Conector Magneto
+│   │   └── spe.py                  # Conector Servicio Público de Empleo
+│   └── asistente/                  # Plataforma del Copiloto de Postulación
+│       ├── bot.py                  # Bot interactivo multiusuario de Telegram
+│       ├── api.py                  # API FastAPI para la extensión (Tailscale Funnel)
+│       ├── cv_pdf.py               # Renderizado del CV adaptado en PDF ATS (fpdf2)
+│       ├── cv_adaptado.py          # Lógica de alineación sin inventar datos
+│       ├── respuestas.py           # Cascada inteligente de resolución de preguntas
+│       ├── gemini.py               # Integración segura con Google Gemini
+│       ├── cifrado.py              # Cifrado AES-GCM para credenciales de usuario
+│       └── cola.py                 # Orquestación de la cola de postulaciones
+├── extension/                      # Extensión de navegador Manifest V3
+│   ├── manifest.json               # Manifiesto de la extensión
+│   ├── servicio.js                 # Service worker de fondo (ejecuta la cola)
+│   ├── motor.js                    # Motor de inyección y llenado de formularios
+│   ├── popup.html / popup.js       # Interfaz visual de vinculación y estado
+│   └── adaptadores/                # Adaptadores por portal (Computrabajo, Magneto)
+├── deploy/                         # Unidades systemd y guías de despliegue en servidor
+├── docs/                           # Especificaciones técnicas de referencia
+└── tests/                          # Suite integral de pruebas (pytest + respx)
 ```
 
-Para agregar una fuente: crear `buscador_vacantes/fuentes/<nombre>.py` con
-`construir_peticion()` y `parsear()`, registrarla en `FUENTES` de
-`buscador_vacantes/corrida.py` y agregarla a `fuentes:` en `config.yaml`.
+---
+
+## 🔒 Privacidad y Seguridad
+
+- **Cumplimiento Normativo:** Implementa consentimiento explícito conforme a la **Ley 1581 de 2012** (Colombia).
+- **Cifrado de Extremo a Extremo:** Las claves de API de Gemini de los usuarios se almacenan cifradas con clave maestra independiente mediante AES-GCM.
+- **Aislamiento de Sesiones:** El servidor jamás solicita, almacena ni gestiona contraseñas o cookies de los portales laborales.
+- **Acceso Restringido:** El bot asistente valida automáticamente la membresía activa en el canal privado de Telegram antes de procesar cualquier acción.
+
+---
+
+<p align="center">
+  <b>APOLO TI</b> · <i>Construido para acelerar el futuro del talento tecnológico.</i>
+</p>
