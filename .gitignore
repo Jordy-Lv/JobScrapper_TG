@@ -14,3 +14,7 @@ __pycache__/
 
 # Sistema
 .DS_Store
+
+# Configuración propia de cada PC (bot, URL pública, rutas)
+config.local.yaml
+dist/
