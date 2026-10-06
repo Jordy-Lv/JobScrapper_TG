@@ -435,6 +435,8 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         postulacion_de(pid, nav)
         if not nucleo.cola.registrar_paso(pid, nav.id, cuerpo.paso, cuerpo.detalle, nucleo.ahora()):
             raise HTTPException(409, "la postulación no es de este navegador")
+        await nucleo.notificar({"tipo": "paso", "postulacion_id": pid, "paso": cuerpo.paso,
+                                "usuario_id": nav.usuario_id})  # fmt: skip
         return {"ok": True}
 
     @app.post(PREFIJO + "/postulaciones/{pid}/formulario")

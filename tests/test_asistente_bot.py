@@ -701,3 +701,23 @@ def test_tope_de_toques_por_minuto_protege_el_chat(mundo):
     enviados = len(mundo.s.mensajes)
     assert "muy rápido" in tocar_resumen(mundo, p.id, "d")
     assert len(mundo.s.mensajes) == enviados
+
+
+def test_progreso_un_solo_mensaje_que_avanza_de_etapa_y_se_detiene(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    mundo.c.intervalo_animacion = 0.01
+
+    async def correr_progreso():
+        base = {"postulacion_id": p.id, "usuario_id": usuario.id}
+        await mundo.c.notificar({"tipo": "postulando", **base})
+        await mundo.c.notificar({"tipo": "paso", "paso": "llenado", **base})
+        await asyncio.sleep(0.05)
+        await mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA))
+
+    correr(correr_progreso())
+    textos = [e[2] for e in mundo.s.ediciones if e[1] == 42]
+    assert any("⠋ <b>Abriendo la oferta…</b>" in x for x in textos)
+    assert any("✓ Preparando tu hoja de vida" in x and "Respondiendo el formulario…" in x
+               for x in textos)  # fmt: skip
+    assert "Postulación enviada y confirmada" in textos[-1]
+    assert p.id not in mundo.c._animaciones

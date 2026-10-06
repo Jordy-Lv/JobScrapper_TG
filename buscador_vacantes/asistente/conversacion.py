@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from buscador_vacantes.asistente import resumen_postulacion, vinculos
+from buscador_vacantes.asistente import progreso, resumen_postulacion, vinculos
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.cola import CON_RESPALDO, E, Evento
 from buscador_vacantes.asistente.cv_lectura import (
@@ -138,6 +138,9 @@ class Conversacion:
         self._tareas: set[asyncio.Task] = set()
         self._borrados: set[asyncio.Task] = set()  # borrados programados; no se esperan
         self._toques_resumen: dict[int, deque[float]] = defaultdict(deque)
+        self.intervalo_animacion = 2.5  # segundos entre cuadros del progreso
+        self._etapas: dict[int, int] = {}  # postulación → etapa en curso del progreso
+        self._animaciones: dict[int, asyncio.Task] = {}
 
     # --- utilidades ------------------------------------------------------------------
 
@@ -1531,9 +1534,52 @@ class Conversacion:
                 "⚠️ Tu clave de Gemini ya no funciona. Sigo sin IA; registra una nueva con /clave.",
             )
         elif tipo == "postulando":
-            await self._editar_progreso(usuario, d["postulacion_id"], "🚀 Postulando…")
+            await self._iniciar_progreso(usuario, d["postulacion_id"])
+        elif tipo == "paso":
+            etapa = progreso.etapa_de_paso(d["paso"])
+            pid = d["postulacion_id"]
+            if etapa is not None and pid in self._animaciones and etapa > self._etapas[pid]:
+                self._etapas[pid] = etapa
+                await self._pintar_progreso(usuario, pid, 0)
+
+    async def _pintar_progreso(self, usuario: Usuario, pid: int, cuadro: int) -> None:
+        fila = self.n.base.cx.execute(
+            "SELECT p.mensaje_id, v.titulo, v.empresa FROM postulaciones p LEFT JOIN vacantes v "
+            "ON v.id_corto = p.id_corto WHERE p.id = ?",
+            (pid,),
+        ).fetchone()
+        if fila and fila["mensaje_id"]:
+            texto = progreso.texto(fila["titulo"], fila["empresa"], self._etapas[pid], cuadro)
+            await self.s.editar(usuario.telegram_id, fila["mensaje_id"], texto)
+
+    async def _iniciar_progreso(self, usuario: Usuario, pid: int) -> None:
+        """Un solo mensaje que va marcando las etapas y gira mientras la extensión trabaja."""
+        if pid in self._animaciones:
+            return
+        self._etapas[pid] = 0
+        try:
+            await self._pintar_progreso(usuario, pid, 0)
+        except Exception:  # noqa: BLE001 - mensaje viejo o borrado: el aviso final lo reenvía
+            log.info("No se pudo mostrar el progreso de %s", pid)
+        self._animaciones[pid] = asyncio.create_task(self._animar_progreso(usuario, pid))
+
+    async def _animar_progreso(self, usuario: Usuario, pid: int) -> None:
+        for cuadro in range(1, 600):
+            await asyncio.sleep(self.intervalo_animacion)
+            try:
+                await self._pintar_progreso(usuario, pid, cuadro)
+            except Exception:  # noqa: BLE001 - un cuadro perdido no importa
+                log.debug("Cuadro de progreso perdido en %s", pid)
+
+    async def _detener_progreso(self, pid: int) -> None:
+        tarea = self._animaciones.pop(pid, None)
+        self._etapas.pop(pid, None)
+        if tarea is not None:
+            tarea.cancel()
+            await asyncio.gather(tarea, return_exceptions=True)
 
     async def _editar_progreso(self, usuario: Usuario, pid: int, estado: str) -> None:
+        await self._detener_progreso(pid)
         fila = self.n.base.cx.execute(
             "SELECT p.mensaje_id, v.titulo FROM postulaciones p LEFT JOIN vacantes v "
             "ON v.id_corto = p.id_corto WHERE p.id = ?",
