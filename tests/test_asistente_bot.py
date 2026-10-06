@@ -141,7 +141,9 @@ async def responder_faltantes(m, tid):
             return
         indice = m.c._esperando(usuario)["indice"]
         item = t.CUESTIONARIO[indice]
-        if item.opciones:
+        if item.otro:  # botones de rango, pero la prueba escribe su propio valor
+            await m.c.al_texto(tid, "1300000")
+        elif item.opciones:
             await m.c.al_boton(tid, cb("cuest", indice, 0))
         elif item.opcional:
             await m.c.al_boton(tid, cb("cuest", indice, "omitir"))
@@ -201,6 +203,25 @@ def test_resumen_unico_con_dos_botones_y_sin_cuestionario(mundo):
     for clave in ("salario", "disponibilidad_inicio", "actualizar_cv_portal"):
         item = next(i for i in t.CUESTIONARIO if i.clave == clave)
         assert t.e(item.pregunta) in preguntadas
+
+
+def test_salario_con_botones_de_rango_y_otro_valor(mundo):
+    indice = next(i for i, it in enumerate(t.CUESTIONARIO) if it.clave == "salario")
+    correr(hasta_resumen(mundo, ANA))
+    correr(mundo.c.al_boton(ANA, cb("resumen", "ok")))
+    correr(mundo.c.al_boton(ANA, cb("cuest", 3, "omitir")))  # el documento es opcional
+    assert mundo.c._esperando(mundo.n.usuarios.obtener(ANA))["indice"] == indice
+    _, texto, botones = mundo.s.ultimo(ANA)
+    etiquetas = [b[0] for fila in botones for b in fila]
+    assert etiquetas == [*t.CUESTIONARIO[indice].opciones, "✏️ Otro valor"]
+    # «Otro valor» no guarda nada: pide el número y sigue esperando
+    correr(mundo.c.al_boton(ANA, cb("cuest", indice, "otro")))
+    assert "Escribe el valor" in mundo.s.ultimo(ANA)[1]
+    assert not mundo.n.datos_usuario(mundo.n.usuarios.obtener(ANA).id).cuestionario.get("salario")
+    # Un botón guarda el número, no la etiqueta
+    correr(mundo.c.al_boton(ANA, cb("cuest", indice, 0)))
+    datos = mundo.n.datos_usuario(mundo.n.usuarios.obtener(ANA).id)
+    assert datos.cuestionario["salario"] == str(t.SMMLV)
 
 
 def test_editar_recorre_secciones_enfoque_y_cuestionario(mundo):

@@ -598,9 +598,14 @@ class Conversacion:
         botones: Botones = []
         if opciones:
             botones = [
-                [(o, cb("cuest", indice, n)) for n, o in enumerate(opciones[i : i + 4], i)]
-                for i in range(0, len(opciones), 4)
+                [
+                    (o, cb("cuest", indice, n))
+                    for n, o in enumerate(opciones[i : i + item.por_fila], i)
+                ]
+                for i in range(0, len(opciones), item.por_fila)
             ]
+        if item.otro:
+            botones.append([(item.otro, cb("cuest", indice, "otro"))])
         if sugerido:
             botones.append([(f"Usar {sugerido}", cb("cuest", indice, "sug"))])
         if item.opcional:
@@ -1049,6 +1054,11 @@ class Conversacion:
             case "cuest":
                 indice, eleccion = int(args[0]), args[1]
                 item = t.CUESTIONARIO[indice]
+                if eleccion == "otro":  # sigue esperando: la respuesta llega como texto
+                    await self._enviar(
+                        usuario, "Escribe el valor (solo el número, en pesos; por ejemplo 2200000)."
+                    )
+                    return
                 if eleccion == "omitir":
                     valor = ""
                 elif eleccion == "sug":
@@ -1059,7 +1069,8 @@ class Conversacion:
                         or ""
                     )
                 else:
-                    valor = self._pregunta_y_opciones(usuario, item)[1][int(eleccion)]
+                    opciones = item.valores or self._pregunta_y_opciones(usuario, item)[1]
+                    valor = opciones[int(eleccion)]
                 self._guardar_respuesta_cuestionario(usuario, indice, valor)
                 await self._siguiente_cuestionario(usuario, indice)
             case "resumen":

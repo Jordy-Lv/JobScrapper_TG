@@ -153,7 +153,13 @@ class ItemCuestionario:
     pregunta: str
     opciones: tuple[str, ...] = ()
     opcional: bool = False
+    valores: tuple[str, ...] = ()  # lo que se guarda por cada opción (si difiere de su botón)
+    por_fila: int = 4  # botones por fila
+    otro: str = ""  # texto del botón «escribir otro valor» (vacío: sin ese botón)
 
+
+# Salario mínimo legal vigente 2026 (Colombia); actualizar cada enero
+SMMLV = 1750905
 
 CUESTIONARIO: tuple[ItemCuestionario, ...] = (
     ItemCuestionario("nombre", "¿Cuál es tu nombre completo?"),
@@ -162,8 +168,12 @@ CUESTIONARIO: tuple[ItemCuestionario, ...] = (
     ItemCuestionario("documento", "Número de documento (opcional, algunos formularios lo piden)",
                      opcional=True),
     ItemCuestionario("ciudad", "¿En qué ciudad vives?"),
-    ItemCuestionario("salario", "¿Cuál es tu aspiración salarial mensual? (solo el número, en "
-                                "pesos; por ejemplo 1300000)"),
+    ItemCuestionario("salario", "¿Cuál es tu aspiración salarial mensual? Elige un rango o "
+                                "toca «Otro valor» y escríbelo (solo el número, en pesos; por "
+                                "ejemplo 1300000)",
+                     ("Salario mínimo", "$2.000.000", "$2.500.000", "$3.000.000", "$4.000.000"),
+                     valores=(str(SMMLV), "2000000", "2500000", "3000000", "4000000"),
+                     por_fila=2, otro="✏️ Otro valor"),
     ItemCuestionario("disponibilidad_inicio", "¿Cuándo puedes empezar?",
                      ("Inmediata", "En 15 días", "En 1 mes")),
     ItemCuestionario("horario", "¿Qué disponibilidad de horario tienes?",
