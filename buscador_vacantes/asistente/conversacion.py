@@ -58,7 +58,34 @@ MENSAJE_GUIA_PROXIMAMENTE = (
     "🚧 Funcionalidad disponible próximamente."
 )
 
+PROVEEDORES_CLAVE = (  # (id, texto del botón); solo Gemini está activo por ahora
+    ("gemini", "Gemini · gratis"),
+    ("openai", "OpenAI · próximamente"),
+    ("anthropic", "Claude (Anthropic) · próximamente"),
+    ("groq", "Groq · próximamente"),
+    ("openrouter", "OpenRouter · próximamente"),
+    ("deepseek", "DeepSeek · próximamente"),
+)
+
 Botones = list[list[tuple[str, str]]]  # (texto, "cb:…" o "url:…")
+PROVEEDORES_POR_PAGINA = 4
+
+
+def botones_proveedores(pagina: int) -> Botones:
+    """Hasta 4 proveedores por página y, si hay más, «Siguiente» (o «Anterior» al final)."""
+    total = len(PROVEEDORES_CLAVE)
+    pagina = max(0, min(pagina, (total - 1) // PROVEEDORES_POR_PAGINA))
+    desde = pagina * PROVEEDORES_POR_PAGINA
+    botones = [
+        [(f"{'✅ ' if p == 'gemini' else ''}{nombre}", cb("prov", p))]
+        for p, nombre in PROVEEDORES_CLAVE[desde : desde + PROVEEDORES_POR_PAGINA]
+    ]
+    nav = []
+    if pagina > 0:
+        nav.append(("⬅️ Anterior", cb("provpag", pagina - 1)))
+    if desde + PROVEEDORES_POR_PAGINA < total:
+        nav.append(("Siguiente ➡️", cb("provpag", pagina + 1)))
+    return botones + [nav] if nav else botones
 
 
 def derivar_del_cv(
@@ -253,9 +280,8 @@ class Conversacion:
             await self._mostrar_politica(usuario)
         elif paso == "clave":
             self._esperar(usuario, {"tipo": "clave"})
-            await self._enviar(
-                usuario, t.PEDIR_CLAVE, [[("No tengo clave por ahora", cb("clave", "omitir"))]]
-            )
+            mensaje_id = await self._enviar(usuario, t.PEDIR_CLAVE, botones_proveedores(0))
+            self.n.base.kv_guardar(f"prov_msg:{usuario.id}", str(mensaje_id or ""))
         elif paso == "cv":
             await self._enviar(
                 usuario,
@@ -1446,6 +1472,16 @@ class Conversacion:
                 elif args[0] == "borrar":
                     self.n.guardar_clave_gemini(usuario.id, None)
                     await self._enviar(usuario, "🗑 Clave de Gemini borrada.")
+            case "provpag":
+                guardado = self.n.base.kv_obtener(f"prov_msg:{usuario.id}")
+                if guardado:
+                    await self.s.editar(
+                        tid, int(guardado), t.PEDIR_CLAVE, botones_proveedores(int(args[0]))
+                    )
+            case "prov":
+                if args[0] == "gemini":
+                    return "Pega aquí tu clave de Gemini 👇"
+                return "🚧 Este proveedor estará disponible próximamente"
             case "cvopc":
                 if args[0] == "cero":
                     await self._enviar(usuario, t.CV_DESDE_CERO)

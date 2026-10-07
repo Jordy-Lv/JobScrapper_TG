@@ -1777,3 +1777,12 @@ def test_el_boton_cerrar_borra_ya_el_mensaje_efimero_y_libera_el_boton(mundo):
     assert tocar_resumen(mundo, p.id, "r") is None  # ya se puede volver a pedir
     correr(mundo.c.al_boton(LUIS, cb("cerrar", "res", p.id, "r")))  # otra persona: nada
     assert len(mundo.s.borrados) == 1
+
+
+def test_botones_de_proveedores_paginan_de_cuatro_en_cuatro():
+    from buscador_vacantes.asistente.conversacion import botones_proveedores
+
+    p0, p1 = botones_proveedores(0), botones_proveedores(1)
+    assert len(p0) == 5 and p0[-1] == [("Siguiente ➡️", cb("provpag", 1))]
+    assert p0[0][0][1] == cb("prov", "gemini")
+    assert len(p1) == 3 and p1[-1] == [("⬅️ Anterior", cb("provpag", 0))]

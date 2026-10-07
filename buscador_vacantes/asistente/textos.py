@@ -43,7 +43,7 @@ PEDIR_CLAVE = (
     "1. Entra a aistudio.google.com con tu cuenta de Google.\n"
     "2. Abre <b>Get API key</b> y pulsa <b>Crear clave de API</b>.\n"
     "3. Pégala aquí. La borro del chat al instante y la guardo cifrada.\n\n"
-    "Sin clave también funciona, pero sin CV adaptado ni redacción de respuestas abiertas."
+    "Otros proveedores de IA llegarán pronto:"
 )
 PEDIR_CV = (
     "<b>Paso 3 de 5 · Tu hoja de vida</b>\n"
