@@ -1535,6 +1535,12 @@ class Conversacion:
                     await self._enviar(
                         usuario, f"Escribe tu respuesta para:\n<b>{t.e(pregunta)}</b>"
                     )
+            case "cerrar":  # «Cerrar» de un mensaje efímero: borra de una vez todo el grupo
+                filas = self.n.base.cx.execute(
+                    "SELECT * FROM mensajes_efimeros WHERE usuario_id = ? AND clave = ?",
+                    (usuario.id, ":".join(args)),
+                ).fetchall()
+                await self._borrar_filas(filas)
             case "res":
                 return await self._ver_resumen(usuario, int(args[0]), args[1])
             case "rei":
@@ -2116,7 +2122,7 @@ class Conversacion:
         borrar_en = a_texto(self.n.ahora() + timedelta(seconds=espera))
         filas: list[int] = []
         for texto in textos:
-            mensaje = await self._enviar(usuario, texto)
+            mensaje = await self._enviar(usuario, texto, [[("Cerrar", cb("cerrar", clave))]])
             if mensaje is None:
                 continue
             with self.n.base.transaccion() as cx:

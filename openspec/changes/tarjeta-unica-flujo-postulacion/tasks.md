@@ -21,6 +21,7 @@
 - [x] 4.1 🟡 Reescribir `_enviar_resumen` para editar la card en `confirmada`/`incierta` (cuerpo en `<blockquote>`, filas de botones, CV como documento aparte); probar ambos estados y los datos faltantes
 - [x] 4.2 🟡 Vistas «Respuestas» y «De qué trata» con «Volver» en `_ver_resumen` y `resumen_postulacion.py`, conservando el camino efímero para tarjetas anteriores; probar vista, vuelta, recorte por longitud y tarjeta anterior
 - [x] 4.3 🟢 `seg` marca ✓ la opción en la card y permite cambiarla; probar el repintado y que un toque sobre estado superado no reencola
+- [x] 4.4 🟢 Mensajes efímeros de tarjetas anteriores: botón «Cerrar» que los borra de inmediato además del borrado automático; probado
 
 ## 5. Cierre
 

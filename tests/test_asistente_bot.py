@@ -1757,3 +1757,17 @@ def test_seguimiento_de_otra_persona_no_cambia_nada(mundo):
     fila = mundo.base.cx.execute("SELECT seguimiento FROM postulaciones WHERE id = ?", (p.id,))
     assert fila.fetchone()["seguimiento"] is None
     assert len(mundo.s.ediciones) == ediciones
+
+
+def test_el_boton_cerrar_borra_ya_el_mensaje_efimero_y_libera_el_boton(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    tocar_resumen(mundo, p.id, "r")
+    _, _, botones = mundo.s.ultimo(ANA)
+    assert botones == [[("Cerrar", cb("cerrar", "res", p.id, "r"))]]
+    id_mensaje = mundo.s._id
+    correr(mundo.c.al_boton(ANA, botones[0][0][1]))
+    assert mundo.s.borrados == [(ANA, id_mensaje)]
+    assert mundo.base.cx.execute("SELECT COUNT(*) FROM mensajes_efimeros").fetchone()[0] == 0
+    assert tocar_resumen(mundo, p.id, "r") is None  # ya se puede volver a pedir
+    correr(mundo.c.al_boton(LUIS, cb("cerrar", "res", p.id, "r")))  # otra persona: nada
+    assert len(mundo.s.borrados) == 1
