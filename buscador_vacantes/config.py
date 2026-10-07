@@ -399,6 +399,7 @@ class Secretos(BaseModel):
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     telegram_chat_prueba: str | None = None
+    telegram_chat_admin: str | None = None  # grupo de resúmenes y avisos; vacío: el de ofertas
     deepseek_api_key: str | None = None
     healthcheck_url: str | None = None
     asistente_bot_token: str | None = None
@@ -494,6 +495,7 @@ def cargar_secretos(
         telegram_bot_token=leer("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=leer("TELEGRAM_CHAT_ID"),
         telegram_chat_prueba=leer("TELEGRAM_CHAT_PRUEBA"),
+        telegram_chat_admin=leer("TELEGRAM_CHAT_ADMIN"),
         deepseek_api_key=leer("DEEPSEEK_API_KEY"),
         healthcheck_url=leer("HEALTHCHECK_URL"),
         asistente_bot_token=leer("ASISTENTE_BOT_TOKEN"),

@@ -126,6 +126,7 @@ Variables clave requeridas:
 ```ini
 TELEGRAM_BOT_TOKEN="tu_token_de_bot_de_telegram"
 TELEGRAM_CHAT_ID="-100xxxxxxxxxx"         # Canal de producción
+TELEGRAM_CHAT_ADMIN="-100zzzzzzzzzz"        # Grupo de administración: resumen diario y avisos
 TELEGRAM_CHAT_PRUEBA="-100yyyyyyyyyy"      # Chat/grupo de pruebas
 DEEPSEEK_API_KEY="sk-..."                 # Para clasificación de dudosas y reportero
 HEALTHCHECK_URL="https://hc-ping.com/..." # Opcional: monitoreo de latido

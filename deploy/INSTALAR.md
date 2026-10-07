@@ -43,6 +43,7 @@ nano .env
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | **Dejar vacío**: se lee del `.env` de Hermes en cada corrida (así una rotación del token en Hermes no rompe el buscador). |
 | `TELEGRAM_CHAT_ID` | `-1004429829042` (canal real) |
+| `TELEGRAM_CHAT_ADMIN` | id del grupo de administración (resumen diario y avisos; el bot debe estar en el grupo). Vacío: todo va al canal |
 | `TELEGRAM_CHAT_PRUEBA` | `5051574309` (chat privado con el bot) |
 | `DEEPSEEK_API_KEY` | clave de DeepSeek |
 | `HEALTHCHECK_URL` | URL de ping del paso 4 |

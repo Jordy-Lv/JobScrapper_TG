@@ -56,6 +56,16 @@ from buscador_vacantes.simulacion import FALLAS_IA, NotificadorConsola, simular
 
 log = logging.getLogger("buscador")
 
+
+def chat_admin(secretos: cfg.Secretos, prueba: bool) -> str | None:
+    """Chat de resúmenes y avisos. Sin grupo de administración, el de ofertas (con aviso)."""
+    if prueba:
+        return secretos.telegram_chat_prueba
+    if secretos.telegram_chat_admin:
+        return secretos.telegram_chat_admin
+    log.warning("TELEGRAM_CHAT_ADMIN sin definir: resúmenes y avisos van al grupo de ofertas")
+    return secretos.telegram_chat_id
+
 FUENTES: dict[str, type[Fuente]] = {
     "linkedin": LinkedIn,
     "computrabajo": Computrabajo,
@@ -352,6 +362,9 @@ class Corrida:
             return self.secretos.telegram_chat_prueba
         return self.secretos.telegram_chat_id
 
+    def _chat_admin(self) -> str | None:
+        return chat_admin(self.secretos, self.modo.chat_prueba)
+
     def _incidentes(self, resumen: ResumenCorrida) -> None:
         """Detecta incidentes y avisa. Corre después del envío y nunca lo bloquea."""
         detector = Detector(self.estado, self.config.incidentes)
@@ -378,7 +391,7 @@ class Corrida:
         ]  # fmt: skip
         reportero = Reportero(
             self.config.reportero, self.ia, self.estado, detector, self.notificador,
-            self._chat_destino(), datos, reloj=self.reloj,
+            self._chat_admin(), datos, reloj=self.reloj,
         )  # fmt: skip
         reportero.notificar(resumen.incidentes, resumen.intentos, fuentes_ok)
 
@@ -638,7 +651,7 @@ def _resumen(config: cfg.Configuracion, secretos: cfg.Secretos, estado: Estado, 
         chat = "consola"
     else:
         notificador = crear_notificador(config.telegram, secretos.telegram_bot_token)
-        chat = secretos.telegram_chat_prueba if modo.chat_prueba else secretos.telegram_chat_id
+        chat = chat_admin(secretos, modo.chat_prueba)
     ia = None
     if secretos.deepseek_api_key:
         ia = ClienteIA(config.ia, secretos.deepseek_api_key, estado, secretos=secretos.valores())

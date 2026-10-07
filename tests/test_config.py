@@ -12,6 +12,7 @@ VARIABLES = (
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
     "TELEGRAM_CHAT_PRUEBA",
+    "TELEGRAM_CHAT_ADMIN",
     "DEEPSEEK_API_KEY",
     "HEALTHCHECK_URL",
 )
@@ -367,3 +368,11 @@ def test_config_local_reemplaza_solo_lo_que_trae(tmp_path, monkeypatch):
     assert config.asistente.api.puerto == 8787  # lo demás sigue igual
     monkeypatch.setenv("BUSCADOR_SIN_CONFIG_LOCAL", "1")
     assert cargar_configuracion(ruta).asistente.bot_usuario == ""
+
+
+def test_chat_admin_es_opcional(tmp_path, config):
+    sin = cargar_secretos(config, escribir_env(tmp_path, **ENV_COMPLETO))
+    assert sin.telegram_chat_admin is None
+    valores = dict(ENV_COMPLETO, TELEGRAM_CHAT_ADMIN="-100ADMIN")
+    con = cargar_secretos(config, escribir_env(tmp_path, **valores))
+    assert con.telegram_chat_admin == "-100ADMIN"

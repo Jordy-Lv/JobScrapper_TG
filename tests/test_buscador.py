@@ -10,7 +10,7 @@ from buscador_vacantes import corrida as buscador
 from buscador_vacantes import rotacion
 from buscador_vacantes.config import Fuente as ConfFuente
 from buscador_vacantes.config import Secretos, cargar_configuracion
-from buscador_vacantes.corrida import Corrida, Modo, es_sin_red
+from buscador_vacantes.corrida import Corrida, Modo, chat_admin, es_sin_red
 from buscador_vacantes.estado import Estado, EstadoNoInicializado
 from buscador_vacantes.fechas import ZONA
 from buscador_vacantes.fuentes.base import Fuente, Intento, Peticion, TipoError
@@ -294,7 +294,7 @@ def test_cambio_html_genera_aviso_de_incidente(config, estado):
     resumen = corrida(config, estado, ia=ia, notificador=notificador).ejecutar()
     assert [i.clave for i in resumen.incidentes.nuevos] == ["falsa:cambio_html"]
     [(chat, texto)] = notificador.mensajes
-    assert chat == "-100REAL"
+    assert chat == "-100REAL"  # sin TELEGRAM_CHAT_ADMIN: respaldo al grupo de ofertas
     assert "🚨 Incidente: falsa · cambio_html" in texto
     assert "Diagnóstico IA no disponible (motivo: saldo bajo)" in texto
 
@@ -437,3 +437,25 @@ def test_consulta_fija_lee_sus_paginas_sin_rotar(config, estado):
         ("plazas de práctica", 1), ("plazas de práctica", 2),
     ]  # fmt: skip
     assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0
+
+
+@respx.mock
+def test_incidente_va_al_grupo_admin(config, estado):
+    estado.marcar_inicializada()
+    respx.get(URL).mock(return_value=httpx.Response(200, text="<html>nuevo diseño</html>"))
+    notificador = NotificadorFalso()
+    ia = IAFalsa(RespuestaIA(False, motivo="saldo bajo", realizada=False))
+    secretos = SECRETOS.model_copy(update={"telegram_chat_admin": "-100ADMIN"})
+    Corrida(
+        config, secretos, estado, Modo(), notificador=notificador, ia=ia,
+        fuentes={"falsa": FuenteFalsa}, reloj=lambda: AHORA,
+        dormir=lambda s: None, salida=lambda s: None,
+    ).ejecutar()  # fmt: skip
+    assert [chat for chat, _ in notificador.mensajes] == ["-100ADMIN"]
+
+
+def test_chat_admin_en_modo_prueba_usa_el_chat_de_prueba():
+    secretos = SECRETOS.model_copy(update={"telegram_chat_admin": "-100ADMIN"})
+    assert chat_admin(secretos, prueba=True) == "-100PRUEBA"
+    assert chat_admin(secretos, prueba=False) == "-100ADMIN"
+    assert chat_admin(SECRETOS, prueba=False) == "-100REAL"
