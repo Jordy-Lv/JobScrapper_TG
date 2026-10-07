@@ -1961,7 +1961,15 @@ class Conversacion:
         """Tarjeta corta de una postulación confirmada. El detalle va en sus botones: las
         respuestas con su origen, de qué trata la vacante y el enlace a la oferta."""
         datos, cv = self._datos_resumen(p, confirmada=confirmada)
+        seguimiento = [
+            ("🗣 Entrevista", cb("seg", p.id, "entrevista")),
+            ("❌ Rechazada", cb("seg", p.id, "rechazada")),
+            ("🎉 Oferta", cb("seg", p.id, "oferta")),
+        ]
+        pregunta = "¿Cómo te fue? Márcalo cuando sepas:"
         if datos is None:
+            if confirmada:  # sin datos no hay tarjeta, pero el seguimiento no se pierde
+                await self._enviar(usuario, pregunta, [seguimiento])
             return
         fila = []
         if datos.respuestas:
@@ -1970,7 +1978,12 @@ class Conversacion:
             fila.append(("📋 De qué trata", cb("res", p.id, "d")))
         if datos.vacante.url:
             fila.append(("🔗 Oferta", "url:" + datos.vacante.url))
-        await self._enviar(usuario, resumen_postulacion.tarjeta(datos), [fila] if fila else None)
+        texto = resumen_postulacion.tarjeta(datos)
+        botones = [fila] if fila else []
+        if confirmada:  # el seguimiento va en la misma tarjeta, no en un mensaje aparte
+            texto += f"\n\n{pregunta}"
+            botones.append(seguimiento)
+        await self._enviar(usuario, texto, botones or None)
         if cv is not None:
             await self.s.documento(usuario.telegram_id, cv, "La hoja de vida que recibió el portal")
 
@@ -2107,17 +2120,6 @@ class Conversacion:
                 usuario, p.id, "✅ <b>Postulación enviada y confirmada.</b> Te dejo el resumen."
             )
             await self._enviar_resumen(usuario, p)
-            await self._enviar(
-                usuario,
-                "¿Cómo te fue? Márcalo cuando sepas:",
-                [
-                    [
-                        ("🗣 Entrevista", cb("seg", p.id, "entrevista")),
-                        ("❌ Rechazada", cb("seg", p.id, "rechazada")),
-                        ("🎉 Oferta", cb("seg", p.id, "oferta")),
-                    ]
-                ],
-            )
         elif ev.estado == E.ESPERANDO_SESION:
             nombre = t.NOMBRES_PLATAFORMA.get(p.plataforma, p.plataforma)
             await self._editar_progreso(

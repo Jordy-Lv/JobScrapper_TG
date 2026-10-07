@@ -925,9 +925,13 @@ def test_tarjeta_corta_con_botones_al_confirmar_la_postulacion(mundo):
         ("📝 Ver respuestas", cb("res", p.id, "r")),
         ("📋 De qué trata", cb("res", p.id, "d")),
         ("🔗 Oferta", "url:" + URL_LI),
+    ], [
+        ("🗣 Entrevista", cb("seg", p.id, "entrevista")),
+        ("❌ Rechazada", cb("seg", p.id, "rechazada")),
+        ("🎉 Oferta", cb("seg", p.id, "oferta")),
     ]]  # fmt: skip
+    assert "¿Cómo te fue?" in texto
     assert mundo.s.documentos == [(ANA, cv.name)]
-    assert "¿Cómo te fue?" in mundo.s.de(ANA)[-1]
 
 
 def test_botones_de_la_tarjeta_muestran_respuestas_y_descripcion(mundo):
