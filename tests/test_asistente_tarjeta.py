@@ -1,4 +1,5 @@
 from buscador_vacantes.asistente import tarjeta
+from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.tarjeta import Tarjeta
 
 
@@ -53,7 +54,7 @@ def test_botones_solo_mientras_hay_una_cuenta_por_resolver():
 
 def test_cierre_del_alta_y_vacante_en_cola_o_con_etapas():
     tj = Tarjeta(navegador=True, listo=True)
-    assert tarjeta.texto(tj).endswith("Usa /ayuda para ver todo lo que puedo hacer.")
+    assert t.ALTA_LISTA not in tarjeta.texto(tj)  # el cierre va en un mensaje aparte
     en_cola = tarjeta.texto(tj, ("Aprendiz <SENA>", "Euro"))
     assert "Ya puedes tocar" not in en_cola
     assert "<b>Aprendiz &lt;SENA&gt;</b>" in en_cola and "⏳ En cola" in en_cola

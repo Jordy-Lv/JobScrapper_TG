@@ -78,7 +78,11 @@ YA_VINCULADO = (
     "revoca el anterior con /navegadores y vuelve a usar /vincular."
 )
 ALTA_LISTA = (
-    "✅ <b>¡Listo!</b> Ya puedes tocar <b>⚡ Postularme</b> en cualquier vacante del grupo.\n"
+    "✅ <b>¡Todo listo!</b> Así empiezas a postular:\n"
+    "1. Ve al <b>grupo</b> y mira las vacantes que publico.\n"
+    "2. En la vacante a la que quieras aplicar, toca el botón <b>⚡ Postularme</b>.\n\n"
+    "Con ese toque empiezo yo: preparo tu hoja de vida, lleno el formulario del portal y te "
+    "aviso aquí el resultado.\n"
     "Usa /ayuda para ver todo lo que puedo hacer."
 )
 

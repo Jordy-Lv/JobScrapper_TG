@@ -935,9 +935,11 @@ class Conversacion:
                 )
         if self._tarjeta(usuario) or self.n.tiene_navegador(usuario.id):
             await self._actualizar_tarjeta(usuario, self._alta_lista)
-        else:  # el alta cerró sin vincular el navegador: no hay proceso que mostrar
-            await self._enviar(usuario, t.ALTA_LISTA)
-        if usuario.vacante_pendiente:
+        if not usuario.vacante_pendiente:  # con vacante pendiente la postulación arranca sola
+            enlace = self.n.enlace_grupo
+            botones: Botones | None = [[("👥 Ir al grupo", f"url:{enlace}")]] if enlace else None
+            await self._enviar(usuario, t.ALTA_LISTA, botones)
+        else:
             pendiente = usuario.vacante_pendiente
             self.n.usuarios.fijar_vacante_pendiente(usuario, None)
             await self.procesar_toque(

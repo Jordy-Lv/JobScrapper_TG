@@ -182,7 +182,8 @@ def test_alta_desde_el_enlace_retoma_la_vacante(mundo):
     usuario = mundo.n.usuarios.obtener(ANA)
     assert usuario.estado == EstadoUsuario.ACTIVO and usuario.vacante_pendiente is None
     mensajes = "\n".join(mundo.s.de(ANA))
-    assert t.ALTA_LISTA in mundo.s.ediciones[-1][2]  # el cierre entra en la tarjeta del navegador
+    # con vacante pendiente no hay mensaje de cierre
+    assert not any(m[1] == t.ALTA_LISTA for m in mundo.s.mensajes)
     assert "Practicante de sistemas" in mensajes and "Mensaje de presentación" in mensajes
     assert any(nombre.startswith("CV_") for _, nombre in mundo.s.documentos)
     datos = mundo.n.datos_usuario(usuario.id)
@@ -1127,6 +1128,8 @@ def test_modalidad_se_pregunta_segun_la_ciudad_del_usuario(mundo):
 
 
 def test_al_vincular_el_navegador_el_alta_termina_sin_boton_terminar(mundo):
+    mundo.n.enlace_grupo = "https://t.me/+abc"
+
     async def flujo():
         await hasta_resumen(mundo, ANA)
         await mundo.c.al_boton(ANA, cb("resumen", "ok"))
@@ -1141,8 +1144,26 @@ def test_al_vincular_el_navegador_el_alta_termina_sin_boton_terminar(mundo):
     assert not any("Cuando termines" in m[1] for m in mundo.s.mensajes)
     tarjetas = [m for m in mundo.s.mensajes if "Conexión con tus portales" in m[1]]
     assert len(tarjetas) == 1 and "✓ Navegador vinculado" in tarjetas[0][1]
-    assert t.ALTA_LISTA in mundo.s.ediciones[-1][2]  # el cierre del alta entra en la misma tarjeta
-    assert not any(m[1] == t.ALTA_LISTA for m in mundo.s.mensajes)
+    assert t.ALTA_LISTA not in mundo.s.ediciones[-1][2]  # la tarjeta ya no repite el cierre
+    cierres = [m for m in mundo.s.mensajes if m[1] == t.ALTA_LISTA]  # mensaje nuevo: sí avisa
+    assert len(cierres) == 1 and "grupo" in cierres[0][1] and "⚡ Postularme" in cierres[0][1]
+    assert cierres[0][2] == [[("👥 Ir al grupo", "url:https://t.me/+abc")]]
+
+
+def test_el_cierre_del_alta_sin_enlace_al_grupo_no_lleva_boton(mundo):
+    mundo.n.enlace_grupo = None
+
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("resumen", "ok"))
+        await responder_faltantes(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("vincular"))
+        usuario = mundo.n.usuarios.obtener(ANA)
+        await mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+
+    correr(flujo())
+    cierres = [m for m in mundo.s.mensajes if m[1] == t.ALTA_LISTA]
+    assert len(cierres) == 1 and cierres[0][2] is None
 
 
 @respx.mock

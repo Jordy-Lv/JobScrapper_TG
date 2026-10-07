@@ -92,9 +92,6 @@ def texto(
             lineas.append("⏳ En cola. Te aviso el resultado.")
         else:
             lineas.append(progreso.texto(vacante[0], vacante[1], etapa, cuadro))
-    elif tarjeta.listo:
-        lineas.append("")
-        lineas.append(t.ALTA_LISTA)
     return "\n".join(lineas)
 
 
