@@ -35,7 +35,7 @@ DE_QUE_TRATA = "de_que_trata"
 MAX_TEXTO = 4000  # Telegram corta en 4096; se deja margen para las etiquetas HTML
 POR_FILA = 3  # botones por fila
 
-SEGUIMIENTO = (("entrevista", "Entrevista"), ("rechazada", "Rechazada"), ("oferta", "Oferta"))
+SEGUIMIENTO = (("entrevista", "Entrevista"), ("rechazada", "Rechazada"))
 SEGUIMIENTO_RESPALDO = (("postulada", "Ya me postulé"), ("descartada", "No me interesa"))
 PREGUNTA_SEGUIMIENTO = "¿Cómo te fue? Márcalo cuando sepas:"
 

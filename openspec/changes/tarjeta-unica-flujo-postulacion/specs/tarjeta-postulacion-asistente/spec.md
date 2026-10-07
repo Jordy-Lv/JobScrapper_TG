@@ -74,7 +74,7 @@ Cuando la postulación necesita un dato del usuario, la card SHALL cambiar a «P
 - **THEN** el asistente no cambia la card ni responde con un mensaje nuevo
 
 ### Requirement: Confirmación, vistas y seguimiento en la card
-Al confirmarse la postulación, la card SHALL mostrar el título, la empresa y, en un `<blockquote>`, el portal, la fecha, si hubo encuesta y qué hoja de vida recibió el portal. «Respuestas» y «De qué trata» MUST abrirse como vistas de la misma card con un botón «Volver», y la oferta como enlace. Los botones Entrevista, Rechazada y Oferta SHALL marcar el seguimiento: la opción elegida queda marcada con ✓, puede cambiarse y se refleja en el historial. La hoja de vida adjunta sigue enviándose como documento aparte.
+Al confirmarse la postulación, la card SHALL mostrar el título, la empresa y, en un `<blockquote>`, el portal, la fecha, si hubo encuesta y qué hoja de vida recibió el portal. «Respuestas» y «De qué trata» MUST abrirse como vistas de la misma card con un botón «Volver», y la oferta como enlace. Los botones Entrevista y Rechazada SHALL marcar el seguimiento: la opción elegida queda marcada con ✓, puede cambiarse y se refleja en el historial. La hoja de vida adjunta sigue enviándose como documento aparte.
 
 #### Scenario: Ver respuestas
 - **WHEN** el usuario toca «Respuestas» en una card confirmada

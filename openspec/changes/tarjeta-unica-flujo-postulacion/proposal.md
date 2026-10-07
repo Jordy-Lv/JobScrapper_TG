@@ -8,7 +8,7 @@ Una postulación hoy se reparte entre varios mensajes: la tarjeta de conexión (
 - La card nace **siempre al tocar** (también fuera del alta). En el alta, la tarjeta de conexión se convierte en esa misma card.
 - Las **preguntas pendientes** del formulario se contestan dentro de la card (botones de opciones o «Escribe tu respuesta»); el texto escrito por el usuario se borra y la card vuelve al progreso.
 - «Ver respuestas» y «De qué trata» pasan a **vistas dentro de la card** con «Volver»; dejan de ser mensajes efímeros. El CV adjunto sigue como documento aparte.
-- El seguimiento (**Entrevista, Rechazada, Oferta**) se marca en la card, que muestra la opción elegida y permite cambiarla.
+- El seguimiento (**Entrevista, Rechazada**) se marca en la card, que muestra la opción elegida y permite cambiarla.
 - En el **respaldo manual** la card resume el motivo y ofrece las acciones; el paquete (CV, carta, respuestas) sigue en mensajes propios.
 - **Diseño sobrio**: texto con `<blockquote>`, botones en filas ordenadas y pocos emojis, solo los que aportan estado (✅ confirmada, ❔ incierta, 🔒 acción del usuario, ⚠️ cuenta distinta; ✓ y · en las etapas).
 - Se eliminan los mensajes sueltos de «En cola», progreso aparte, bloqueo, «Gracias, lo recordaré» y los efímeros de resumen.

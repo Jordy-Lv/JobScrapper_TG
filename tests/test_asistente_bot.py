@@ -937,7 +937,6 @@ def test_tarjeta_corta_con_botones_al_confirmar_la_postulacion(mundo):
     ], [
         ("Entrevista", cb("seg", p.id, "entrevista")),
         ("Rechazada", cb("seg", p.id, "rechazada")),
-        ("Oferta", cb("seg", p.id, "oferta")),
     ]]  # fmt: skip
     assert "¿Cómo te fue?" in texto
     assert mundo.s.documentos == [(ANA, cv.name)]
@@ -1741,10 +1740,10 @@ def test_el_seguimiento_se_marca_en_la_card_y_se_puede_cambiar(mundo):
     antes = len(mundo.s.mensajes)
     assert correr(mundo.c.al_boton(ANA, cb("seg", p.id, "entrevista"))) == "Anotado ✅"
     texto, botones = card_de(mundo)
-    assert [b[0] for b in botones[1]] == ["✓ Entrevista", "Rechazada", "Oferta"]
+    assert [b[0] for b in botones[1]] == ["✓ Entrevista", "Rechazada"]
     assert "¿Cómo te fue?" not in texto
     correr(mundo.c.al_boton(ANA, cb("seg", p.id, "rechazada")))
-    assert [b[0] for b in card_de(mundo)[1][1]] == ["Entrevista", "✓ Rechazada", "Oferta"]
+    assert [b[0] for b in card_de(mundo)[1][1]] == ["Entrevista", "✓ Rechazada"]
     fila = mundo.base.cx.execute("SELECT seguimiento FROM postulaciones WHERE id = ?", (p.id,))
     assert fila.fetchone()["seguimiento"] == "rechazada"
     assert len(mundo.s.mensajes) == antes

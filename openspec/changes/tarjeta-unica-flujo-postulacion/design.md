@@ -35,7 +35,7 @@ Decisiones tomadas con el dueño: la card nace siempre al tocar; las preguntas p
    | `sesion` | «Inicia sesión en {portal} en tu navegador y sigo solo» + enlace de registro | Crear cuenta (url) |
    | `verificacion` | «El portal pide una verificación; complétala en la pestaña abierta» | — |
    | `bloqueo` | causa de `BLOQUEOS_PORTAL`; «No envié nada todavía» | Reintentar |
-   | `confirmada` | «{portal} confirmó tu postulación» + fecha · encuesta · CV | Respuestas·De qué trata·Ver vacante / Entrevista·Rechazada·Oferta |
+   | `confirmada` | «{portal} confirmó tu postulación» + fecha · encuesta · CV | Respuestas·De qué trata·Ver vacante / Entrevista·Rechazada |
    | `incierta` | «{portal} no mostró la confirmación: revisa «Mis postulaciones»» + lo mismo que confirmada | igual que confirmada |
    | `respaldo` | motivo de `MOTIVOS_RESPALDO`; «Te envío el paquete abajo» | Ver vacante / Ya me postulé·No me interesa |
    | `cerrada` | «Vacante cerrada» / «El portal rechazó el envío» | Ver vacante (si aplica) |
