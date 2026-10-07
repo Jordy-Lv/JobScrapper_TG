@@ -133,20 +133,13 @@ def test_confirmada_muestra_la_cita_las_vistas_y_el_seguimiento_en_filas_de_a_tr
     assert texto.startswith("✅ <b>Aprendiz &lt;SENA&gt;</b>\nEuro\n")
     assert "Computrabajo confirmó tu postulación" in texto
     assert "Encuesta de 1 · HdV del perfil</blockquote>" in texto
-    assert texto.endswith("¿Cómo te fue? Márcalo cuando sepas:")
+    assert "¿Cómo te fue?" not in texto
     botones = tp.botones(card, d, cb)
     assert etiquetas(botones) == [
-        ["Respuestas", "De qué trata", "Ver vacante"], ["Entrevista", "Rechazada"],
+        ["Respuestas", "De qué trata", "Ver vacante"], ["Generar guía para entrevista"],
     ]  # fmt: skip
     assert botones[0][2] == ("Ver vacante", f"url:{URL}")
-    assert botones[1][0] == ("Entrevista", cb("seg", 7, "entrevista"))
-
-
-def test_el_seguimiento_elegido_queda_marcado_y_ya_no_se_pregunta():
-    card = tp.Card(fase=tp.CONFIRMADA)
-    d = datos(resumen=resumen(), seguimiento="entrevista")
-    assert "¿Cómo te fue?" not in tp.texto(card, d)
-    assert etiquetas(tp.botones(card, d, cb))[1] == ["✓ Entrevista", "Rechazada"]
+    assert botones[1][0] == ("Generar guía para entrevista", cb("guia", 7))
 
 
 def test_incierta_avisa_que_no_hubo_confirmacion_y_conserva_las_vistas():
@@ -161,7 +154,7 @@ def test_confirmada_sin_datos_de_la_vacante_usa_un_texto_basico():
     texto = tp.texto(tp.Card(fase=tp.CONFIRMADA), datos())
     assert "✅ Computrabajo confirmó tu postulación" in texto
     sin_vistas = tp.botones(tp.Card(fase=tp.CONFIRMADA), datos(), cb)
-    assert etiquetas(sin_vistas) == [["Ver vacante"], ["Entrevista", "Rechazada"]]
+    assert etiquetas(sin_vistas) == [["Ver vacante"], ["Generar guía para entrevista"]]
 
 
 def test_vistas_internas_llevan_volver_y_el_contenido_de_la_vista():

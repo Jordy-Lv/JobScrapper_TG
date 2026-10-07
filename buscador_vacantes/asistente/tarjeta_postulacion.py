@@ -35,9 +35,8 @@ DE_QUE_TRATA = "de_que_trata"
 MAX_TEXTO = 4000  # Telegram corta en 4096; se deja margen para las etiquetas HTML
 POR_FILA = 3  # botones por fila
 
-SEGUIMIENTO = (("entrevista", "Entrevista"), ("rechazada", "Rechazada"))
 SEGUIMIENTO_RESPALDO = (("postulada", "Ya me postulé"), ("descartada", "No me interesa"))
-PREGUNTA_SEGUIMIENTO = "¿Cómo te fue? Márcalo cuando sepas:"
+BOTON_GUIA = "Generar guía para entrevista"
 
 Botones = list[list[tuple[str, str]]]
 Cb = Callable[..., str]
@@ -52,6 +51,7 @@ class Card:
     vista: str = PRINCIPAL
     pregunta: dict | None = None  # {"id": pendiente, "n": avance, "total": cuántas}
     motivo: str | None = None  # del respaldo, del bloqueo del portal o del cierre
+    afinidad: str | None = None  # línea «🎯 Afinidad…» ya escapada, bajo la cabecera
 
     def a_texto(self) -> str:
         return json.dumps(self.__dict__, ensure_ascii=False)
@@ -153,8 +153,6 @@ def _texto_confirmacion(card: Card, d: Datos) -> str:
                 f"❔ {t.e(d.portal)} no mostró la confirmación: revísala en «Mis postulaciones»"
             )
         texto = "\n".join([*_cabecera(d), "", f"<blockquote>{estado}</blockquote>"])
-    if not d.seguimiento:
-        texto += f"\n\n{PREGUNTA_SEGUIMIENTO}"
     return texto
 
 
@@ -169,6 +167,8 @@ def texto(card: Card, d: Datos) -> str:
     lineas = _cabecera(d)
     if d.conexion:
         lineas += ["", *d.conexion]
+    if card.afinidad:
+        lineas += ["", card.afinidad]
     lineas += ["", "<blockquote>" + "\n".join(_cuerpo(card, d)) + "</blockquote>"]
     return resumen_postulacion.recortar(lineas)
 
@@ -196,7 +196,7 @@ def _botones_confirmacion(card: Card, d: Datos, cb: Cb) -> Botones:
             vistas.append(("De qué trata", cb("res", d.pid, "d")))
     if d.url:
         vistas.append(("Ver vacante", f"url:{d.url}"))
-    return [*_filas(vistas), *_seguimiento(d, SEGUIMIENTO, cb)]
+    return [*_filas(vistas), [(BOTON_GUIA, cb("guia", d.pid))]]
 
 
 def botones(card: Card, d: Datos, cb: Cb) -> Botones | None:

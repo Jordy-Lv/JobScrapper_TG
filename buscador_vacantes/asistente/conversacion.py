@@ -51,6 +51,13 @@ from buscador_vacantes.estado import a_texto, de_texto
 
 log = logging.getLogger(__name__)
 
+MENSAJE_GUIA_PROXIMAMENTE = (
+    "🎯 <b>Guía para tu entrevista</b>\n"
+    "Muy pronto podrás generar una guía hecha a la medida de esta vacante: preguntas "
+    "probables, cómo responderlas con tu experiencia y qué investigar de la empresa.\n\n"
+    "🚧 Funcionalidad disponible próximamente."
+)
+
 Botones = list[list[tuple[str, str]]]  # (texto, "cb:…" o "url:…")
 
 
@@ -1220,7 +1227,14 @@ class Conversacion:
             texto = f"🎯 Afinidad {afinidad.porcentaje} %"
             if afinidad.faltan:
                 texto += f" · te falta: {t.e(', '.join(afinidad.faltan[:5]))}"
-            await self._enviar(usuario, texto)
+            pid = toque.postulacion.id
+            card = self._obtener_card(pid, crear=False)
+            if card is None:
+                await self._enviar(usuario, texto)
+                return
+            card.afinidad = texto
+            self._guardar_card(pid, card)
+            await self._pintar_card(usuario, pid)
 
     async def _enviar_paquete(self, usuario: Usuario, pid: int, motivo: str) -> None:
         p = self.n.cola.obtener(pid)
@@ -1561,6 +1575,15 @@ class Conversacion:
                 if hechas and self._card(pid) is not None:  # la card marca ✓ la opción elegida
                     await self._pintar_card(usuario, pid)
                 return "Anotado ✅"
+            case "guia":  # aún no existe: se avisa en un mensaje aparte que se borra solo
+                p = self.n.cola.obtener(int(args[0]))
+                if p is None or p.usuario_id != usuario.id:
+                    return None
+                clave = f"guia:{p.id}"
+                async with self._candados[usuario.id]:
+                    if self._vigente(usuario, clave, ahora) is not None:
+                        return "👆 Ya te lo avisé arriba"
+                    await self._enviar_efimero(usuario, [MENSAJE_GUIA_PROXIMAMENTE], clave)
             case "cuenta":
                 plataforma, decision = args
                 if decision == "si":

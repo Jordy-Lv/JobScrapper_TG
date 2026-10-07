@@ -595,7 +595,7 @@ def test_resultado_enviado_edita_la_card_sin_mensajes_nuevos(mundo):
     enviados = len(mundo.s.mensajes)
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
     assert any(m == 42 and "confirmó tu postulación" in texto for _, m, texto in mundo.s.ediciones)
-    assert "¿Cómo te fue?" in mundo.s.ediciones[-1][2]
+    assert "¿Cómo te fue?" not in mundo.s.ediciones[-1][2]
     assert len(mundo.s.mensajes) == enviados
 
 
@@ -935,10 +935,9 @@ def test_tarjeta_corta_con_botones_al_confirmar_la_postulacion(mundo):
         ("De qué trata", cb("res", p.id, "d")),
         ("Ver vacante", "url:" + URL_LI),
     ], [
-        ("Entrevista", cb("seg", p.id, "entrevista")),
-        ("Rechazada", cb("seg", p.id, "rechazada")),
+        ("Generar guía para entrevista", cb("guia", p.id)),
     ]]  # fmt: skip
-    assert "¿Cómo te fue?" in texto
+    assert "¿Cómo te fue?" not in texto
     assert mundo.s.documentos == [(ANA, cv.name)]
     assert len(mundo.s.mensajes) == enviados  # todo en la misma card
 
@@ -1740,13 +1739,20 @@ def test_el_seguimiento_se_marca_en_la_card_y_se_puede_cambiar(mundo):
     antes = len(mundo.s.mensajes)
     assert correr(mundo.c.al_boton(ANA, cb("seg", p.id, "entrevista"))) == "Anotado ✅"
     texto, botones = card_de(mundo)
-    assert [b[0] for b in botones[1]] == ["✓ Entrevista", "Rechazada"]
     assert "¿Cómo te fue?" not in texto
     correr(mundo.c.al_boton(ANA, cb("seg", p.id, "rechazada")))
-    assert [b[0] for b in card_de(mundo)[1][1]] == ["Entrevista", "✓ Rechazada"]
     fila = mundo.base.cx.execute("SELECT seguimiento FROM postulaciones WHERE id = ?", (p.id,))
     assert fila.fetchone()["seguimiento"] == "rechazada"
     assert len(mundo.s.mensajes) == antes
+
+
+def test_generar_guia_avisa_en_un_mensaje_aparte_que_viene_pronto(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.al_boton(ANA, cb("guia", p.id)))
+    assert len(mundo.s.mensajes) == antes + 1
+    assert "próximamente" in mundo.s.ultimo(ANA)[1]
 
 
 def test_seguimiento_de_otra_persona_no_cambia_nada(mundo):
