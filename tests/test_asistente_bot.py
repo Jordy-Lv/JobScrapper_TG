@@ -12,6 +12,7 @@ pytest.importorskip("telegram", reason="requiere uv sync --group asistente")
 fpdf = pytest.importorskip("fpdf", reason="requiere uv sync --group asistente")
 
 from buscador_vacantes.asistente import preguntas_tarjeta as pt  # noqa: E402
+from buscador_vacantes.asistente import tarjeta_postulacion as tp  # noqa: E402
 from buscador_vacantes.asistente import textos as t  # noqa: E402
 from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa: E402
 from buscador_vacantes.asistente.cola import E, Evento  # noqa: E402
@@ -584,16 +585,18 @@ def test_borrarme(mundo):
     assert mundo.n.usuarios.obtener(ANA) is None
 
 
-def test_resultado_enviado_edita_el_mensaje_de_progreso(mundo):
+def test_resultado_enviado_edita_la_card_sin_mensajes_nuevos(mundo):
     correr(alta_completa(mundo, ANA))
     usuario = mundo.n.usuarios.obtener(ANA)
     mundo.n.indice.indexar(T0)
     p, _ = mundo.n.cola.encolar(usuario.id, id_corto("linkedin:1"), None, T0)
     with mundo.base.transaccion() as cx:
         cx.execute("UPDATE postulaciones SET mensaje_id = 42 WHERE id = ?", (p.id,))
+    enviados = len(mundo.s.mensajes)
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
-    assert any(m == 42 and "Postulación enviada" in texto for _, m, texto in mundo.s.ediciones)
-    assert "¿Cómo te fue?" in mundo.s.de(ANA)[-1]
+    assert any(m == 42 and "confirmó tu postulación" in texto for _, m, texto in mundo.s.ediciones)
+    assert "¿Cómo te fue?" in mundo.s.ediciones[-1][2]
+    assert len(mundo.s.mensajes) == enviados
 
 
 def test_cuenta_por_confirmar_muestra_el_correo_y_botones(mundo):
@@ -651,10 +654,13 @@ def test_preguntas_pendientes_con_botones_y_reanudacion(mundo):
         )
     correr(mundo.c.notificar({"tipo": "preguntas_pendientes", "usuario_id": usuario.id}))
     _, texto, botones = mundo.s.ultimo(ANA)
-    assert "¿Tienes moto?" in texto
+    assert "Pregunta rápida" in texto and "¿Tienes moto?" in texto
+    enviados = len(mundo.s.mensajes)
     correr(mundo.c.al_boton(ANA, botones[1][0][1]))
     assert mundo.n.cola.obtener(p.id).estado == E.EN_COLA
-    assert "Sigo con tu postulación" in mundo.s.de(ANA)[-1]
+    assert len(mundo.s.mensajes) == enviados  # la card vuelve a «En cola»: sin «Gracias» aparte
+    _, mensaje, texto = mundo.s.ediciones[-1]
+    assert "En cola" in texto and mundo.s.botones_editados[mensaje] is None
 
 
 def test_pdf_cv_es_valido():
@@ -873,7 +879,7 @@ def test_avisar_apagado_silencia_solo_la_automatica(mundo):
         usuario.id, id_corto("computrabajo:2"), "computrabajo", T0, origen="boton"
     )
     correr(mundo.c.notificar(Evento("resultado", manual.id, usuario.id, E.ENVIADA)))
-    assert "Postulación enviada" in mundo.s.de(ANA)[-2]
+    assert "confirmó tu postulación" in mundo.s.de(ANA)[-1]
 
 
 def postulacion_enviada_con_datos(mundo):
@@ -910,28 +916,32 @@ def postulacion_enviada_con_datos(mundo):
     return usuario, p, cv
 
 
-def tarjeta_de(mundo):
-    return next(m for m in mundo.s.mensajes if m[0] == ANA and "confirmó tu postulación" in m[1])
+def card_de(mundo, mensaje=42):
+    """Texto y botones de la última edición de la card (la fixture ya le dio el mensaje 42)."""
+    texto = next(e[2] for e in reversed(mundo.s.ediciones) if e[1] == mensaje)
+    return texto, mundo.s.botones_editados[mensaje]
 
 
 def test_tarjeta_corta_con_botones_al_confirmar_la_postulacion(mundo):
     usuario, p, cv = postulacion_enviada_con_datos(mundo)
     mundo.s.documentos.clear()
+    enviados = len(mundo.s.mensajes)
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
-    _, texto, botones = tarjeta_de(mundo)
+    texto, botones = card_de(mundo)
     assert "Practicante de sistemas</b>\nACME\n" in texto
     assert "Encuesta de 2 · CV adaptado adjunto</blockquote>" in texto
     assert botones == [[
-        ("📝 Ver respuestas", cb("res", p.id, "r")),
-        ("📋 De qué trata", cb("res", p.id, "d")),
-        ("🔗 Oferta", "url:" + URL_LI),
+        ("Respuestas", cb("res", p.id, "r")),
+        ("De qué trata", cb("res", p.id, "d")),
+        ("Ver vacante", "url:" + URL_LI),
     ], [
-        ("🗣 Entrevista", cb("seg", p.id, "entrevista")),
-        ("❌ Rechazada", cb("seg", p.id, "rechazada")),
-        ("🎉 Oferta", cb("seg", p.id, "oferta")),
+        ("Entrevista", cb("seg", p.id, "entrevista")),
+        ("Rechazada", cb("seg", p.id, "rechazada")),
+        ("Oferta", cb("seg", p.id, "oferta")),
     ]]  # fmt: skip
     assert "¿Cómo te fue?" in texto
     assert mundo.s.documentos == [(ANA, cv.name)]
+    assert len(mundo.s.mensajes) == enviados  # todo en la misma card
 
 
 def test_botones_de_la_tarjeta_muestran_respuestas_y_descripcion(mundo):
@@ -957,7 +967,7 @@ def test_tarjeta_sin_adjunto_dice_hdv_del_perfil_y_no_manda_pdf(mundo):
         cx.execute("DELETE FROM postulacion_pasos WHERE paso = 'cv_adjunto'")
     mundo.s.documentos.clear()
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
-    assert "HdV del perfil" in tarjeta_de(mundo)[1]
+    assert "HdV del perfil" in card_de(mundo)[0]
     assert not mundo.s.documentos
 
 
@@ -972,7 +982,9 @@ def test_bloqueo_del_portal_explica_que_hacer_sin_paquete(mundo):
     correr(mundo.c.esperar_tareas())
     chat, texto, botones = mundo.s.ultimo(ANA)
     assert "no puede enviarte correos" in texto and "Computrabajo" in texto
-    assert botones == [[("🔁 Reintentar", cb("rei", p.id))]]
+    assert "No envié nada todavía" in texto
+    assert botones == [[("Reintentar", cb("rei", p.id))]]
+    assert len(mundo.s.de(ANA)) == antes + 1  # solo la card: sin aviso aparte ni paquete
     assert not any("paquete" in m for m in mundo.s.de(ANA)[antes:])
     assert not mundo.s.de(DUENO)  # no es un formulario roto: no se avisa al dueño
 
@@ -980,10 +992,11 @@ def test_bloqueo_del_portal_explica_que_hacer_sin_paquete(mundo):
 def test_sin_confirmacion_igual_envia_la_tarjeta_con_las_respuestas(mundo):
     usuario, p, _ = postulacion_enviada_con_datos(mundo)
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.INCIERTA)))
-    texto = next(m[1] for m in mundo.s.mensajes if "no mostró la confirmación" in m[1])
-    assert "Encuesta de 2" in texto
+    texto, botones = card_de(mundo)
+    assert "no mostró la confirmación" in texto and "Encuesta de 2" in texto
+    assert botones[0][0] == ("Respuestas", cb("res", p.id, "r"))
     correr(mundo.c.al_boton(ANA, cb("res", p.id, "r")))
-    assert "<b>SENA</b>" in mundo.s.de(ANA)[-1]
+    assert "<b>SENA</b>" in card_de(mundo)[0]
 
 
 # --- mensajes de los botones del resumen: se borran solos y no se pueden repetir ----------------
@@ -1100,7 +1113,7 @@ def test_progreso_un_solo_mensaje_que_avanza_de_etapa_y_se_detiene(mundo):
     assert any("⠋ <b>Abriendo la oferta…</b>" in x for x in textos)
     assert any("✓ Preparando tu hoja de vida" in x and "Respondiendo el formulario…" in x
                for x in textos)  # fmt: skip
-    assert "Postulación enviada y confirmada" in textos[-1]
+    assert "confirmó tu postulación" in textos[-1]
     assert p.id not in mundo.c._animaciones
 
 
@@ -1316,7 +1329,7 @@ def test_la_vacante_del_alta_se_postula_dentro_de_la_misma_tarjeta(mundo):
     assert any("✓ Navegador vinculado" in x and "Abriendo la oferta" in x for x in textos)
     assert any("✓ Computrabajo · ana@gmail.com" in x and "Respondiendo el formulario…" in x
                for x in textos)  # fmt: skip
-    assert "Postulación enviada" in textos[-1] and "Conexión" not in textos[-1]
+    assert "confirmó tu postulación" in textos[-1] and "Conexión" not in textos[-1]
     assert not kv_tarjeta(mundo, usuario)
     # Un solo mensaje para todo el proceso: nada de avisos sueltos de cuenta ni de alta
     todos = "\n".join(mundo.s.de(ANA))
@@ -1341,3 +1354,407 @@ def test_si_la_tarjeta_fue_borrada_se_envia_una_nueva(mundo):
     chat, texto, _ = mundo.s.ultimo(ANA)
     assert "✓ Computrabajo · ana@gmail.com" in texto
     assert f'"mensaje_id": {len(mundo.s.mensajes)}' in kv_tarjeta(mundo, usuario)
+
+
+# --- la card única de una postulación, de punta a punta -----------------------------------------
+
+
+def preparar_toque(mundo, *, automatico=True):
+    """Alta completa de Ana, vacante indexada y el portal de la prueba como automático."""
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    correr(alta_completa(mundo, ANA))
+    mundo.n.indice.indexar(T0)
+    if automatico:
+        mundo.n.camino_automatico = lambda *_: None  # la vacante de la prueba es de LinkedIn
+    return mundo.n.usuarios.obtener(ANA)
+
+
+def tocar(mundo, usuario):
+    """Toque ⚡ y espera a las tareas de fondo. Devuelve (pid, mensajes nuevos de Ana)."""
+
+    async def flujo():
+        toque = await mundo.c.procesar_toque(usuario, id_corto("linkedin:1"))
+        await mundo.c.esperar_tareas()
+        return toque
+
+    antes = len(mundo.s.mensajes)
+    toque = correr(flujo())
+    return toque.postulacion.id, mundo.s.mensajes[antes:]
+
+
+def card_guardada(mundo, pid):
+    return tp.Card.de_texto(mundo.base.kv_obtener(f"card:{pid}"))
+
+
+def nuevos(mundo, desde):
+    return [m for m in mundo.s.mensajes[desde:] if m[0] == ANA]
+
+
+# --- nacimiento y reintento ---------------------------------------------------------------
+
+
+@respx.mock
+def test_el_toque_crea_una_sola_card_y_guarda_su_estado(mundo):
+    usuario = preparar_toque(mundo)
+    antes = len(mundo.s.mensajes)
+
+    async def flujo():  # sin esperar las tareas de fondo: solo lo que produce el toque
+        return await mundo.c.procesar_toque(usuario, id_corto("linkedin:1"))
+
+    toque = correr(flujo())
+    pid = toque.postulacion.id
+    enviados = nuevos(mundo, antes)
+    assert len(enviados) == 1
+    assert "Practicante de sistemas" in enviados[0][1] and "En cola" in enviados[0][1]
+    card = card_guardada(mundo, pid)
+    assert card.fase == tp.EN_COLA and card.mensaje_id == mundo.s._id
+    fila = mundo.base.cx.execute("SELECT mensaje_id FROM postulaciones WHERE id = ?", (pid,))
+    assert fila.fetchone()["mensaje_id"] == card.mensaje_id
+
+
+@respx.mock
+def test_tocar_otra_vez_repinta_la_misma_card_sin_mensajes_nuevos(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    antes = len(mundo.s.mensajes)
+    pid2, enviados = tocar(mundo, usuario)
+    assert pid2 == pid and not enviados and len(mundo.s.mensajes) == antes
+
+
+@respx.mock
+def test_reintentar_reusa_la_card_y_no_envia_otra(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    bloqueo = Evento("resultado", pid, usuario.id, E.BLOQUEADA, "portal_correo_incorrecto")
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = 'bloqueada' WHERE id = ?", (pid,))
+    correr(mundo.c.notificar(bloqueo))
+    assert card_guardada(mundo, pid).fase == tp.BLOQUEO
+    antes = len(mundo.s.mensajes)
+
+    async def reintentar():
+        aviso = await mundo.c.al_boton(ANA, cb("rei", pid))
+        await mundo.c.esperar_tareas()
+        return aviso
+
+    assert "Reintentando" in correr(reintentar())
+    assert len(mundo.s.mensajes) == antes  # no se envió otra card ni «En cola» suelto
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    card = card_guardada(mundo, pid)
+    assert card.fase == tp.EN_COLA and card.mensaje_id == mensaje
+    texto, botones = card_de(mundo, mensaje)
+    assert "En cola" in texto and botones is None
+
+
+def test_reintentar_sobre_una_card_confirmada_no_reencola_nada(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    antes = len(mundo.s.mensajes)
+    assert correr(mundo.c.al_boton(ANA, cb("rei", p.id))) is None
+    assert len(mundo.s.mensajes) == antes
+    assert mundo.n.cola.obtener(p.id).estado == E.EN_COLA  # estado de la fixture: no se tocó
+    assert "confirmó tu postulación" in card_de(mundo)[0]
+
+
+@respx.mock
+def test_card_borrada_se_envia_una_nueva_con_el_estado_actual(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+
+    async def editar(chat, mensaje, texto, botones=None):
+        raise RuntimeError("Message to edit not found")
+
+    mundo.s.editar = editar
+    correr(mundo.c.notificar(Evento("resultado", pid, usuario.id, E.ESPERANDO_SESION)))
+    chat, texto, _ = mundo.s.ultimo(ANA)
+    assert "Inicia sesión" in texto
+    assert card_guardada(mundo, pid).mensaje_id == mundo.s._id
+
+
+# --- conexión y progreso ----------------------------------------------------------------------
+
+
+@respx.mock
+def test_la_cuenta_por_confirmar_se_pinta_en_la_card_en_curso(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com")))
+    texto, botones = card_de(mundo, mensaje)
+    assert "Conexión con tus portales" in texto and "En cola" in texto
+    assert "sesión iniciada con <b>ana@gmail.com</b>" in texto
+    assert botones == [[
+        ("Confirmar Computrabajo", cb("cuenta", "computrabajo", "si")),
+        ("Cancelar", cb("cuenta", "computrabajo", "no")),
+    ]]  # fmt: skip
+    correr(mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si")))
+    texto, botones = card_de(mundo, mensaje)
+    assert "✓ Computrabajo · ana@gmail.com" in texto and botones is None
+    assert len(mundo.s.mensajes) == antes
+
+
+@respx.mock
+def test_cuenta_distinta_ofrece_sus_dos_botones_en_la_card(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    aviso = aviso_cuenta(usuario, "computrabajo", "ana@gmail.com", "cuenta_distinta")
+    aviso["encontrado"] = "l***@hotmail.com"
+    correr(mundo.c.notificar(aviso))
+    texto, botones = card_de(mundo, mensaje)
+    assert "⚠️" in texto and "No postularé con ella" in texto
+    assert [b[0] for b in botones[0]] == ["Es mi cuenta nueva", "No es mía"]
+
+
+@respx.mock
+def test_el_progreso_edita_la_card_y_se_vuelve_a_poner_tras_la_verificacion(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    base = {"postulacion_id": pid, "usuario_id": usuario.id}
+    antes = len(mundo.s.mensajes)
+
+    async def flujo():
+        await mundo.c.notificar({"tipo": "postulando", **base})
+        await mundo.c.notificar({"tipo": "paso", "paso": "cv_subir", **base})
+        await mundo.c.notificar({"tipo": "verificacion", **base})
+        assert card_guardada(mundo, pid).fase == tp.VERIFICACION
+        await mundo.c.notificar({"tipo": "paso", "paso": "llenado", **base})
+        assert card_guardada(mundo, pid).fase == tp.PROGRESO
+        await mundo.c._detener_progreso(pid)
+
+    correr(flujo())
+    textos = [e[2] for e in mundo.s.ediciones if e[1] == mensaje]
+    assert any("verificación" in x for x in textos)
+    assert "✓ Preparando tu hoja de vida" in textos[-1]
+    assert "Respondiendo el formulario…" in textos[-1]
+    assert len(mundo.s.mensajes) == antes
+
+
+@respx.mock
+def test_sesion_espera_de_navegador_y_cierre_van_en_la_misma_card(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET plataforma = 'computrabajo' WHERE id = ?", (pid,))
+    antes = len(mundo.s.mensajes)
+
+    correr(mundo.c.notificar(Evento("navegador_desconectado", pid, usuario.id,
+                                    E.ESPERANDO_NAVEGADOR)))  # fmt: skip
+    assert "Se enviará cuando abras tu navegador" in card_de(mundo, mensaje)[0]
+
+    correr(mundo.c.notificar(Evento("resultado", pid, usuario.id, E.ESPERANDO_SESION)))
+    texto, botones = card_de(mundo, mensaje)
+    assert "Inicia sesión en Computrabajo en tu navegador y sigo solo" in texto
+    assert botones == [[("Crear cuenta", "url:https://co.computrabajo.com/")]]
+
+    correr(mundo.c.notificar(Evento("resultado", pid, usuario.id, E.VACANTE_CERRADA)))
+    texto, botones = card_de(mundo, mensaje)
+    assert "Vacante cerrada" in texto
+    assert botones == [[("Ver vacante", "url:" + URL_LI)]]
+    assert len(mundo.s.mensajes) == antes
+
+
+@respx.mock
+def test_un_toque_viejo_de_respuestas_repinta_la_card_vigente(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    antes = len(mundo.s.mensajes)
+    assert correr(mundo.c.al_boton(ANA, cb("res", pid, "r"))) is None
+    assert len(mundo.s.mensajes) == antes
+    assert card_guardada(mundo, pid).fase == tp.EN_COLA
+
+
+# --- preguntas ----------------------------------------------------------------------------------
+
+
+def pendiente(mundo, usuario, pid, pregunta, norma, opciones="[]"):
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO pendientes_usuario(usuario_id, postulacion_id, pregunta, pregunta_norm, "
+            "opciones_json, creada) VALUES (?, ?, ?, ?, ?, 'x')",
+            (usuario.id, pid, pregunta, norma, opciones),
+        )
+
+
+def esperando_usuario(mundo, pid):
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = 'esperando_usuario' WHERE id = ?", (pid,))
+
+
+def preguntar(mundo, usuario):
+    correr(mundo.c.notificar({"tipo": "preguntas_pendientes", "usuario_id": usuario.id}))
+
+
+@respx.mock
+def test_pregunta_de_texto_libre_borra_lo_escrito_y_la_card_vuelve_a_la_cola(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    esperando_usuario(mundo, pid)
+    pendiente(mundo, usuario, pid, "¿Por qué te interesa?", "por que te interesa")
+    preguntar(mundo, usuario)
+    texto, botones = card_de(mundo, mensaje)
+    assert "Pregunta rápida" in texto and "Escribe tu respuesta." in texto and botones is None
+    assert "(1 de 1)" not in texto
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.al_texto(ANA, "Quiero aprender soporte", 77))
+    assert (ANA, 77) in mundo.s.borrados
+    assert len(mundo.s.mensajes) == antes
+    assert mundo.n.pendientes(usuario.id) == []
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    assert "En cola" in card_de(mundo, mensaje)[0]
+    assert card_guardada(mundo, pid).fase == tp.EN_COLA
+
+
+@respx.mock
+def test_varias_preguntas_avanzan_en_la_misma_card(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    esperando_usuario(mundo, pid)
+    pendiente(mundo, usuario, pid, "¿Tienes moto?", "tienes moto", '["Sí", "No"]')
+    pendiente(mundo, usuario, pid, "¿Por qué te interesa?", "por que te interesa")
+    preguntar(mundo, usuario)
+    texto, botones = card_de(mundo, mensaje)
+    assert "Pregunta rápida (1 de 2)" in texto and "¿Tienes moto?" in texto
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.al_boton(ANA, botones[0][0][1]))
+    texto, botones = card_de(mundo, mensaje)
+    assert "Pregunta rápida (2 de 2)" in texto and "¿Por qué te interesa?" in texto
+    assert mundo.n.cola.obtener(pid).estado == E.ESPERANDO_USUARIO
+    correr(mundo.c.al_texto(ANA, "Me gusta el soporte", 78))
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    assert len(mundo.s.mensajes) == antes
+
+
+@respx.mock
+def test_texto_fuera_de_turno_no_cambia_la_card_ni_responde(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    esperando_usuario(mundo, pid)
+    pendiente(mundo, usuario, pid, "¿Tienes moto?", "tienes moto", '["Sí", "No"]')
+    preguntar(mundo, usuario)
+    mensajes, ediciones = len(mundo.s.mensajes), len(mundo.s.ediciones)
+    correr(mundo.c.al_texto(ANA, "hola", 88))  # la card espera un botón, no texto
+    assert (ANA, 88) in mundo.s.borrados
+    assert len(mundo.s.mensajes) == mensajes and len(mundo.s.ediciones) == ediciones
+    assert len(mundo.n.pendientes(usuario.id)) == 1
+
+
+# --- respaldo -----------------------------------------------------------------------------------
+
+
+@respx.mock
+def test_respaldo_manual_la_card_resume_y_el_paquete_va_aparte(mundo):
+    usuario = preparar_toque(mundo, automatico=False)
+    pid, enviados = tocar(mundo, usuario)
+    cards = [m for m in enviados if "No puedo postularla sola" in m[1]]
+    assert len(cards) == 1 and enviados[0] is cards[0]
+    assert "esta plataforma todavía no admite postulación automática" in cards[0][1]
+    assert [[texto for texto, _ in fila] for fila in cards[0][2]] == [
+        ["Ver vacante", "Pegar preguntas"], ["Ya me postulé", "No me interesa"],
+    ]  # fmt: skip
+    textos = [m[1] for m in enviados]
+    assert not any("Cuando termines" in x or "Te preparo el paquete" in x for x in textos)
+    assert any("Mensaje de presentación" in x for x in textos)  # el paquete sigue llegando
+    assert mundo.s.documentos  # con su CV adaptado
+    assert card_guardada(mundo, pid).fase == tp.RESPALDO
+
+
+@respx.mock
+def test_respaldo_sin_navegador_ofrece_vincularlo_en_la_misma_card(mundo):
+    usuario = preparar_toque(mundo, automatico=False)
+    mundo.n.camino_automatico = lambda *_: "sin_navegador"
+    pid, enviados = tocar(mundo, usuario)
+    card = enviados[0]
+    assert "Falta vincular tu navegador." in card[1]
+    assert card[2][0][0] == ("Vincular navegador", cb("vincular"))
+
+
+@respx.mock
+def test_marcar_el_seguimiento_del_respaldo_deja_el_visto_en_la_card(mundo):
+    usuario = preparar_toque(mundo, automatico=False)
+    pid, enviados = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    assert correr(mundo.c.al_boton(ANA, cb("seg", pid, "postulada"))) == "Anotado ✅"
+    texto, botones = card_de(mundo, mensaje)
+    assert botones[1][0] == ("✓ Ya me postulé", cb("seg", pid, "postulada"))
+    assert botones[1][1] == ("No me interesa", cb("seg", pid, "descartada"))
+
+
+def test_el_aviso_al_dueno_del_formulario_desconocido_se_mantiene(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    ev = Evento("resultado", p.id, usuario.id, E.FORMULARIO_DESCONOCIDO)
+    correr(mundo.c.notificar(ev))
+    correr(mundo.c.esperar_tareas())
+    assert any("Postulación" in m for m in mundo.s.de(DUENO))
+    assert "formulario" in card_de(mundo)[0]
+
+
+# --- confirmación, vistas y seguimiento ----------------------------------------------------------
+
+
+def test_respuestas_y_de_que_trata_son_vistas_de_la_card_con_volver(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    principal = card_de(mundo)[0]
+    antes = len(mundo.s.mensajes)
+
+    assert correr(mundo.c.al_boton(ANA, cb("res", p.id, "r"))) is None
+    texto, botones = card_de(mundo)
+    assert "Tus respuestas" in texto and "<b>SENA</b> 👤" in texto
+    assert botones == [[("Volver", cb("res", p.id, "v"))]]
+
+    correr(mundo.c.al_boton(ANA, cb("res", p.id, "d")))
+    texto, _ = card_de(mundo)
+    assert "Medellín, Antioquia" in texto and "soporte de equipos" in texto
+
+    correr(mundo.c.al_boton(ANA, cb("res", p.id, "v")))
+    assert card_de(mundo)[0] == principal
+    assert len(mundo.s.mensajes) == antes  # ningún mensaje efímero
+    assert not mundo.base.cx.execute("SELECT 1 FROM mensajes_efimeros").fetchall()
+
+
+def test_vista_de_respuestas_muy_larga_se_recorta_sin_mensajes_nuevos(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    with mundo.base.transaccion() as cx:
+        cx.executemany(
+            "INSERT INTO respuestas(postulacion_id, campo, pregunta, respuesta, origen) "
+            "VALUES (?, NULL, ?, ?, 'ia')",
+            [(p.id, f"¿Pregunta larga {i}?", "x" * 450) for i in range(30)],
+        )
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.al_boton(ANA, cb("res", p.id, "r")))
+    texto, _ = card_de(mundo)
+    assert len(texto) <= tp.MAX_TEXTO and texto.endswith("…")
+    assert len(mundo.s.mensajes) == antes
+
+
+def test_el_seguimiento_se_marca_en_la_card_y_se_puede_cambiar(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    antes = len(mundo.s.mensajes)
+    assert correr(mundo.c.al_boton(ANA, cb("seg", p.id, "entrevista"))) == "Anotado ✅"
+    texto, botones = card_de(mundo)
+    assert [b[0] for b in botones[1]] == ["✓ Entrevista", "Rechazada", "Oferta"]
+    assert "¿Cómo te fue?" not in texto
+    correr(mundo.c.al_boton(ANA, cb("seg", p.id, "rechazada")))
+    assert [b[0] for b in card_de(mundo)[1][1]] == ["Entrevista", "✓ Rechazada", "Oferta"]
+    fila = mundo.base.cx.execute("SELECT seguimiento FROM postulaciones WHERE id = ?", (p.id,))
+    assert fila.fetchone()["seguimiento"] == "rechazada"
+    assert len(mundo.s.mensajes) == antes
+
+
+def test_seguimiento_de_otra_persona_no_cambia_nada(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    ediciones = len(mundo.s.ediciones)
+    asyncio.run(mundo.c.al_boton(ANA + 1, cb("seg", p.id, "oferta")))
+    fila = mundo.base.cx.execute("SELECT seguimiento FROM postulaciones WHERE id = ?", (p.id,))
+    assert fila.fetchone()["seguimiento"] is None
+    assert len(mundo.s.ediciones) == ediciones

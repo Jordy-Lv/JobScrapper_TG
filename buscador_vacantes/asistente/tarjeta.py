@@ -1,8 +1,9 @@
 """Tarjeta de conexión: un solo mensaje que va desde «Navegador vinculado» hasta la postulación.
 
 Reúne lo que antes eran avisos sueltos (navegador vinculado, sesión iniciada, cuenta asociada,
-alta lista) y, si el alta termina con una vacante pendiente, las etapas de esa postulación.
-Son funciones puras; la conversación guarda el estado y edita el mensaje.
+alta lista). Si el alta termina con una vacante pendiente, sus líneas pasan a ser el bloque
+«Conexión» de la card de esa postulación (``tarjeta_postulacion.py``). Son funciones puras; la
+conversación guarda el estado y edita el mensaje.
 """
 
 from __future__ import annotations
@@ -11,7 +12,6 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from buscador_vacantes.asistente import progreso
 from buscador_vacantes.asistente import textos as t
 
 PENDIENTE = "pendiente"  # sin sesión, o la cuenta propuesta no era la suya
@@ -67,32 +67,22 @@ def _linea_cuenta(nombre: str, cuenta: dict) -> str:
             return f"· {nombre}: inicia sesión con tu cuenta en ese navegador"
 
 
-def texto(
-    tarjeta: Tarjeta,
-    vacante: tuple[str | None, str | None] | None = None,
-    etapa: int | None = None,
-    cuadro: int = 0,
-) -> str:
-    """La tarjeta completa. Con ``vacante`` añade su postulación: «En cola» o las etapas."""
-    lineas = ["🔗 <b>Conexión con tus portales</b>"]
+def lineas(tarjeta: Tarjeta) -> list[str]:
+    """Las líneas del bloque «Conexión»: navegador y una por portal."""
+    salida = ["🔗 <b>Conexión con tus portales</b>"]
     if tarjeta.navegador:
-        lineas.append("✓ Navegador vinculado")
+        salida.append("✓ Navegador vinculado")
     if tarjeta.cuentas:
         for plataforma, cuenta in tarjeta.cuentas.items():
-            lineas.append(_linea_cuenta(t.NOMBRES_PLATAFORMA.get(plataforma, plataforma), cuenta))
+            salida.append(_linea_cuenta(t.NOMBRES_PLATAFORMA.get(plataforma, plataforma), cuenta))
     elif tarjeta.navegador:
-        lineas.append("· Inicia sesión en Computrabajo y Magneto en ese navegador.")
-    if vacante is not None:
-        lineas.append("")
-        if etapa is None:
-            lineas.append(f"<b>{t.e(vacante[0] or 'Vacante')}</b>")
-            if vacante[1]:
-                lineas.append(t.e(vacante[1]))
-            lineas.append("")
-            lineas.append("⏳ En cola. Te aviso el resultado.")
-        else:
-            lineas.append(progreso.texto(vacante[0], vacante[1], etapa, cuadro))
-    return "\n".join(lineas)
+        salida.append("· Inicia sesión en Computrabajo y Magneto en ese navegador.")
+    return salida
+
+
+def texto(tarjeta: Tarjeta) -> str:
+    """La tarjeta de conexión sola (sin postulación)."""
+    return "\n".join(lineas(tarjeta))
 
 
 def botones(tarjeta: Tarjeta, cb: Callable[..., str]) -> list[list[tuple[str, str]]] | None:
@@ -102,12 +92,12 @@ def botones(tarjeta: Tarjeta, cb: Callable[..., str]) -> list[list[tuple[str, st
         nombre = t.NOMBRES_PLATAFORMA.get(plataforma, plataforma)
         if cuenta["estado"] == POR_CONFIRMAR:
             filas.append([
-                (f"✅ Confirmar {nombre}", cb("cuenta", plataforma, "si")),
+                (f"Confirmar {nombre}", cb("cuenta", plataforma, "si")),
                 ("Cancelar", cb("cuenta", plataforma, "no")),
             ])  # fmt: skip
         elif cuenta["estado"] == DISTINTA:
             filas.append([
-                ("Es mi cuenta nueva, usarla", cb("cuenta", plataforma, "nueva")),
+                ("Es mi cuenta nueva", cb("cuenta", plataforma, "nueva")),
                 ("No es mía", cb("cuenta", plataforma, "no")),
             ])  # fmt: skip
     return filas or None

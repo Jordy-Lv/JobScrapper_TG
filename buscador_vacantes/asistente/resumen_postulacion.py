@@ -93,7 +93,7 @@ def tarjeta(d: DatosResumen) -> str:
     return "\n".join([*cabecera, "", f"<blockquote>{estado}\n{' · '.join(detalle)}</blockquote>"])
 
 
-def respuestas(d: DatosResumen) -> list[str]:
+def respuestas_lineas(d: DatosResumen) -> list[str]:
     """Cada pregunta con su respuesta; el origen va como icono con una leyenda al final."""
     lineas = [f"📝 <b>Tus respuestas</b> · {t.e(d.vacante.titulo or 'Vacante')}"]
     usados: list[str] = []
@@ -105,10 +105,14 @@ def respuestas(d: DatosResumen) -> list[str]:
         lineas += ["", f"{n}· {t.e(resp['pregunta'])}", f"<b>{respuesta}</b> {icono}"]
     if usados:
         lineas += ["", " · ".join(f"{i} {LEYENDA_ORIGEN[i]}" for i in usados)]
-    return partir(lineas)
+    return lineas
 
 
-def de_que_trata(d: DatosResumen) -> list[str]:
+def respuestas(d: DatosResumen) -> list[str]:
+    return partir(respuestas_lineas(d))
+
+
+def de_que_trata_lineas(d: DatosResumen) -> list[str]:
     """Ficha de la vacante, su descripción (plegable) y lo que piden."""
     v = d.vacante
     ficha = v.ficha or {}
@@ -140,7 +144,33 @@ def de_que_trata(d: DatosResumen) -> list[str]:
         piden.append(f"🎯 Tu afinidad: {d.afinidad} %")
     if piden:
         lineas += ["", *piden]
-    return partir(lineas)
+    return lineas
+
+
+def de_que_trata(d: DatosResumen) -> list[str]:
+    return partir(de_que_trata_lineas(d))
+
+
+def recortar(lineas: list[str], maximo: int = MAX_MENSAJE) -> str:
+    """Une las líneas en un solo texto de hasta `maximo` caracteres, sin partir etiquetas.
+
+    Si no caben todas, descarta las últimas y termina con «…». Una línea sola que excede se
+    corta sin sus etiquetas (un corte a medias dejaría HTML roto, que Telegram rechaza).
+    """
+    texto = "\n".join(lineas)
+    if len(texto) <= maximo:
+        return texto
+    mantener: list[str] = []
+    usado = 0
+    for linea in lineas:
+        if usado + len(linea) + 2 > maximo - 1:
+            break
+        mantener.append(linea)
+        usado += len(linea) + 1
+    if not mantener:
+        plano = re.sub(r"<[^>]+>", "", lineas[0])[: maximo - 1]
+        return re.sub(r"&[#\w]*$", "", plano) + "…"
+    return "\n".join(mantener).rstrip() + "\n…"
 
 
 def partir(lineas: list[str], maximo: int = MAX_MENSAJE) -> list[str]:

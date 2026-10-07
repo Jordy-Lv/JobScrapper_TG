@@ -21,6 +21,7 @@ from typing import Protocol
 
 from buscador_vacantes.asistente import preguntas_tarjeta as pt
 from buscador_vacantes.asistente import progreso, resumen_postulacion, tarjeta, vinculos
+from buscador_vacantes.asistente import tarjeta_postulacion as tp
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.cola import CON_RESPALDO, E, Evento
 from buscador_vacantes.asistente.cv_lectura import (
@@ -959,31 +960,28 @@ class Conversacion:
         self.n.base.kv_guardar(f"tarjeta:{usuario.id}", tj.a_texto() if tj else "")
 
     async def _actualizar_tarjeta(self, usuario: Usuario, cambiar: Callable[[Tarjeta], None]):
-        """Aplica el cambio al estado de la tarjeta y la vuelve a pintar (la crea si no existe)."""
+        """Aplica el cambio al estado de la tarjeta y la vuelve a pintar (la crea si no existe).
+
+        Si hay una postulación en curso con su card, la conexión se pinta como bloque de esa card.
+        """
         tj = self._tarjeta(usuario) or Tarjeta()
+        if tj.pid is None and (pid := self._pid_en_curso(usuario)) is not None:
+            tj = Tarjeta(
+                mensaje_id=self._card(pid).mensaje_id, navegador=True, listo=True,
+                cuentas=dict(tj.cuentas), pid=pid,
+            )  # fmt: skip
         cambiar(tj)
         self._guardar_tarjeta(usuario, tj)
         await self._pintar_tarjeta(usuario, tj)
 
-    async def _pintar_tarjeta(
-        self, usuario: Usuario, tj: Tarjeta, cuadro: int = 0, *, animacion: bool = False
-    ) -> None:
-        """Edita la tarjeta; si el mensaje ya no existe envía uno nuevo (salvo en la animación)."""
-        vacante = etapa = None
+    async def _pintar_tarjeta(self, usuario: Usuario, tj: Tarjeta) -> None:
+        """Con postulación, la tarjeta es el bloque de conexión de su card; si no, un mensaje."""
         if tj.pid is not None:
-            fila = self.n.base.cx.execute(
-                "SELECT v.titulo, v.empresa FROM postulaciones p LEFT JOIN vacantes v "
-                "ON v.id_corto = p.id_corto WHERE p.id = ?",
-                (tj.pid,),
-            ).fetchone()
-            vacante = (fila["titulo"], fila["empresa"]) if fila else (None, None)
-            etapa = self._etapas.get(tj.pid)
-        texto = tarjeta.texto(tj, vacante, etapa, cuadro)
+            await self._pintar_card(usuario, tj.pid, crear=True)
+            return
+        texto = tarjeta.texto(tj)
         botones = tarjeta.botones(tj, cb)
         if tj.mensaje_id:
-            if animacion:  # un cuadro perdido no se reenvía: lo atrapa la animación
-                await self.s.editar(usuario.telegram_id, tj.mensaje_id, texto, botones)
-                return
             try:
                 await self.s.editar(usuario.telegram_id, tj.mensaje_id, texto, botones)
                 return
@@ -991,11 +989,129 @@ class Conversacion:
                 log.info("No se pudo editar la tarjeta de %s", usuario.id)
         tj.mensaje_id = await self._enviar(usuario, texto, botones)
         self._guardar_tarjeta(usuario, tj)
-        if tj.pid is not None and tj.mensaje_id:
+
+    # --- card de la postulación -------------------------------------------------------
+
+    def _card(self, pid: int) -> tp.Card | None:
+        return tp.Card.de_texto(self.n.base.kv_obtener(f"card:{pid}"))
+
+    def _guardar_card(self, pid: int, card: tp.Card | None) -> None:
+        self.n.base.kv_guardar(f"card:{pid}", card.a_texto() if card else "")
+
+    def _mensaje_de(self, pid: int) -> int | None:
+        fila = self.n.base.cx.execute(
+            "SELECT mensaje_id FROM postulaciones WHERE id = ?", (pid,)
+        ).fetchone()
+        return fila["mensaje_id"] if fila else None
+
+    def _obtener_card(self, pid: int, *, crear: bool) -> tp.Card | None:
+        """La card guardada; si no hay, una nueva sobre el mensaje que la postulación ya tenga
+        (así una postulación en curso antes del cambio sigue en su mensaje). Sin mensaje y sin
+        ``crear``, no hay card: por ejemplo una postulación automática que no avisa."""
+        card = self._card(pid)
+        if card is None:
+            mensaje = self._mensaje_de(pid)
+            if mensaje is None and not crear:
+                return None
+            card = tp.Card(mensaje_id=mensaje)
+        return card
+
+    def _pid_en_curso(self, usuario: Usuario) -> int | None:
+        """Postulación en curso del usuario que ya tiene card (la más reciente)."""
+        activos = (E.EN_COLA, E.ESPERANDO_NAVEGADOR, E.TOMADA, E.EN_CURSO, E.VERIFICACION,
+                   E.ESPERANDO_USUARIO, E.ESPERANDO_SESION)  # fmt: skip
+        filas = self.n.base.cx.execute(
+            "SELECT id FROM postulaciones WHERE usuario_id = ? AND tipo = 'postular' "
+            f"AND estado IN ({', '.join('?' for _ in activos)}) ORDER BY id DESC",
+            (usuario.id, *activos),
+        ).fetchall()
+        return next((f["id"] for f in filas if self._card(f["id"]) is not None), None)
+
+    def _datos_card(self, usuario: Usuario, pid: int, card: tp.Card, cuadro: int = 0) -> tp.Datos:
+        fila = self.n.base.cx.execute(
+            "SELECT p.plataforma, p.seguimiento, v.titulo, v.empresa, v.url FROM postulaciones p "
+            "LEFT JOIN vacantes v ON v.id_corto = p.id_corto WHERE p.id = ?",
+            (pid,),
+        ).fetchone()
+        d = tp.Datos(
+            pid=pid, titulo=fila["titulo"], empresa=fila["empresa"],
+            plataforma=fila["plataforma"], url=fila["url"], seguimiento=fila["seguimiento"],
+            etapa=self._etapas.get(pid, 0), cuadro=cuadro,
+        )  # fmt: skip
+        tj = self._tarjeta(usuario)
+        if tj is not None and tj.pid == pid and card.fase not in (tp.CONFIRMADA, tp.INCIERTA):
+            d.conexion = tarjeta.lineas(tj)
+            d.botones_conexion = tarjeta.botones(tj, cb) or []
+        if card.fase == tp.PREGUNTA and card.pregunta:
+            pendiente = next(
+                (x for x in self.n.pendientes(usuario.id) if x["id"] == card.pregunta["id"]), None
+            )
+            if pendiente:
+                d.pendiente = {
+                    "id": pendiente["id"], "pregunta": pendiente["pregunta"],
+                    "opciones": json.loads(pendiente["opciones_json"] or "[]"),
+                }  # fmt: skip
+        if card.fase in (tp.CONFIRMADA, tp.INCIERTA):
+            p = self.n.cola.obtener(pid)
+            if p is not None:
+                d.resumen, _ = self._datos_resumen(p, confirmada=card.fase == tp.CONFIRMADA)
+        return d
+
+    async def _pintar_card(
+        self, usuario: Usuario, pid: int, cuadro: int = 0, *, animacion: bool = False,
+        crear: bool = False,
+    ) -> None:  # fmt: skip
+        """Edita la card de la postulación; si su mensaje ya no existe envía una nueva con el
+        estado actual (salvo en la animación: un cuadro perdido lo atrapa el siguiente)."""
+        card = self._obtener_card(pid, crear=crear)
+        if card is None:
+            return
+        if card.fase == tp.PREGUNTA and self._datos_card(usuario, pid, card).pendiente is None:
+            card.fase, card.pregunta = tp.EN_COLA, None  # la pregunta ya se respondió
+        d = self._datos_card(usuario, pid, card, cuadro)
+        texto, botones = tp.texto(card, d), tp.botones(card, d, cb)
+        if card.mensaje_id:
+            if animacion:
+                await self.s.editar(usuario.telegram_id, card.mensaje_id, texto, botones)
+                return
+            try:
+                await self.s.editar(usuario.telegram_id, card.mensaje_id, texto, botones)
+                self._guardar_card(pid, card)
+                self._anclar(pid, card.mensaje_id)
+                return
+            except Exception:  # noqa: BLE001 - mensaje borrado o vencido: se envía uno nuevo
+                log.info("No se pudo editar la card de la postulación %s", pid)
+        card.mensaje_id = await self._enviar(usuario, texto, botones)
+        self._guardar_card(pid, card)
+        self._anclar(pid, card.mensaje_id)
+
+    def _anclar(self, pid: int, mensaje_id: int | None) -> None:
+        if mensaje_id and mensaje_id != self._mensaje_de(pid):
             with self.n.base.transaccion() as cx:
                 cx.execute(
-                    "UPDATE postulaciones SET mensaje_id = ? WHERE id = ?", (tj.mensaje_id, tj.pid)
+                    "UPDATE postulaciones SET mensaje_id = ? WHERE id = ?", (mensaje_id, pid)
                 )
+
+    async def _poner_fase(
+        self, usuario: Usuario, pid: int, fase: str, *, motivo: str | None = None,
+        pregunta: dict | None = None,
+    ) -> None:  # fmt: skip
+        """Cambia la fase de la card (la crea si no existe) y la pinta."""
+        card = self._obtener_card(pid, crear=True)
+        card.fase, card.vista, card.motivo, card.pregunta = fase, tp.PRINCIPAL, motivo, pregunta
+        self._guardar_card(pid, card)
+        await self._pintar_card(usuario, pid, crear=True)
+
+    async def _cerrar_card(
+        self, usuario: Usuario, pid: int, fase: str, *, motivo: str | None = None
+    ) -> None:
+        """La postulación dejó de avanzar sola: se detiene el progreso, se suelta la conexión
+        (su bloque ya no aplica) y la card pasa a la fase final o de espera."""
+        await self._detener_progreso(pid)
+        tj = self._tarjeta(usuario)
+        if tj is not None and tj.pid == pid:
+            self._guardar_tarjeta(usuario, None)
+        await self._poner_fase(usuario, pid, fase, motivo=motivo)
 
     # --- toque de ⚡ ----------------------------------------------------------------
 
@@ -1013,37 +1129,36 @@ class Conversacion:
         if toque.camino == Camino.NO_DISPONIBLE:
             await self._enviar(usuario, "Esa vacante ya no está disponible en el asistente.")
             return toque
-        titulo = t.e(toque.vacante.titulo)
+        pid = toque.postulacion.id
         if toque.camino == Camino.YA_EXISTE:
-            estado = t.ESTADOS.get(toque.postulacion.estado, toque.postulacion.estado)
-            await self._enviar(usuario, f"<b>{titulo}</b>\nYa la tienes: {estado}.")
-            return toque
-        if toque.camino == Camino.AUTOMATICA:
-            tj = self._tarjeta(usuario) if en_tarjeta else None
-            if tj is not None and tj.pid is None:  # la vacante del alta sigue en la tarjeta
-                tj.pid = toque.postulacion.id
-                self._guardar_tarjeta(usuario, tj)
-                await self._pintar_tarjeta(usuario, tj)
-                mensaje = tj.mensaje_id
+            if self._card(pid) is not None:  # la card sigue donde estaba: solo se repinta
+                await self._pintar_card(usuario, pid)
             else:
-                mensaje = await self._enviar(
-                    usuario, f"<b>{titulo}</b>\n⏳ En cola. Te aviso el resultado."
-                )
-            if mensaje:
-                with self.n.base.transaccion() as cx:
-                    cx.execute(
-                        "UPDATE postulaciones SET mensaje_id = ? WHERE id = ?",
-                        (mensaje, toque.postulacion.id),
-                    )
-            self._en_segundo_plano(self._preparar(usuario, toque))
+                titulo = t.e(toque.vacante.titulo)
+                estado = t.ESTADOS.get(toque.postulacion.estado, toque.postulacion.estado)
+                await self._enviar(usuario, f"<b>{titulo}</b>\nYa la tienes: {estado}.")
             return toque
-        await self._enviar(
-            usuario,
-            f"<b>{titulo}</b>\n📋 No puedo postularla sola: "
-            f"{t.e(t.MOTIVOS_RESPALDO.get(toque.motivo, toque.motivo))}. "
-            "Preparo tu paquete para que lo hagas en un minuto…",
-        )
-        self._en_segundo_plano(self._enviar_paquete(usuario, toque.postulacion.id, toque.motivo))
+        # Un toque produce una sola card: la del alta (si la vacante venía pendiente), la que ya
+        # tenía esta postulación (reintento) o una nueva
+        card = self._card(pid) or tp.Card(mensaje_id=self._mensaje_de(pid))
+        tj = self._tarjeta(usuario) if en_tarjeta else None
+        if tj is not None and tj.pid is None:  # la vacante del alta sigue en la tarjeta
+            tj.pid = pid
+            card.mensaje_id = card.mensaje_id or tj.mensaje_id
+            self._guardar_tarjeta(usuario, tj)
+        if toque.camino == Camino.AUTOMATICA:
+            card.fase, card.motivo = tp.EN_COLA, None
+        else:
+            card.fase, card.motivo = tp.RESPALDO, toque.motivo
+        card.vista, card.pregunta = tp.PRINCIPAL, None
+        self._guardar_card(pid, card)
+        if toque.camino == Camino.RESPALDO and tj is not None:
+            self._guardar_tarjeta(usuario, None)  # el bloque de conexión ya no aplica
+        await self._pintar_card(usuario, pid, crear=True)
+        if toque.camino == Camino.AUTOMATICA:
+            self._en_segundo_plano(self._preparar(usuario, toque))
+        else:
+            self._en_segundo_plano(self._enviar_paquete(usuario, pid, toque.motivo))
         return toque
 
     async def al_toque_canal(self, tid: int, id_corto: str) -> RespuestaToque:
@@ -1144,18 +1259,7 @@ class Conversacion:
                 "👤 <b>Tus datos</b>\n"
                 + "\n".join(f"{k}: {t.bloque(v)}" for k, v in paquete.contacto.items()),
             )
-        await self._enviar(
-            usuario,
-            "Cuando termines, cuéntame:",
-            [
-                [("🔗 Abrir vacante", f"url:{v.url}")],
-                [("💬 Responder preguntas del formulario", cb("pegar", pid))],
-                [
-                    ("✅ Ya me postulé", cb("seg", pid, "postulada")),
-                    ("🙅 No me interesa", cb("seg", pid, "descartada")),
-                ],
-            ],
-        )
+        # El cierre («Ya me postulé», «No me interesa», pegar preguntas) está en la card
 
     # --- texto libre ------------------------------------------------------------------
 
@@ -1191,7 +1295,7 @@ class Conversacion:
         elif tipo == "cuestionario":
             await self._texto_cuestionario(usuario, texto, mensaje_id)
         elif tipo == "pendiente":
-            await self._responder_pendiente(usuario, esperando["id"], texto.strip())
+            await self._texto_pendiente(usuario, esperando["id"], texto.strip(), mensaje_id)
         elif tipo == "pegar":
             await self._responder_pegadas(usuario, esperando["pid"], texto)
         elif tipo == "editar":
@@ -1238,25 +1342,60 @@ class Conversacion:
                 )
                 self.n.base.kv_guardar(f"ultima_pregunta:{usuario.id}", pregunta.texto)
 
-    async def _responder_pendiente(self, usuario: Usuario, pendiente_id: int, respuesta: str):
+    async def _texto_pendiente(
+        self, usuario: Usuario, pendiente_id: int, texto: str, mensaje_id: int | None
+    ) -> None:
+        """Texto escrito mientras la card hace una pregunta: solo vale si ella espera texto."""
+        pendiente = next(
+            (p for p in self.n.pendientes(usuario.id) if p["id"] == pendiente_id), None
+        )
+        if pendiente is None:  # ya se respondió: no se espera nada
+            self._esperar(usuario, None)
+        if pendiente is None or not texto or json.loads(pendiente["opciones_json"] or "[]"):
+            await self._borrar_texto_usuario(usuario, mensaje_id)  # fuera de turno: sin guardarse
+            return
+        await self._responder_pendiente(usuario, pendiente_id, texto, mensaje_id)
+
+    async def _responder_pendiente(
+        self, usuario: Usuario, pendiente_id: int, respuesta: str, mensaje_id: int | None = None
+    ) -> None:
+        """Guarda la respuesta y la card avanza a la siguiente pregunta o vuelve a la cola."""
+        fila = next((p for p in self.n.pendientes(usuario.id) if p["id"] == pendiente_id), None)
+        pid = fila["postulacion_id"] if fila else None
         reencolada = self.n.responder_pendiente(usuario.id, pendiente_id, respuesta)
         self._esperar(usuario, None)
+        await self._borrar_texto_usuario(usuario, mensaje_id)
         restantes = self.n.pendientes(usuario.id)
+        con_card = pid is not None and self._card(pid) is not None
+        if con_card and not any(r["postulacion_id"] == pid for r in restantes):
+            await self._poner_fase(usuario, pid, tp.EN_COLA)
         if restantes:
             await self._preguntar_pendiente(usuario, restantes[0])
-        elif reencolada:
-            await self._enviar(usuario, "✅ Gracias, lo recordaré. Sigo con tu postulación.")
-        else:
-            await self._enviar(usuario, "✅ Gracias, lo recordaré.")
+        elif not con_card:  # pregunta sin postulación: no hay card donde decirlo
+            if reencolada:
+                await self._enviar(usuario, "✅ Gracias, lo recordaré. Sigo con tu postulación.")
+            else:
+                await self._enviar(usuario, "✅ Gracias, lo recordaré.")
 
     async def _preguntar_pendiente(self, usuario: Usuario, pendiente: dict) -> None:
-        opciones = json.loads(pendiente["opciones_json"] or "[]")
-        botones = [[(o, cb("pend", pendiente["id"], n))] for n, o in enumerate(opciones[:8])]
         self._esperar(usuario, {"tipo": "pendiente", "id": pendiente["id"]})
-        texto = f"❓ Para tu postulación necesito un dato:\n<b>{t.e(pendiente['pregunta'])}</b>"
-        if not opciones:
-            texto += "\nEscríbeme la respuesta."
-        await self._enviar(usuario, texto, botones or None)
+        pid = pendiente.get("postulacion_id")
+        if pid is None:  # sin postulación no hay card: se pregunta en un mensaje
+            opciones = json.loads(pendiente["opciones_json"] or "[]")
+            botones = [[(o, cb("pend", pendiente["id"], n))] for n, o in enumerate(opciones[:8])]
+            texto = f"❓ Para tu postulación necesito un dato:\n<b>{t.e(pendiente['pregunta'])}</b>"
+            if not opciones:
+                texto += "\nEscríbeme la respuesta."
+            await self._enviar(usuario, texto, botones or None)
+            return
+        cx = self.n.base.cx
+        total, respondidas = cx.execute(
+            "SELECT COUNT(*), COUNT(respondida_en) FROM pendientes_usuario "
+            "WHERE postulacion_id = ?",
+            (pid,),
+        ).fetchone()
+        avance = {"id": pendiente["id"], "n": respondidas + 1, "total": total}
+        await self._poner_fase(usuario, pid, tp.PREGUNTA, pregunta=avance)
 
     # --- botones ------------------------------------------------------------------------
 
@@ -1409,10 +1548,12 @@ class Conversacion:
             case "seg":
                 pid, seguimiento = int(args[0]), args[1]
                 with self.n.base.transaccion() as cx:
-                    cx.execute(
+                    hechas = cx.execute(
                         "UPDATE postulaciones SET seguimiento = ? WHERE id = ? AND usuario_id = ?",
                         (seguimiento, pid, usuario.id),
-                    )
+                    ).rowcount
+                if hechas and self._card(pid) is not None:  # la card marca ✓ la opción elegida
+                    await self._pintar_card(usuario, pid)
                 return "Anotado ✅"
             case "cuenta":
                 plataforma, decision = args
@@ -1836,11 +1977,7 @@ class Conversacion:
                 usuario, lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.COMPLETANDO)
             )
         elif tipo == "verificacion":
-            await self._enviar(
-                usuario,
-                "🧩 El portal pide una verificación. Complétala en la "
-                "pestaña que abrí en tu navegador y sigo solo.",
-            )
+            await self._poner_fase(usuario, d["postulacion_id"], tp.VERIFICACION)
         elif tipo == "preguntas_pendientes":
             pendientes = self.n.pendientes(usuario.id)
             if pendientes:
@@ -1855,34 +1992,34 @@ class Conversacion:
         elif tipo == "paso":
             etapa = progreso.etapa_de_paso(d["paso"])
             pid = d["postulacion_id"]
-            if etapa is not None and pid in self._animaciones and etapa > self._etapas[pid]:
+            if pid not in self._animaciones:
+                return
+            card = self._card(pid)
+            if card is not None and card.fase != tp.PROGRESO:  # p. ej. se resolvió la verificación
+                await self._poner_fase(usuario, pid, tp.PROGRESO)
+            if etapa is not None and etapa > self._etapas[pid]:
                 self._etapas[pid] = etapa
                 await self._pintar_progreso(usuario, pid, 0)
 
     async def _pintar_progreso(self, usuario: Usuario, pid: int, cuadro: int) -> None:
-        tj = self._tarjeta(usuario)
-        if tj is not None and tj.pid == pid:  # la postulación vive dentro de la tarjeta
-            await self._pintar_tarjeta(usuario, tj, cuadro, animacion=True)
-            return
-        fila = self.n.base.cx.execute(
-            "SELECT p.mensaje_id, v.titulo, v.empresa FROM postulaciones p LEFT JOIN vacantes v "
-            "ON v.id_corto = p.id_corto WHERE p.id = ?",
-            (pid,),
-        ).fetchone()
-        if fila and fila["mensaje_id"]:
-            texto = progreso.texto(fila["titulo"], fila["empresa"], self._etapas[pid], cuadro)
-            await self.s.editar(usuario.telegram_id, fila["mensaje_id"], texto)
+        """Un cuadro del progreso en la card; solo si la card está mostrando el progreso."""
+        card = self._card(pid)
+        if card is not None and card.fase == tp.PROGRESO:
+            await self._pintar_card(usuario, pid, cuadro, animacion=True)
 
     async def _iniciar_progreso(self, usuario: Usuario, pid: int) -> None:
-        """Un solo mensaje que va marcando las etapas y gira mientras la extensión trabaja."""
-        if pid in self._animaciones:
-            return
-        self._etapas[pid] = 0
+        """La card marca las etapas y gira mientras la extensión trabaja (se edita, no se envía)."""
+        nueva = pid not in self._animaciones
+        if nueva:
+            self._etapas[pid] = 0
         try:
-            await self._pintar_progreso(usuario, pid, 0)
+            card = self._obtener_card(pid, crear=False)
+            if card is not None:  # sin card (automática que no avisa) no hay nada que mostrar
+                await self._poner_fase(usuario, pid, tp.PROGRESO)
         except Exception:  # noqa: BLE001 - mensaje viejo o borrado: el aviso final lo reenvía
             log.info("No se pudo mostrar el progreso de %s", pid)
-        self._animaciones[pid] = asyncio.create_task(self._animar_progreso(usuario, pid))
+        if nueva:
+            self._animaciones[pid] = asyncio.create_task(self._animar_progreso(usuario, pid))
 
     async def _animar_progreso(self, usuario: Usuario, pid: int) -> None:
         for cuadro in range(1, 600):
@@ -1898,28 +2035,6 @@ class Conversacion:
         if tarea is not None:
             tarea.cancel()
             await asyncio.gather(tarea, return_exceptions=True)
-
-    async def _editar_progreso(self, usuario: Usuario, pid: int, estado: str) -> None:
-        await self._detener_progreso(pid)
-        tj = self._tarjeta(usuario)
-        if tj is not None and tj.pid == pid:  # el mensaje pasa a ser el de la postulación
-            self._guardar_tarjeta(usuario, None)
-        fila = self.n.base.cx.execute(
-            "SELECT p.mensaje_id, v.titulo FROM postulaciones p LEFT JOIN vacantes v "
-            "ON v.id_corto = p.id_corto WHERE p.id = ?",
-            (pid,),
-        ).fetchone()
-        if fila and fila["mensaje_id"]:
-            try:
-                await self.s.editar(
-                    usuario.telegram_id,
-                    fila["mensaje_id"],
-                    f"<b>{t.e(fila['titulo'])}</b>\n{estado}",
-                )
-                return
-            except Exception:  # noqa: BLE001 - mensaje viejo o borrado: se envía uno nuevo
-                pass
-        await self._enviar(usuario, f"<b>{t.e(fila['titulo'] if fila else '')}</b>\n{estado}")
 
     def _datos_resumen(self, p, *, confirmada: bool = True):
         """Datos de una postulación para el resumen: (datos, CV usado o None)."""
@@ -1958,32 +2073,11 @@ class Conversacion:
         return datos, cv if cv and cv.is_file() else None
 
     async def _enviar_resumen(self, usuario: Usuario, p, *, confirmada: bool = True) -> None:
-        """Tarjeta corta de una postulación confirmada. El detalle va en sus botones: las
-        respuestas con su origen, de qué trata la vacante y el enlace a la oferta."""
-        datos, cv = self._datos_resumen(p, confirmada=confirmada)
-        seguimiento = [
-            ("🗣 Entrevista", cb("seg", p.id, "entrevista")),
-            ("❌ Rechazada", cb("seg", p.id, "rechazada")),
-            ("🎉 Oferta", cb("seg", p.id, "oferta")),
-        ]
-        pregunta = "¿Cómo te fue? Márcalo cuando sepas:"
-        if datos is None:
-            if confirmada:  # sin datos no hay tarjeta, pero el seguimiento no se pierde
-                await self._enviar(usuario, pregunta, [seguimiento])
-            return
-        fila = []
-        if datos.respuestas:
-            fila.append(("📝 Ver respuestas", cb("res", p.id, "r")))
-        if datos.vacante.detalle or datos.requisitos or datos.vacante.ficha:
-            fila.append(("📋 De qué trata", cb("res", p.id, "d")))
-        if datos.vacante.url:
-            fila.append(("🔗 Oferta", "url:" + datos.vacante.url))
-        texto = resumen_postulacion.tarjeta(datos)
-        botones = [fila] if fila else []
-        if confirmada:  # el seguimiento va en la misma tarjeta, no en un mensaje aparte
-            texto += f"\n\n{pregunta}"
-            botones.append(seguimiento)
-        await self._enviar(usuario, texto, botones or None)
+        """La card pasa a «confirmada» (o «incierta»): título, empresa y una cita con el estado,
+        con las vistas de respuestas y de qué trata, la oferta y el seguimiento. La hoja de vida
+        que recibió el portal sigue yendo como documento aparte."""
+        await self._cerrar_card(usuario, p.id, tp.CONFIRMADA if confirmada else tp.INCIERTA)
+        _, cv = self._datos_resumen(p, confirmada=confirmada)
         if cv is not None:
             await self.s.documento(usuario.telegram_id, cv, "La hoja de vida que recibió el portal")
 
@@ -2066,10 +2160,24 @@ class Conversacion:
         return await self._borrar_filas(filas)
 
     async def _ver_resumen(self, usuario: Usuario, pid: int, parte: str) -> str | None:
-        """Responde a «Ver respuestas» (r) y «De qué trata» (d). Devuelve el aviso corto que
-        ve el usuario sobre el botón cuando no se envía nada."""
+        """Responde a «Respuestas» (r), «De qué trata» (d) y «Volver» (v). Con card, son vistas
+        de la misma card; sin ella (tarjeta enviada antes del cambio) son mensajes efímeros.
+        Devuelve el aviso corto que ve el usuario sobre el botón cuando no se envía nada."""
         p = self.n.cola.obtener(pid)
-        if p is None or p.usuario_id != usuario.id or parte not in ("r", "d"):
+        if p is None or p.usuario_id != usuario.id or parte not in ("r", "d", "v"):
+            return None
+        card = self._card(pid)
+        if card is not None:
+            if card.fase not in (tp.CONFIRMADA, tp.INCIERTA):  # toque viejo: se repinta la vigente
+                await self._pintar_card(usuario, pid)
+                return None
+            if parte != "v" and not self._toque_resumen_permitido(usuario.telegram_id):
+                return "Vas muy rápido; intenta de nuevo en un minuto."
+            card.vista = {"r": tp.RESPUESTAS, "d": tp.DE_QUE_TRATA, "v": tp.PRINCIPAL}[parte]
+            self._guardar_card(pid, card)
+            await self._pintar_card(usuario, pid)
+            return None
+        if parte == "v":
             return None
         clave = f"res:{pid}:{parte}"
         async with self._candados[usuario.id]:  # dos toques seguidos no envían dos veces
@@ -2105,7 +2213,7 @@ class Conversacion:
             return
         estado = t.ESTADOS.get(ev.estado, ev.estado)
         if ev.tipo == "navegador_desconectado":
-            await self._editar_progreso(usuario, p.id, "💻 Se enviará cuando abras tu navegador.")
+            await self._cerrar_card(usuario, p.id, tp.ESPERANDO_NAVEGADOR)
             return
         if ev.tipo == "reencolada":
             return
@@ -2116,45 +2224,17 @@ class Conversacion:
                 pref = self.n.preferencias.obtener(usuario.id, p.plataforma)
                 if not pref.avisar:
                     return
-            await self._editar_progreso(
-                usuario, p.id, "✅ <b>Postulación enviada y confirmada.</b> Te dejo el resumen."
-            )
             await self._enviar_resumen(usuario, p)
         elif ev.estado == E.ESPERANDO_SESION:
-            nombre = t.NOMBRES_PLATAFORMA.get(p.plataforma, p.plataforma)
-            await self._editar_progreso(
-                usuario,
-                p.id,
-                f"🔑 Inicia sesión en {nombre} en tu navegador y continúo solo. Si no tienes "
-                f"cuenta, créala aquí: {t.URL_REGISTRO.get(p.plataforma, '')}",
-            )
+            await self._cerrar_card(usuario, p.id, tp.SESION)
         elif ev.estado == E.INCIERTA:
-            await self._editar_progreso(
-                usuario, p.id, estado + ". Revisa «Mis postulaciones» en el portal."
-            )
             # Igual se le cuenta qué se respondió y con qué hoja de vida, para que pueda revisar
             await self._enviar_resumen(usuario, p, confirmada=False)
         elif ev.estado == E.BLOQUEADA and (ev.detalle or "") in t.BLOQUEOS_PORTAL:
-            nombre = t.NOMBRES_PLATAFORMA.get(p.plataforma, p.plataforma or "el portal")
-            await self._editar_progreso(
-                usuario, p.id, f"🔒 {t.e(nombre)} pide una acción en tu cuenta antes de postular."
-            )
-            await self._enviar(
-                usuario,
-                "🔒 "
-                + t.e(t.BLOQUEOS_PORTAL[ev.detalle].format(portal=nombre))
-                + "\n\nCuando lo resuelvas, toca <b>🔁 Reintentar</b> (o ⚡ en la vacante) y la "
-                "envío de nuevo. No envié nada todavía.",
-                [[("🔁 Reintentar", cb("rei", p.id))]],
-            )
+            await self._cerrar_card(usuario, p.id, tp.BLOQUEO, motivo=ev.detalle)
         elif ev.estado in CON_RESPALDO:
-            await self._editar_progreso(usuario, p.id, estado)
             motivo = ev.detalle if ev.tipo == "respaldo" else str(ev.estado)
-            await self._enviar(
-                usuario,
-                "📋 Te preparo el paquete para que la envíes a mano: "
-                f"{t.e(t.MOTIVOS_RESPALDO.get(motivo, motivo))}.",
-            )
+            await self._cerrar_card(usuario, p.id, tp.RESPALDO, motivo=motivo)
             self._en_segundo_plano(self._enviar_paquete(usuario, p.id, motivo))
             if (
                 ev.estado in (E.FORMULARIO_DESCONOCIDO, E.BLOQUEADA)
@@ -2166,7 +2246,7 @@ class Conversacion:
                     "evidencia en data/asistente/postulaciones/.",
                 )
         else:
-            await self._editar_progreso(usuario, p.id, estado)
+            await self._cerrar_card(usuario, p.id, tp.CERRADA, motivo=str(ev.estado))
 
     # --- tareas periódicas ----------------------------------------------------------------
 

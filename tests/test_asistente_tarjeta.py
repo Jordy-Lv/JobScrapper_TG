@@ -39,27 +39,23 @@ def test_botones_solo_mientras_hay_una_cuenta_por_resolver():
     tj.poner_cuenta("computrabajo", tarjeta.POR_CONFIRMAR, "a@b.co")
     assert tarjeta.botones(tj, cb) == [
         [
-            ("✅ Confirmar Computrabajo", "cb:cuenta:computrabajo:si"),
+            ("Confirmar Computrabajo", "cb:cuenta:computrabajo:si"),
             ("Cancelar", "cb:cuenta:computrabajo:no"),
         ]
     ]
     tj.poner_cuenta("computrabajo", tarjeta.DISTINTA, "a@b.co", "l***@hotmail.com")
     assert tarjeta.botones(tj, cb)[0][0] == (
-        "Es mi cuenta nueva, usarla",
+        "Es mi cuenta nueva",
         "cb:cuenta:computrabajo:nueva",
     )
     tj.poner_cuenta("computrabajo", tarjeta.CONFIRMADA)
     assert tarjeta.botones(tj, cb) is None
 
 
-def test_cierre_del_alta_y_vacante_en_cola_o_con_etapas():
+def test_el_cierre_del_alta_va_en_un_mensaje_aparte():
     tj = Tarjeta(navegador=True, listo=True)
-    assert t.ALTA_LISTA not in tarjeta.texto(tj)  # el cierre va en un mensaje aparte
-    en_cola = tarjeta.texto(tj, ("Aprendiz <SENA>", "Euro"))
-    assert "Ya puedes tocar" not in en_cola
-    assert "<b>Aprendiz &lt;SENA&gt;</b>" in en_cola and "⏳ En cola" in en_cola
-    avance = tarjeta.texto(tj, ("Aprendiz", None), etapa=1, cuadro=0)
-    assert "✓ Abriendo la oferta" in avance and "<b>Preparando tu hoja de vida…</b>" in avance
+    assert t.ALTA_LISTA not in tarjeta.texto(tj)
+    assert tarjeta.lineas(tj) == tarjeta.texto(tj).split("\n")
 
 
 def test_el_estado_se_guarda_y_se_lee_como_texto():
