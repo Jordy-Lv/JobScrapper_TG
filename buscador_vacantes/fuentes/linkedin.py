@@ -33,16 +33,16 @@ class LinkedIn(Fuente):
     ]
 
     def construir_peticion(self, keyword: str, pagina: int = 1) -> Peticion:
-        return Peticion(
-            URL_BUSQUEDA,
-            params={
-                "keywords": keyword,
-                "location": self.opciones.get("location", "Colombia"),
-                "f_E": self.opciones.get("f_E", "1,2"),
-                "f_TPR": self.opciones.get("f_TPR", "r86400"),
-                "start": 0,
-            },
-        )
+        params = {
+            "keywords": keyword,
+            "location": self.opciones.get("location", "Colombia"),
+            "f_E": self.opciones.get("f_E", "1,2"),
+            "f_TPR": self.opciones.get("f_TPR", "r86400"),
+            "start": 0,
+        }
+        # La variante cambia parámetros (p. ej. location o f_WT); su "modalidad" no se envía
+        params.update({k: v for k, v in (self.variante or {}).items() if k != "modalidad"})
+        return Peticion(URL_BUSQUEDA, params=params)
 
     def parsear(self, respuesta: httpx.Response, keyword: str, ahora: datetime) -> list[Vacante]:
         # Sin resultados LinkedIn responde 200 con el cuerpo vacío
@@ -54,6 +54,8 @@ class LinkedIn(Fuente):
         )
         if not tarjetas:
             raise CambioHTML("No se encontraron tarjetas div.base-search-card")
+        # El filtro de la propia búsqueda (f_WT) garantiza la modalidad de la variante
+        modalidad = (self.variante or {}).get("modalidad")
         vacantes = []
         for tarjeta in tarjetas:
             urn = _URN.search(tarjeta.get("data-entity-urn", ""))
@@ -76,6 +78,7 @@ class LinkedIn(Fuente):
                     url=URL_OFERTA.format(id=urn.group(1)),
                     keyword=keyword,
                     ubicacion=_texto(tarjeta.select_one("span.job-search-card__location")) or None,
+                    modalidad=modalidad,
                     salario=_texto(tarjeta.select_one("span.job-search-card__salary-info")) or None,
                     publicada=publicada,
                 )

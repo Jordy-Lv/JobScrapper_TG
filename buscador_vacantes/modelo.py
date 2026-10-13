@@ -41,6 +41,8 @@ class Vacante:
     publicada: datetime | None = None
     descripcion: str | None = None
     categoria: Categoria | None = None
+    # Condición que la IA debe confirmar: None, "remoto_o_hibrido" o "remoto"
+    exige_modalidad: str | None = None
 
     @property
     def clave(self) -> str:

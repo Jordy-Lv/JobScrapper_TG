@@ -312,3 +312,55 @@ def test_config_local_reemplaza_solo_lo_que_trae(tmp_path, monkeypatch):
     assert config.asistente.api.puerto == 8787  # lo demás sigue igual
     monkeypatch.setenv("BUSCADOR_SIN_CONFIG_LOCAL", "1")
     assert cargar_configuracion(ruta).asistente.bot_usuario == ""
+
+
+# --- Filtro de vacantes limpias ---
+
+
+def test_filtros_nuevos_cargan_de_la_configuracion_real(config):
+    filtros = config.filtros
+    assert filtros.ubicacion.ciudad_base == ["cartagena", "turbaco", "mamonal"]
+    assert "presencial y remoto" in filtros.ubicacion.hibrido
+    assert "en sitio" in filtros.ubicacion.presencial
+    assert "asesor/a" in filtros.call_center
+    assert filtros.lista_negra.empresas == [] and filtros.lista_negra.palabras == []
+    assert "aprendiz" in filtros.nivel.evidencia_practica
+    assert "etapa productiva" in filtros.nivel.evidencia_practica_descripcion
+    assert filtros.anios_experiencia_excluidos_desde == 2
+    assert "middle" in filtros.exclusion_seniority
+
+
+def test_config_sin_los_campos_nuevos_usa_los_valores_por_defecto(tmp_path):
+    def quitar(datos):
+        filtros = datos["filtros"]
+        for campo in ("call_center", "lista_negra"):
+            filtros.pop(campo)
+        for campo in ("ciudad_base", "hibrido", "presencial"):
+            filtros["ubicacion"].pop(campo)
+        for campo in ("evidencia_practica", "evidencia_practica_descripcion"):
+            filtros["nivel"].pop(campo)
+
+    filtros = cargar_configuracion(escribir_config(tmp_path, quitar)).filtros
+    assert filtros.ubicacion.ciudad_base == ["cartagena", "turbaco", "mamonal"]
+    assert "call center" in filtros.call_center
+    assert "pasantía" in filtros.nivel.evidencia_practica
+    assert filtros.lista_negra.empresas == []
+
+
+def test_variantes_de_una_fuente_son_opcionales_y_se_validan(tmp_path, config):
+    assert "variantes" not in config.fuentes["magneto"].opciones
+    ruta = escribir_config(
+        tmp_path, lambda d: d["fuentes"]["linkedin"]["opciones"].update(variantes="Colombia")
+    )
+    with pytest.raises(ErrorConfiguracion, match="variantes"):
+        cargar_configuracion(ruta)
+
+
+def test_prompt_del_clasificador_sin_las_reglas_viejas(config):
+    prompt = " ".join(config.clasificador.prompt_sistema.split())
+    assert "nivel_filtrado_por_fuente" not in prompt
+    assert 'ACÉPTALA con categoría "practicas", aunque no se mencione TI' not in prompt
+    assert "hasta 1 año" in prompt
+    assert "exige_modalidad" in prompt and "ciudad_base" in prompt
+    assert "en sitio" in prompt and "con moto" in prompt
+    assert "uno bajo nunca basta por sí solo para aceptar" in prompt

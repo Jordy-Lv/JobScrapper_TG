@@ -141,6 +141,13 @@ fuentes:
       location: Colombia
       f_E: "1,2"        # Prácticas y nivel de entrada
       f_TPR: r86400     # Últimas 24 h
+      # Variantes de búsqueda: cada corrida usa una, en orden circular, sin gastar más
+      # peticiones. Sus claves reemplazan a las de arriba; "modalidad" no se envía: es la que
+      # se le pone a las vacantes porque el filtro de LinkedIn la garantiza (f_WT: 2 remoto,
+      # 3 híbrido). Sin variantes, se usan solo las opciones de arriba
+      variantes:
+        - {location: Colombia, f_WT: "2,3", modalidad: "Remoto o híbrido"}
+        - {location: "Cartagena, Bolívar, Colombia"}
   computrabajo:
     activa: true
     presupuesto: 8
@@ -222,8 +229,9 @@ filtros:
     - head
     - coordinador
     - especialista
-  # Regla 1: rechazar si pide N o más años de experiencia
-  anios_experiencia_excluidos_desde: 3
+    - middle
+  # Regla 1: rechazar si pide N o más años de experiencia (el canal acepta hasta 1 año)
+  anios_experiencia_excluidos_desde: 2
   # Frases que se ignoran antes de evaluar (evitan falsos positivos como
   # "redes sociales", "sistemas de gestión" o "para ti")
   frases_ignoradas:
@@ -266,6 +274,32 @@ filtros:
       - estudiante
       - semillero
       - programa de talento
+    # Guardarraíl de «Prácticas y Aprendizaje»: sin una de estas evidencias en el título
+    # (o una de las fuertes en la descripción) la vacante pasa a su categoría por área, o se
+    # rechaza si no tiene nada de TI. Que la fuente filtre por nivel no cuenta como evidencia
+    evidencia_practica:
+      - practicante
+      - práctica
+      - práctica profesional
+      - prácticas
+      - aprendiz
+      - aprendices
+      - pasante
+      - pasantía
+      - etapa productiva
+      - etapa práctica
+      - contrato de aprendizaje
+      - becario
+      - estudiante
+      - trainee
+      - intern
+      - internship
+    evidencia_practica_descripcion:
+      - contrato de aprendizaje
+      - etapa productiva
+      - etapa práctica
+      - pasantía
+      - práctica profesional
     # Nivel junior/entrada → categoría por área
     junior:
       - junior
@@ -571,7 +605,45 @@ filtros:
     - esteticista
     - nutrición
     - alimentos
+  # Puestos de atención o soporte al cliente (se buscan solo en el título): solo valen si la
+  # vacante es remota; si no se sabe la modalidad, decide la IA exigiendo un indicio de remoto
+  call_center:
+    - asesor de soporte
+    - asesor/a
+    - agente de soporte
+    - soporte al cliente
+    - servicio al cliente
+    - atención al cliente
+    - customer experience
+    - customer support
+    - call center
+    - contact center
+    - teleoperador
+  # Rechazo directo, antes que cualquier otra regla. empresas: compara con el nombre de la
+  # empresa sin sufijos societarios; palabras: compara con el título. Se edita aquí hasta que
+  # exista el panel de Telegram
+  lista_negra:
+    empresas: []
+    palabras: []
   ubicacion:
+    # Lo presencial solo vale en la ciudad base y su área cercana. En otra ciudad la vacante
+    # tiene que ser remota o híbrida (la modalidad se lee del portal, el título, la ubicación
+    # y, para remoto o híbrido, la descripción). «Bolívar» solo no cuenta como ciudad base
+    ciudad_base:
+      - cartagena
+      - turbaco
+      - mamonal
+    hibrido:
+      - híbrido
+      - híbrida
+      - hybrid
+      - presencial y remoto
+      - modalidad mixta
+    presencial:
+      - presencial
+      - en sitio
+      - on-site
+      - onsite
     colombia:
       - colombia
       - bogotá
@@ -774,42 +846,55 @@ clasificador:
   temperatura: 0
   prompt_sistema: |
     Eres el clasificador de un canal de Telegram de vacantes de prácticas, aprendizaje y
-    nivel junior en tecnología (TI) para Colombia.
+    nivel junior en tecnología (TI) para Colombia. Quien lo usa vive en la "ciudad_base"
+    de cada vacante (Cartagena).
 
     Alcance que SÍ se acepta:
     - Roles de TI: desarrollo de software (backend, frontend, fullstack, móvil),
       infraestructura, DevOps, cloud y sysadmin, redes y telecomunicaciones, bases de datos,
       soporte IT y mesa de ayuda, análisis de datos, BI e ingeniería de datos, QA y testing,
       ciberseguridad, y análisis de sistemas o de TI.
-    - Nivel: práctica, pasantía, aprendiz (incluido SENA), trainee, junior o entrada
-      (sin experiencia o con hasta 2 años).
-    - Ubicación: cualquier ciudad de Colombia, o remoto abierto a Colombia o a LATAM
-      publicado en español.
+    - Nivel: práctica, pasantía, aprendiz, trainee, junior o de entrada, con hasta 1 año de
+      experiencia.
+    - Ubicación: según la regla de Modalidad, más abajo.
 
     Se rechaza: roles que no son de TI (contables, administrativos, comerciales, de
-    marketing, logística, etc.), cargos senior, de liderazgo o con 3 o más años de
+    marketing, logística, etc.), cargos senior, de liderazgo o que piden 2 o más años de
     experiencia, y vacantes presenciales fuera de Colombia o remotas restringidas a otro país.
 
     Categorías válidas:
     - "practicas": cualquier rol de TI con nivel práctica, pasantía, aprendiz, trainee o
-      etapa productiva.
+      etapa productiva. Usa esta categoría solo si el título o la descripción dicen que es una
+      práctica o un aprendizaje; un cargo profesional no es "practicas" aunque el salario sea
+      bajo o la fuente filtre por nivel.
     - Para nivel junior/entrada: "desarrollo", "infraestructura" (incluye DevOps, cloud y
       redes), "bases_datos", "soporte", "datos", "qa", "ciberseguridad" u "otros_ti".
 
     Nivel: si el título no indica el nivel (por ejemplo "Frontend Developer" o "Ingeniero de
-    Infraestructura"), acéptala solo si hay evidencia de que es práctica, junior o de entrada:
-    "nivel_filtrado_por_fuente" es true, la descripción lo dice o el salario es de entrada
-    (en Colombia, más de unos 4,5 millones de pesos al mes suele indicar un cargo no junior).
-    Sin evidencia, recházala.
+    Infraestructura"), acéptala solo si el anuncio da evidencia de que es práctica, junior o de
+    hasta 1 año de experiencia. La experiencia que pide el anuncio manda sobre el salario: si
+    pide 2 o más años, recházala aunque el salario sea de entrada. El salario solo sirve de
+    apoyo cuando el anuncio no dice nada de experiencia ni de nivel: uno alto (en Colombia, más
+    de unos 4,5 millones de pesos al mes) indica que no es junior, y uno bajo nunca basta por
+    sí solo para aceptar. Sin evidencia de nivel, recházala.
 
-    Aprendiz SENA genérico: si el título es solo "Aprendiz SENA" (o "Aprendiz", "Contrato de
-    aprendizaje", "Etapa productiva/práctica") con ciudad, empresa o código, pero sin nombrar
-    un área, ACÉPTALA con categoría "practicas", aunque no se mencione TI. Recházala si el
-    título o la descripción indican un área o unas tareas que no son de TI: salud, farmacia,
-    mecánica, retail, ventas, atención al cliente, cocina, tareas administrativas u
-    operativas, logística, etc. Esta excepción es solo para aprendices SENA o de contrato de
-    aprendizaje: un "Practicante" o "Estudiante en práctica" sin área sigue la regla general
-    (se acepta solo si hay evidencia de TI).
+    Modalidad: una vacante presencial solo sirve en la "ciudad_base" y su área cercana; en
+    cualquier otra ciudad de Colombia solo sirve si es remota o híbrida. Si la vacante trae
+    "exige_modalidad", la modalidad no se pudo determinar y debes confirmarla con el texto:
+    - "remoto o híbrido": acéptala solo si el texto indica trabajo remoto, teletrabajo, home
+      office o modalidad híbrida.
+    - "solo remoto" (puestos de atención o soporte al cliente): acéptala solo si el texto
+      indica trabajo remoto, teletrabajo o desde casa.
+    Rechaza si el texto indica trabajo presencial o en sitio ("en sitio", "técnico de campo",
+    "con moto", "visitas a clientes", "en nuestra sede") o si no dice nada de la modalidad.
+    Si "exige_modalidad" es null, no apliques esta regla.
+
+    Aprendiz SENA o de contrato de aprendizaje sin área: un título que es solo "Aprendiz SENA"
+    (o "Aprendiz", "Contrato de aprendizaje", "Etapa productiva/práctica") con ciudad, empresa o
+    código no se acepta por sí solo. Acéptala solo si el título o la descripción muestran
+    funciones de TI; si no nombran ningún área o son de salud, farmacia, mecánica, retail,
+    ventas, atención al cliente, cocina, logística o tareas administrativas u operativas,
+    recházala.
 
     Práctica de otra área: también recibes prácticas, pasantías y aprendices cuyo título
     nombra un área que no es de TI ("Practicante administrativo", "Aprendiz de logística").

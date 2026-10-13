@@ -100,16 +100,27 @@ def test_payload_sin_url_y_con_ids_cortos(config, estado):
     assert item["id"] == 0
     assert "url" not in item
     assert {"titulo", "empresa", "ubicacion", "modalidad", "salario", "palabra_clave"} <= set(item)
-    assert item["nivel_filtrado_por_fuente"] is False
+    assert item["ciudad_base"] == "Cartagena"
+    assert item["exige_modalidad"] is None
 
 
-def test_payload_indica_filtro_de_nivel_de_la_fuente(config, estado):
+def test_payload_no_dice_que_la_fuente_filtro_por_nivel(config, estado):
     ia = IAFalsa(aceptar_todas())
-    clasificador = Clasificador(
-        config.clasificador, ia, estado, Filtros(config.filtros), frozenset({"linkedin"})
+    crear(config, estado, ia).clasificar([dudosa("Frontend Developer")], AHORA)
+    assert "nivel_filtrado_por_fuente" not in json.dumps(ia.lotes[0])
+
+
+def test_payload_trae_la_condicion_de_modalidad(config, estado):
+    ia = IAFalsa(aceptar_todas())
+    remoto_o_hibrido, solo_remoto, sin_condicion = (
+        dudosa("Analista de datos Jr", id_fuente="1"),
+        dudosa("Asesor de soporte técnico", id_fuente="2"),
+        dudosa("Analista", id_fuente="3"),
     )
-    clasificador.clasificar([dudosa("Frontend Developer"), dudosa("Developer", "magneto")], AHORA)
-    assert [v["nivel_filtrado_por_fuente"] for v in ia.lotes[0]] == [True, False]
+    remoto_o_hibrido.vacante.exige_modalidad = "remoto_o_hibrido"
+    solo_remoto.vacante.exige_modalidad = "remoto"
+    crear(config, estado, ia).clasificar([remoto_o_hibrido, solo_remoto, sin_condicion], AHORA)
+    assert [v["exige_modalidad"] for v in ia.lotes[0]] == ["remoto o híbrido", "solo remoto", None]
 
 
 def test_sin_dudosas_no_llama(config, estado):
@@ -184,6 +195,49 @@ def test_lotes_segun_maximo(config, estado):
     resultado = crear(config, estado, ia).clasificar(nuevas, AHORA)
     assert [len(lote) for lote in ia.lotes] == [30, 5]
     assert resultado.llamadas == 2 and len(resultado.aceptadas) == 35
+
+
+def clasificaciones_guardadas(estado):
+    return [dict(f) for f in estado.cx.execute("SELECT * FROM clasificaciones")]
+
+
+def test_clasificacion_guarda_la_version_del_prompt(config, estado):
+    clasificador = crear(config, estado, IAFalsa(aceptar_todas()))
+    clasificador.clasificar([dudosa("Auxiliar TI")], AHORA)
+    [fila] = clasificaciones_guardadas(estado)
+    assert fila["version_prompt"] == clasificador.version_prompt
+    assert len(clasificador.version_prompt) == 12
+
+
+def test_mismo_prompt_reutiliza_la_clasificacion(config, estado):
+    ia = IAFalsa(aceptar_todas())
+    crear(config, estado, ia).clasificar([dudosa("Auxiliar TI")], AHORA)
+    resultado = crear(config, estado, ia).clasificar([dudosa("Auxiliar TI", "magneto")], AHORA)
+    assert len(ia.lotes) == 1 and resultado.desde_cache == 1
+
+
+def test_prompt_cambiado_vuelve_a_clasificar(config, estado):
+    ia = IAFalsa(aceptar_todas(), aceptar_todas())
+    crear(config, estado, ia).clasificar([dudosa("Auxiliar TI")], AHORA)
+    nuevo = crear(config, estado, ia, prompt_sistema=config.clasificador.prompt_sistema + " Más.")
+    resultado = nuevo.clasificar([dudosa("Auxiliar TI", "magneto")], AHORA)
+    assert len(ia.lotes) == 2 and resultado.desde_cache == 0 and resultado.llamadas == 1
+    [fila] = clasificaciones_guardadas(estado)  # se reemplaza, sigue una por huella
+    assert fila["version_prompt"] == nuevo.version_prompt
+
+
+def test_clasificacion_sin_version_no_se_reutiliza(config, estado):
+    ia = IAFalsa(aceptar_todas())
+    clasificador = crear(config, estado, ia)
+    h = dudosa("Auxiliar TI").huella
+    with estado.transaccion() as cx:  # fila del esquema 1: sin versión de prompt
+        cx.execute(
+            "INSERT INTO clasificaciones(huella, aceptar, categoria, motivo, ts) "
+            "VALUES (?, 1, 'soporte', 'viejo', '2026-10-01T00:00:00+00:00')",
+            (h,),
+        )
+    resultado = clasificador.clasificar([dudosa("Auxiliar TI")], AHORA)
+    assert len(ia.lotes) == 1 and resultado.desde_cache == 0
 
 
 @pytest.mark.parametrize(("politica", "aceptadas"), [("descartar", 0), ("aceptar", 1)])

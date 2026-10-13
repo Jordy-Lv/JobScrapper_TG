@@ -101,6 +101,9 @@ class Fuente(ABC):
     # Fuentes que no usan la rotación de palabras clave (p. ej. el SPE con su filtro de
     # prácticas): la corrida pide las páginas 1..presupuesto con esta consulta
     consulta_fija: str | None = None
+    # Variante de búsqueda de esta corrida (una de opciones.variantes, elegida por la corrida
+    # en orden circular); la fuente que la soporta la combina con sus opciones
+    variante: dict[str, Any] | None = None
 
     def __init__(
         self,

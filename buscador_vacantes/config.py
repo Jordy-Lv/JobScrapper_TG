@@ -73,6 +73,18 @@ class Fuente(Modelo):
     opciones: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
+    def _variantes(self) -> Fuente:
+        # opciones.variantes (opcional): variantes de búsqueda que la fuente alterna entre corridas
+        variantes = self.opciones.get("variantes")
+        if variantes is not None and (
+            not isinstance(variantes, list)
+            or not variantes
+            or not all(isinstance(v, dict) for v in variantes)
+        ):
+            raise ValueError("opciones.variantes debe ser una lista no vacía de diccionarios")
+        return self
+
+    @model_validator(mode="after")
     def _reserva(self) -> Fuente:
         # El presupuesto cuenta requests: cada página del núcleo es un request
         if self.reservado_nucleo * self.paginas_nucleo > self.presupuesto:
@@ -91,6 +103,22 @@ class Area(Modelo):
 class Nivel(Modelo):
     practica: list[str] = Field(min_length=1)
     junior: list[str] = Field(min_length=1)
+    # Evidencia textual para publicar en «Prácticas y Aprendizaje» (guardarraíl): en el título
+    # basta cualquiera; en la descripción solo cuentan los términos fuertes
+    evidencia_practica: list[str] = Field(
+        default_factory=lambda: [
+            "practicante", "práctica", "práctica profesional", "prácticas", "aprendiz",
+            "aprendices", "pasante", "pasantía", "etapa productiva", "etapa práctica",
+            "contrato de aprendizaje", "becario", "estudiante", "trainee", "intern",
+            "internship",
+        ]
+    )  # fmt: skip
+    evidencia_practica_descripcion: list[str] = Field(
+        default_factory=lambda: [
+            "contrato de aprendizaje", "etapa productiva", "etapa práctica", "pasantía",
+            "práctica profesional",
+        ]
+    )  # fmt: skip
 
 
 class Ubicacion(Modelo):
@@ -100,6 +128,21 @@ class Ubicacion(Modelo):
     exterior: list[str] = Field(default_factory=list)
     patrones_restriccion: list[str] = Field(default_factory=list)
     fuentes_colombianas: list[str] = Field(default_factory=list)
+    # Ciudad base del dueño y su área cercana: lo presencial solo vale aquí
+    ciudad_base: list[str] = Field(default_factory=lambda: ["cartagena", "turbaco", "mamonal"])
+    hibrido: list[str] = Field(
+        default_factory=lambda: [
+            "híbrido", "híbrida", "hybrid", "presencial y remoto", "modalidad mixta"
+        ]
+    )  # fmt: skip
+    presencial: list[str] = Field(
+        default_factory=lambda: ["presencial", "en sitio", "on-site", "onsite"]
+    )
+
+
+class ListaNegra(Modelo):
+    empresas: list[str] = Field(default_factory=list)
+    palabras: list[str] = Field(default_factory=list)
 
 
 class Filtros(Modelo):
@@ -113,6 +156,15 @@ class Filtros(Modelo):
     disparadores_dudosa: list[str] = Field(min_length=1)
     areas_no_ti: list[str] = Field(default_factory=list)
     ubicacion: Ubicacion
+    # Puestos de atención o soporte al cliente: solo valen si son remotos
+    call_center: list[str] = Field(
+        default_factory=lambda: [
+            "asesor de soporte", "asesor/a", "agente de soporte", "soporte al cliente",
+            "servicio al cliente", "atención al cliente", "customer experience",
+            "customer support", "call center", "contact center", "teleoperador",
+        ]
+    )  # fmt: skip
+    lista_negra: ListaNegra = Field(default_factory=ListaNegra)
 
     @model_validator(mode="after")
     def _categorias_de_area(self) -> Filtros:

@@ -1,0 +1,335 @@
+# Casos reales: vacantes publicadas en el canal entre el 2026-10-10 y el 2026-10-13 (título,
+# empresa y fuente tal como salieron en producción). La ubicación, la modalidad y la descripción
+# son SUPUESTAS: producción no las guardaba (las tarjetas de LinkedIn y Computrabajo no traen
+# descripción). Cada caso fija una condición del spec filtro-vacantes-limpias.
+#
+# esperado: lo que deben dar las reglas (Filtros.evaluar)
+#   veredicto: aceptar | rechazar | dudosa
+#   motivo / categoria / exige_modalidad: opcionales
+# ia: para las dudosas que la IA acepta con una categoría; `final` es la categoría con la que
+#   se publica (o "rechazar") después del guardarraíl de prácticas
+
+# --- Prácticas sin nada de TI -----------------------------------------------------------------
+# Solo se rechazan tras leer una descripción sin TI; sin descripción decide la IA
+- caso: Aprendiz de etapa productiva sin área, con descripción sin TI
+  fuente: computrabajo
+  titulo: Aprendiz etapa productiva
+  empresa: ROYALTY ENTERTAINMENT S.A.S.
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  descripcion: Apoyo en archivo, atención al público y tareas administrativas.
+  esperado: {veredicto: rechazar, motivo: no_ti}
+
+- caso: Aprendiz de etapa productiva sin descripción
+  fuente: computrabajo
+  titulo: Aprendiz etapa productiva
+  empresa: ROYALTY ENTERTAINMENT S.A.S.
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: dudosa, motivo: dudosa}
+
+- caso: Aprendiz SENA genérico, con descripción sin TI
+  fuente: linkedin
+  titulo: Aprendiz SENA
+  empresa: SC Johnson
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  descripcion: Apoyo en bodega y despacho de mercancía.
+  esperado: {veredicto: rechazar, motivo: no_ti}
+
+- caso: Aprendiz SENA genérico, sin descripción
+  fuente: linkedin
+  titulo: Aprendiz SENA
+  empresa: SC Johnson
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: dudosa, motivo: dudosa}
+
+- caso: Practicante de varias áreas del negocio, con descripción sin TI
+  fuente: linkedin
+  titulo: Practicante Universitario Diferentes Áreas del Negocio
+  empresa: Falabella
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  descripcion: Rotación por mercadeo, ventas y logística.
+  esperado: {veredicto: rechazar, motivo: no_ti}
+
+- caso: Programa de prácticas corporativo, con descripción sin TI
+  fuente: linkedin
+  titulo: STEP 2027-1 Programa de Prácticas Henkel Colombia
+  empresa: Henkel
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  descripcion: Programa de prácticas en producción, calidad y cadena de suministro.
+  esperado: {veredicto: rechazar, motivo: no_ti}
+
+# --- Presencial fuera de la ciudad base -------------------------------------------------------
+- caso: Aprendiz SENA en Cali, sin modalidad ni descripción
+  fuente: linkedin
+  titulo: Aprendiz Sena
+  empresa: Almacenes La 13 S.A.S
+  ubicacion: Cali, Valle del Cauca
+  esperado: {veredicto: rechazar}
+
+- caso: Aprendiz de etapa productiva en Bogotá
+  fuente: computrabajo
+  titulo: Aprendiz etapa productiva
+  empresa: FINANZAUTO S.A. BIC
+  ubicacion: Bogotá, Colombia
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+- caso: Aprendiz universitario en Cali
+  fuente: linkedin
+  titulo: Aprendiz Universitario (a) de Planeación de Importados - Cali
+  empresa: Cargill
+  ubicacion: Cali, Valle del Cauca
+  esperado: {veredicto: rechazar}
+
+- caso: Auxiliar de farmacia con manejo de base de datos
+  fuente: elempleo
+  titulo: Auxiliar farmacia ii (manejo base de datos) - bogotá
+  empresa: COLSUBSIDIO
+  ubicacion: Bogotá
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+- caso: Técnico en sistemas presencial en Valledupar
+  fuente: computrabajo
+  titulo: Técnico en Sistemas Valledupar
+  empresa: FUERZA EXTERNA TEMPORAL EST
+  ubicacion: Valledupar, Cesar
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+- caso: Soporte en sitio en Boyacá
+  fuente: elempleo
+  titulo: Soporte en sitio (boyacá)
+  empresa: Empresa confidencial
+  ubicacion: Boyacá
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+- caso: DevOps junior presencial en Bogotá
+  fuente: computrabajo
+  titulo: Ingeniero DevOps Junior Azure DevOps
+  empresa: POSITIVO S+ IT SOLUTIONS SAS
+  ubicacion: Bogotá, Colombia
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+- caso: Tecnólogo en sistemas en Cali sin modalidad ni descripción
+  fuente: computrabajo
+  titulo: Tecnologo en sistemas
+  empresa: EFI SERVICIOS S.A.S
+  ubicacion: Cali, Valle del Cauca
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+- caso: Técnico de soporte con moto en Barranquilla
+  fuente: computrabajo
+  titulo: Técnico de soporte con moto
+  empresa: Importante empresa del sector
+  ubicacion: Barranquilla, Atlántico
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+- caso: Ingeniero de sistemas junior presencial en Barranquilla
+  fuente: computrabajo
+  titulo: Ingeniero(a) de Sistemas Junior Soluciones TI
+  empresa: Importante empresa del sector
+  ubicacion: Barranquilla, Atlántico
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+# --- Soporte de call center solo remoto -------------------------------------------------------
+- caso: Asesor de soporte de KONECTA en Bogotá
+  fuente: computrabajo
+  titulo: 238540 Asesor/a de Soporte técnico ¡Excelente Variable!
+  empresa: KONECTA
+  ubicacion: Bogotá, Colombia
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: call_center}
+
+- caso: Asesor de soporte de KONECTA en la ciudad base
+  fuente: computrabajo
+  titulo: 1234 Asesor/a soporte técnico ¡turnos de madrugada!
+  empresa: KONECTA
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: call_center}
+
+- caso: Agente de soporte al cliente en la ciudad base
+  fuente: computrabajo
+  titulo: Agente de Soporte al Cliente Técnicos en Ing o Sistemas
+  empresa: Importante empresa del sector
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: rechazar, motivo: call_center}
+
+- caso: Agente de soporte técnico remoto sigue la evaluación normal
+  fuente: elempleo
+  titulo: Agente de soporte técnico
+  empresa: SUMMAR PRODUCTIVIDAD S.A.S
+  ubicacion: Colombia
+  modalidad: Remoto
+  esperado: {veredicto: dudosa, motivo: dudosa}  # sin nivel en el título: decide la IA
+
+# --- Seniority ----------------------------------------------------------------------------------
+- caso: DBA Oracle Middle
+  fuente: linkedin
+  titulo: DBA Oracle Middle Bilingüe
+  empresa: FactorlT
+  ubicacion: Colombia
+  modalidad: Remoto o híbrido
+  esperado: {veredicto: rechazar, motivo: seniority}
+
+# --- Guardarraíl de la categoría prácticas ----------------------------------------------------
+- caso: Programador Staff marcado como práctica
+  fuente: linkedin
+  titulo: Programador Staff CELLS
+  empresa: Inetum
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: dudosa}
+  ia: {categoria: practicas, final: desarrollo}
+
+- caso: Ingeniero IBM Sterling marcado como práctica
+  fuente: linkedin
+  titulo: Ingeniero IBM STERLING B2B
+  empresa: AOS
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  descripcion: Integración de sistemas B2B con IBM Sterling para clientes corporativos.
+  esperado: {veredicto: dudosa}
+  ia: {categoria: practicas, final: otros_ti}
+
+- caso: Data Engineer con estudiantes solo en la descripción
+  fuente: linkedin
+  titulo: Data Engineer Colombia
+  empresa: Artefact
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  descripcion: Buscamos estudiantes de últimos semestres con interés en datos.
+  esperado: {veredicto: aceptar, categoria: practicas}  # «estudiante» en la descripción basta
+  final: datos  # ...para las reglas, pero no para el guardarraíl
+
+- caso: Ingeniero de procesos marcado como práctica sin nada de TI
+  fuente: linkedin
+  titulo: Ingeniero de Procesos
+  empresa: Planta Industrial
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: dudosa}
+  ia: {categoria: practicas, final: rechazar}
+
+- caso: Software Engineer Intern con evidencia de práctica
+  fuente: linkedin
+  titulo: Software Engineer Intern
+  empresa: Sezzle
+  ubicacion: Colombia
+  modalidad: Remoto o híbrido
+  esperado: {veredicto: aceptar, categoria: practicas}
+  final: practicas
+
+# --- Lo que debe seguir llegando --------------------------------------------------------------
+- caso: Trainee de sistemas en Cartagena
+  fuente: linkedin
+  titulo: TRAINEE DE SISTEMAS
+  empresa: Holcim ADC
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: aceptar, categoria: practicas}
+  final: practicas
+
+- caso: Aprendiz SENA de sistemas y soporte técnico
+  fuente: computrabajo
+  titulo: Aprendiz SENA Sistemas y Soporte Técnico
+  empresa: Comunidad Franciscana Provincia
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: aceptar, categoria: practicas}
+  final: practicas
+
+- caso: Aprendiz de sistemas en Cartagena
+  fuente: computrabajo
+  titulo: Aprendiz de Sistemas/TI
+  empresa: ESCADA FINANCIAL CORP SUCURSAL
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: aceptar, categoria: practicas}
+  final: practicas
+
+- caso: Practicante de ingeniería de sistemas híbrido en Bogotá
+  fuente: computrabajo
+  titulo: Practicante en Ingenieria de Sistemas/ Afines 2027 1
+  empresa: SOLVO S.A.S
+  ubicacion: Bogotá, Colombia
+  modalidad: Presencial y remoto
+  esperado: {veredicto: aceptar, categoria: practicas}
+  final: practicas
+
+- caso: Programador junior de LinkedIn por la variante remoto o híbrido
+  fuente: linkedin
+  titulo: Programador Junior- Data Engineering
+  empresa: Inetum
+  ubicacion: Bogotá, Distrito Capital, Colombia
+  modalidad: Remoto o híbrido
+  esperado: {veredicto: aceptar, categoria: desarrollo}
+
+- caso: DevOps junior híbrido en Medellín
+  fuente: computrabajo
+  titulo: Ingeniero DevOps Junior Azure DevOps
+  empresa: POSITIVO S+ IT SOLUTIONS SAS
+  ubicacion: Medellín, Antioquia
+  modalidad: Híbrido
+  esperado: {veredicto: aceptar, categoria: infraestructura}
+
+- caso: DBA junior remoto
+  fuente: linkedin
+  titulo: DBA SQL Junior
+  empresa: DB System
+  ubicacion: Colombia
+  modalidad: Remoto o híbrido
+  esperado: {veredicto: aceptar, categoria: bases_datos}
+
+- caso: Desarrollador junior en la ciudad base
+  fuente: computrabajo
+  titulo: Desarrollador Junior
+  empresa: Soluciones Integrales de Oficina
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: aceptar, categoria: desarrollo}
+
+- caso: Auxiliar de sistemas en la ciudad base
+  fuente: computrabajo
+  titulo: Auxiliar de sistemas
+  empresa: Seguridad Atempi de Colombia
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
+  esperado: {veredicto: aceptar, categoria: soporte}
+
+- caso: Desarrollador junior en otra ciudad que la descripción confirma remoto
+  fuente: computrabajo
+  titulo: Desarrollador Junior
+  empresa: Importante empresa del sector
+  ubicacion: Medellín, Antioquia
+  descripcion: Trabajo 100% remoto con Java y Spring Boot.
+  esperado: {veredicto: aceptar, categoria: desarrollo}
+
+- caso: Desarrollador junior en otra ciudad sin pistas de modalidad
+  fuente: computrabajo
+  titulo: Desarrollador Junior
+  empresa: Importante empresa del sector
+  ubicacion: Medellín, Antioquia
+  descripcion: Desarrollo de aplicaciones web con Java y Spring Boot.
+  esperado: {veredicto: dudosa, exige_modalidad: remoto_o_hibrido}
+
+# Las reglas no conocen «SDET»: no hay término de TI en el título y pasa a la IA, que lo aceptó
+# en producción como QA
+- caso: Junior SDET remoto
+  fuente: linkedin
+  titulo: Junior SDET - Remote Work
+  empresa: BairesDev
+  ubicacion: Colombia
+  modalidad: Remoto o híbrido
+  esperado: {veredicto: dudosa}

@@ -3,6 +3,11 @@
 Documento de análisis. **No implica cambios de código**: cualquier arreglo debe pasar
 por el flujo de OpenSpec del repositorio (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`).
 
+> **Seguimiento (2026-10-13):** el change `filtro-vacantes-limpias` atiende este diagnóstico:
+> el guardarraíl de prácticas en código, la caché del clasificador atada a la versión del prompt,
+> el prompt sin `nivel_filtrado_por_fuente` ni excepción para el «Aprendiz SENA» genérico, y el
+> alcance con ciudad base. Ver `openspec/changes/filtro-vacantes-limpias/`.
+
 Fecha del análisis: 2026-10-05
 Fuente de datos: `data/vacantes.db` (tablas `vistas`, `clasificaciones`, `corridas`)
 

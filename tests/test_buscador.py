@@ -15,7 +15,7 @@ from buscador_vacantes.estado import Estado, EstadoNoInicializado
 from buscador_vacantes.fechas import ZONA
 from buscador_vacantes.fuentes.base import Fuente, Intento, Peticion, TipoError
 from buscador_vacantes.ia_cliente import RespuestaIA
-from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.modelo import Categoria, Vacante
 from buscador_vacantes.notificador_telegram import ResultadoEnvio
 
 AHORA = datetime(2026, 10, 3, 10, 0, tzinfo=ZONA)
@@ -44,7 +44,7 @@ class FuenteFalsa(Fuente):
             Vacante(
                 fuente=self.nombre, id_fuente=o["id"], titulo=o["titulo"], empresa=o["empresa"],
                 url=f"https://falsa.test/{o['id']}", keyword=keyword,
-                ubicacion=o.get("ubicacion", "Bogotá"),
+                ubicacion=o.get("ubicacion", "Cartagena, Bolívar"),
                 publicada=ahora - timedelta(days=o.get("dias", 1)),
             )
             for o in respuesta.json()
@@ -155,14 +155,21 @@ def test_metricas_de_la_corrida(config, estado, caplog):
     fila = dict(estado.cx.execute("SELECT * FROM corridas").fetchone())
     assert fila["crudas"] == 12 and fila["duplicadas"] == 2
     assert json.loads(fila["descartes_json"]) == {
+        "lista_negra": 0,
         "seniority": 2,
         "antiguedad": 2,
         "ubicacion": 2,
+        "presencial_fuera": 0,
+        "call_center": 0,
         "no_ti": 2,
     }
+    assert (fila["practicas_recategorizadas"], fila["practicas_rechazadas"]) == (0, 0)
     assert (fila["dudosas"], fila["ia_aceptadas"], fila["ia_rechazadas"]) == (1, 1, 0)
     assert fila["enviadas"] == 2 and fila["fin"] is not None and fila["modo"] == "normal"
-    assert "descartes={'seniority': 2, 'antiguedad': 2, 'ubicacion': 2, 'no_ti': 2}" in caplog.text
+    assert (
+        "descartes={'lista_negra': 0, 'seniority': 2, 'antiguedad': 2, 'ubicacion': 2, "
+        "'presencial_fuera': 0, 'call_center': 0, 'no_ti': 2}" in caplog.text
+    )
     assert "ia_aceptadas=1" in caplog.text and "enviadas=2" in caplog.text
 
 
@@ -437,3 +444,136 @@ def test_consulta_fija_lee_sus_paginas_sin_rotar(config, estado):
         ("plazas de práctica", 1), ("plazas de práctica", 2),
     ]  # fmt: skip
     assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0
+
+
+class FuenteConVariantes(FuenteFalsa):
+    """Envía la variante de la corrida como parámetro, para ver cuál se usó."""
+
+    def construir_peticion(self, keyword, pagina=1):
+        return Peticion(URL, params={"q": keyword, **(self.variante or {})})
+
+
+def config_con_variantes(config, presupuesto=2):
+    variantes = [{"v": "a"}, {"v": "b"}]
+    fuentes = {
+        "falsa": ConfFuente(
+            presupuesto=presupuesto, reservado_nucleo=1, opciones={"variantes": variantes}
+        )
+    }
+    return config.model_copy(update={"fuentes": fuentes})
+
+
+def variantes_pedidas(ruta):
+    return [llamada.request.url.params["v"] for llamada in ruta.calls]
+
+
+@respx.mock
+def test_dos_corridas_seguidas_usan_variantes_distintas(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    conf = config_con_variantes(config)
+    fuentes = {"falsa": FuenteConVariantes}
+    corrida(conf, estado, fuentes=fuentes).ejecutar()
+    corrida(conf, estado, fuentes=fuentes).ejecutar()
+    corrida(conf, estado, fuentes=fuentes).ejecutar()
+    # 2 peticiones por corrida (el presupuesto no cambia); la variante rota a, b, a
+    assert variantes_pedidas(ruta) == ["a", "a", "b", "b", "a", "a"]
+    assert rotacion.obtener_indice(estado, "falsa", "variante") == 1
+
+
+@respx.mock
+def test_dry_run_no_avanza_la_variante(config, estado):
+    ruta = mock_ofertas()
+    conf = config_con_variantes(config)
+    fuentes = {"falsa": FuenteConVariantes}
+    corrida(conf, estado, Modo(dry_run=True), fuentes=fuentes).ejecutar()
+    corrida(conf, estado, Modo(dry_run=True), fuentes=fuentes).ejecutar()
+    assert variantes_pedidas(ruta) == ["a", "a", "a", "a"]
+    assert rotacion.obtener_indice(estado, "falsa", "variante") == 0
+
+
+@respx.mock
+def test_fuente_sin_variantes_no_toca_la_rotacion_de_variantes(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas()
+    corrida(config, estado).ejecutar()
+    existe = estado.cx.execute("SELECT 1 FROM rotacion WHERE grupo = 'variante'").fetchone()
+    assert existe is None
+
+
+class IAAceptaComoPracticas(IAFalsa):
+    """Acepta todo lo dudoso con categoría «practicas», como hacía el prompt viejo."""
+
+    def chat_json(self, proposito, prompt, payload, **kwargs):
+        self.llamadas += 1
+        return RespuestaIA(True, {"vacantes": [
+            {"id": v["id"], "aceptar": True, "categoria": "practicas", "motivo": "práctica"}
+            for v in payload["vacantes"]
+        ]})  # fmt: skip
+
+
+def config_una_peticion(config):
+    fuentes = {"falsa": ConfFuente(presupuesto=1, reservado_nucleo=1)}
+    return config.model_copy(update={"fuentes": fuentes})
+
+
+@respx.mock
+def test_guardarrail_recategoriza_lo_que_acepta_la_ia(config, estado, caplog):
+    estado.marcar_inicializada()
+    mock_ofertas([
+        {"id": "1", "titulo": "Programador Staff CELLS", "empresa": "Santander"},
+        {"id": "2", "titulo": "Software Engineer Intern", "empresa": "Acme"},
+        {"id": "3", "titulo": "Ingeniero de Procesos", "empresa": "Planta"},
+    ])  # fmt: skip
+    notificador, ia = NotificadorFalso(), IAAceptaComoPracticas()
+    with caplog.at_level(logging.INFO, logger="buscador"):
+        resumen = corrida(
+            config_una_peticion(config), estado, ia=ia, notificador=notificador
+        ).ejecutar()
+    categorias = {v.titulo: v.categoria for v in resumen.a_publicar}
+    assert categorias == {
+        "Programador Staff CELLS": Categoria.DESARROLLO,  # sin evidencia de práctica
+        "Software Engineer Intern": Categoria.PRACTICAS,  # con evidencia: no se toca
+    }
+    assert (resumen.practicas_recategorizadas, resumen.practicas_rechazadas) == (1, 1)
+    assert "Ingeniero de Procesos" not in notificador.mensajes[0][1]
+    assert "practicas_recategorizadas=1 practicas_rechazadas=1" in caplog.text
+    assert "Guardarraíl de prácticas recategoriza: Programador Staff CELLS" in caplog.text
+    fila = estado.cx.execute("SELECT * FROM corridas").fetchone()
+    assert (fila["practicas_recategorizadas"], fila["practicas_rechazadas"]) == (1, 1)
+    guardada = estado.cx.execute(
+        "SELECT categoria, ubicacion FROM vistas WHERE clave = 'falsa:1'"
+    ).fetchone()
+    assert (guardada["categoria"], guardada["ubicacion"]) == ("desarrollo", "Cartagena, Bolívar")
+
+
+class IACapturaPayload(IAFalsa):
+    def __init__(self):
+        super().__init__()
+        self.payloads = []
+
+    def chat_json(self, proposito, prompt, payload, **kwargs):
+        self.payloads.append(payload)
+        return super().chat_json(proposito, prompt, payload, **kwargs)
+
+
+class FuenteMedellin(FuenteFalsa):
+    """Vacantes de otra ciudad, sin modalidad y con descripción."""
+
+    def parsear(self, respuesta, keyword, ahora):
+        vacantes = super().parsear(respuesta, keyword, ahora)
+        for v in vacantes:
+            v.ubicacion, v.descripcion = "Medellín", "Analizarás datos con SQL."
+        return vacantes
+
+
+@respx.mock
+def test_vacante_con_condicion_de_modalidad_la_envia_a_la_ia(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas([{"id": "1", "titulo": "Analista de datos Jr", "empresa": "Acme"}])
+    ia = IACapturaPayload()
+    fuentes = {"falsa": FuenteMedellin}
+    corrida(config_una_peticion(config), estado, ia=ia, fuentes=fuentes).ejecutar()
+    [item] = ia.payloads[0]["vacantes"]
+    assert item["exige_modalidad"] == "remoto o híbrido"
+    assert item["ciudad_base"] == "Cartagena"
