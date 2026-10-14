@@ -14,7 +14,7 @@ referencia: no se ejecutan ni se copian tal cual al buscador nuevo.
 | `fetch_jobs.py` | Prueba suelta de LinkedIn con `f_WT` (modalidad) y salida TSV. |
 | `scrape_elempleo.py` | Parsea `/tmp/elempleo.html` con `data-ga4-offerdata`. |
 | `send_encabezado.py` | Pre-run que envía el banner con `hermes send` en **cada** corrida. |
-| `encabezado_vacantes.jpg` | Banner (1280×426). Copiado a `assets/encabezado_vacantes.jpg`. |
+| `encabezado_vacantes.jpg` | Banner (1280×426). Copiado a `assets/radar/encabezado_vacantes.jpg`. |
 | `historial_vacantes.json` | Historial de vacantes enviadas (354 registros). |
 | `prompt_cronjob_d6381ce58395.txt` | Prompt del LLM: solo formatea el JSON del pre-run. |
 

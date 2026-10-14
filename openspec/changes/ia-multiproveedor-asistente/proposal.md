@@ -53,7 +53,7 @@ proveedor que prefiera.
   `cli.py` y `config.py` (modelos de configuración).
 - Configuración: `config.yaml` (bloque `asistente.gemini` → `asistente.ia` con `proveedores`; texto
   y versión de la política), `.env.example` y `deploy/INSTALAR.md`.
-- Documentación: `docs/guia-usuario.md`.
+- Documentación: `docs/asistente/guia-usuario.md`.
 - Datos: migración de `asistente.db` en el Fedora (usuarios del piloto) y nueva aceptación de
   política.
 - Sin dependencias nuevas: todo va por `httpx`.

@@ -31,7 +31,7 @@ Dificultad de cada grupo: 🟡 media · 🔴 pesada · 👤 del dueño. Los grup
 
 ## 5. Documentación y despliegue 🟢
 
-- [ ] 5.1 Actualizar `docs/guia-usuario.md` (elegir proveedor, qué cuesta cada uno, cómo cambiarlo), `deploy/INSTALAR.md` (respaldar `asistente.db` antes de actualizar, nueva aceptación de política, cómo agregar un proveedor al catálogo) y `.env.example`. Verificar leyendo que ningún documento promete "clave gratuita de Gemini" como única opción.
+- [ ] 5.1 Actualizar `docs/asistente/guia-usuario.md` (elegir proveedor, qué cuesta cada uno, cómo cambiarlo), `deploy/INSTALAR.md` (respaldar `asistente.db` antes de actualizar, nueva aceptación de política, cómo agregar un proveedor al catálogo) y `.env.example`. Verificar leyendo que ningún documento promete "clave gratuita de Gemini" como única opción.
 
 ## 6. Verificación integral 🟡
 

@@ -63,7 +63,7 @@ El nombre del proyecto en `pyproject.toml` ya es «APOLO TI», pero `manifest.js
 1. Fusionar el código. La extensión nueva funciona contra el servidor actual (decisión 2): el ping mostrará la latencia de una respuesta 404 hasta que se despliegue.
 2. El dueño actualiza el servidor en el PC Fedora (`git pull` y reiniciar el servicio del asistente) para que `/api/v1/ping` devuelva 200.
 3. Recargar la extensión descomprimida en el navegador del dueño y comprobar visualmente.
-4. Rehacer las capturas de `docs/tienda-edge/` antes de enviar la ficha de la tienda.
+4. Rehacer las capturas de `docs/asistente/tienda-edge/` antes de enviar la ficha de la tienda.
 
 Reversión: volver al commit anterior de la extensión; el endpoint nuevo es inofensivo y puede quedarse.
 

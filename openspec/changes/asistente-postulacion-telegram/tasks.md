@@ -310,7 +310,7 @@
   - selectores y cómo corregirlos;
   - operación, administración, borrado y rollback.
 
-  Crear `docs/guia-usuario.md` (clave de Gemini, instalar en Edge o cargar en Chrome, vincular, crear la cuenta del portal si no existe, iniciar sesión, mantener el navegador abierto). Actualizar `README.md`. Verificar con `uv run pytest`, `uv run ruff check` y `uv run ruff format --check`.
+  Crear `docs/asistente/guia-usuario.md` (clave de Gemini, instalar en Edge o cargar en Chrome, vincular, crear la cuenta del portal si no existe, iniciar sesión, mantener el navegador abierto). Actualizar `README.md`. Verificar con `uv run pytest`, `uv run ruff check` y `uv run ruff format --check`.
 - [ ] 9.3 Piloto privado con `activo: true` y `enlace_canal: false`: el dueño hace el alta, carga la extensión descomprimida en Edge, la vincula y toca ⚡ (con `asistente enlace`) en 3 vacantes reales de cada plataforma automática. Verificar:
   - las 6 terminan `enviada` sin acciones extra (salvo los datos nuevos la primera vez);
   - aparecen en "Mis postulaciones";

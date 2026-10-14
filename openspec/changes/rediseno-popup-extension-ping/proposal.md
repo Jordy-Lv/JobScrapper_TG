@@ -53,7 +53,7 @@ la capability nueva.
   funcionando porque el ping cuenta cualquier respuesta HTTP del servidor.
 - **Pruebas:** `tests/test_extension.py` (popup, marcado `navegador`) y
   `tests/test_asistente_api.py` (endpoint).
-- **Documentación:** capturas de la ficha de la tienda en `docs/tienda-edge/` (se rehacen al
-  terminar el rediseño) y, si aplica, `docs/guia-usuario.md`.
+- **Documentación:** capturas de la ficha de la tienda en `docs/asistente/tienda-edge/` (se rehacen al
+  terminar el rediseño) y, si aplica, `docs/asistente/guia-usuario.md`.
 - **Nombre de la extensión:** el manifiesto y la ficha de la tienda conservan el nombre actual;
   «APOLO TI» se aplica solo dentro del popup.

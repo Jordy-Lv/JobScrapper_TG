@@ -7,7 +7,7 @@ El grupo «JOBS - PRACTICAS/APRENDIZ» recibe muchas vacantes que no sirven (una
 - Soporte de call center presencial: los «Asesor/a de soporte técnico» de KONECTA.
 - Sobre todo, vacantes **presenciales en otras ciudades**: Bogotá, Cali, Valledupar, Cúcuta y Boyacá.
 
-El dueño vive en Cartagena: una vacante presencial solo le sirve si es en Cartagena, y las de otras ciudades tienen que ser remotas o híbridas. El diagnóstico de `docs/diagnostico-practicas-falsos-positivos.md` ya mostraba entre 19 % y 67 % de error en «prácticas». La causa es que el prompt toma el filtro de nivel de LinkedIn y el salario como evidencia, y nada en el código corrige a la IA.
+El dueño vive en Cartagena: una vacante presencial solo le sirve si es en Cartagena, y las de otras ciudades tienen que ser remotas o híbridas. El diagnóstico de `docs/radar/diagnostico-practicas-falsos-positivos.md` ya mostraba entre 19 % y 67 % de error en «prácticas». La causa es que el prompt toma el filtro de nivel de LinkedIn y el salario como evidencia, y nada en el código corrige a la IA.
 
 ## What Changes
 
