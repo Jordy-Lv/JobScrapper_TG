@@ -462,9 +462,10 @@ def test_variantes_de_una_fuente_son_opcionales_y_se_validan(tmp_path, config):
 def test_linkedin_trae_ritmo_pausa_propia_y_consulta_combinada(config):
     linkedin = config.fuentes["linkedin"]
     assert (linkedin.pausa_min_s, linkedin.pausa_max_s) == (20, 45)
-    assert linkedin.ritmo.intervalos_min == [30, 60, 120]
+    assert linkedin.ritmo.intervalos_min == [120, 180, 240]  # 12 corridas al día
     assert linkedin.ritmo.limpias_para_bajar == 12 and linkedin.ritmo.tolerancia_min == 5
     assert linkedin.consulta.modo == "or" and linkedin.consulta.orden == "DD"
+    assert linkedin.consulta.cola_cada == 2
     assert linkedin.paginas_nucleo == 2 and linkedin.reservado_nucleo == 1
     assert config.red.retry_after_max_h == 24
 

@@ -144,11 +144,13 @@ fuentes:
     # Pausa entre las dos páginas de una consulta (más larga que la global de red)
     pausa_min_s: 20
     pausa_max_s: 45
-    # Ritmo adaptativo: tras un bloqueo, intervalo mínimo entre peticiones de 30 → 60 → 120 min;
-    # baja un nivel tras limpias_para_bajar peticiones exitosas seguidas. La tolerancia absorbe
-    # la demora aleatoria del timer
+    # Ritmo: intervalo mínimo entre corridas de LinkedIn, 120 min en condiciones normales (12 al
+    # día; el timer corre cada 30 min y las corridas adelantadas se omiten). Tras un bloqueo sube
+    # a 180 → 240 min y baja un nivel tras limpias_para_bajar peticiones exitosas seguidas. La
+    # tolerancia absorbe la demora aleatoria del timer. Cada búsqueda cubre todo lo publicado
+    # desde el sondeo anterior de su consulta (f_TPR), así que espaciarlas no pierde ofertas
     ritmo:
-      intervalos_min: [30, 60, 120]
+      intervalos_min: [120, 180, 240]
       limpias_para_bajar: 12
       tolerancia_min: 5
     # Detalle de la oferta (GET jobs-guest/jobs/api/jobPosting/{id}). Las tarjetas no dicen la
@@ -181,18 +183,20 @@ fuentes:
       consulta:
         modo: or
         max_terminos: 14
-        cola_cada: 4
+        cola_cada: 2
         orden: DD
         margen_min: 30
         ventana_min_h: 2
       # Variantes de búsqueda: cada corrida usa una, en orden circular, sin gastar más
-      # peticiones. Sus claves reemplazan a las de arriba. Todo el país y solo la ciudad base.
+      # peticiones. Sus claves reemplazan a las de arriba. Solo todo el país: con ventanas de
+      # 2 a 4 h incluye lo de Cartagena, y una sola variante duplica la frecuencia con que se
+      # lee cada grupo de la cola larga (con 12 corridas al día, cola_cada: 2 da 6 lecturas
+      # diarias de 10 grupos, como las 12 de 20 combinaciones de antes).
       # No sirve filtrar por modalidad (f_WT): la API pública de LinkedIn lo ignora y las
       # tarjetas no dicen la modalidad: se lee del detalle de la oferta (ver "detalle" arriba).
       # Sin variantes, se usan solo las opciones de arriba
       variantes:
         - {location: Colombia}
-        - {location: "Cartagena, Bolívar, Colombia"}
   computrabajo:
     activa: true
     presupuesto: 8

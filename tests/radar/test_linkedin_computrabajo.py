@@ -73,10 +73,10 @@ def test_linkedin_pagina_dos_empieza_en_la_tarjeta_diez(entorno):
     assert [fuente.construir_peticion("x", p).params["start"] for p in (1, 2, 3)] == [0, 10, 20]
 
 
-def test_linkedin_config_real_trae_dos_variantes_sin_filtro_de_modalidad(entorno):
+def test_linkedin_config_real_trae_una_variante_sin_filtro_de_modalidad(entorno):
     config, _ = entorno
     variantes = config.fuentes["linkedin"].opciones["variantes"]
-    assert [v["location"] for v in variantes] == ["Colombia", "Cartagena, Bolívar, Colombia"]
+    assert [v["location"] for v in variantes] == ["Colombia"]
     # LinkedIn ignora f_WT en su API pública: no se usa ni se supone una modalidad
     assert all(set(v) == {"location"} for v in variantes)
 
@@ -541,10 +541,10 @@ def test_detalle_bloqueado_aplica_cooldown_y_omite_la_busqueda(entorno):
     assert fuente.cooldown_vigente(AHORA) == AHORA + timedelta(hours=2)
     # La siguiente búsqueda (otra instancia, otra corrida) ve el cooldown
     assert linkedin(entorno).cooldown_vigente(AHORA + timedelta(minutes=30)) is not None
-    # y el ritmo adaptado pasó al segundo nivel (intervalo de 60 min)
+    # y el ritmo adaptado pasó al segundo nivel (intervalo de 180 min)
     otra = linkedin(entorno)
     assert otra._nivel_ritmo() == 1
-    assert otra.ritmo_espera(AHORA + timedelta(minutes=10)) == 60
+    assert otra.ritmo_espera(AHORA + timedelta(minutes=10)) == 180
 
 
 @respx.mock
