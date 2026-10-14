@@ -343,16 +343,25 @@ mismo texto lo sirve la API en `/api/v1/privacidad` como política de privacidad
 ```bash
 mkdir -p ~/.config/systemd/user
 cp deploy/buscador-asistente.service ~/.config/systemd/user/
-# Solo en el piloto desde la copia de desarrollo (~/buscador-asistente):
-mkdir -p ~/.config/systemd/user/buscador-asistente.service.d
-cp deploy/prueba/buscador-asistente.service.d.conf \
-   ~/.config/systemd/user/buscador-asistente.service.d/prueba.conf
 
 systemd-analyze --user verify ~/.config/systemd/user/buscador-asistente.service
 systemctl --user daemon-reload
 systemctl --user enable --now buscador-asistente.service
 journalctl --user -u buscador-asistente -n 50 --no-pager
 ```
+
+Desde el 2026-10-14 el asistente corre desde `~/buscador-vacantes` (rama `main`), igual que el
+buscador, y la unidad ya no lleva `prueba.conf`. Ese archivo (`deploy/prueba/
+buscador-asistente.service.d.conf`) solo sirve para volver a correr el asistente desde una copia
+de desarrollo: se instala en `~/.config/systemd/user/buscador-asistente.service.d/prueba.conf`
+y se quita con `rm` + `systemctl --user daemon-reload`.
+
+**Traspaso de una copia de desarrollo a producción:** parar el servicio; copiar `data/asistente.db`
+(con `sqlite3 .backup`, no `cp` en caliente) y `data/asistente/` a `~/buscador-vacantes/data/`;
+copiar `ASISTENTE_CLAVE_CIFRADO` al `.env` de producción (sin imprimirla, y comprobar por huella
+que coincide: con otra clave los datos cifrados quedan ilegibles); `uv sync --group asistente`;
+quitar `prueba.conf`, `daemon-reload` y arrancar. Antes, respaldar bases, `.env` y
+`config.local.yaml` de ambas carpetas. Para volver atrás basta reinstalar `prueba.conf`.
 
 El servicio sale al instante si `activo` es `false`, y avisa si faltan dependencias
 (`uv sync --group asistente`). Para comprobar el enlace ⚡ de una vacante sin tocar el canal:
