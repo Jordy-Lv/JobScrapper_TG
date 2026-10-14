@@ -4,8 +4,8 @@ import pytest
 
 from buscador_vacantes.asistente.cola import Cola, E
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import a_texto
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import a_texto
 
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)  # 10:00 en Bogotá
 CT = "computrabajo"

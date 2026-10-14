@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.estado import a_texto, de_texto
+from buscador_vacantes.comun.estado import a_texto, de_texto
 
 VIGENCIA_CODIGO = timedelta(minutes=10)
 ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sin 0/O ni 1/I para escribirlo a mano

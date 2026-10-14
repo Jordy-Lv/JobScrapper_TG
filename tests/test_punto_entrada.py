@@ -1,7 +1,7 @@
 import subprocess
 import sys
 
-from buscador_vacantes.config import RAIZ
+from buscador_vacantes.comun.config import RAIZ
 
 
 def test_punto_entrada_de_la_raiz_muestra_la_ayuda():

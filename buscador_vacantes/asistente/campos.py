@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from buscador_vacantes.asistente.cv_lectura import PerfilExtraido
 from buscador_vacantes.asistente.tecnologias import diccionario
-from buscador_vacantes.normalizar import normalizar_texto
+from buscador_vacantes.comun.normalizar import normalizar_texto
 
 # Campo → descripción (se envía a la IA para clasificar preguntas nuevas)
 CAMPOS: dict[str, str] = {

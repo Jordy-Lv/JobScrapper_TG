@@ -3,8 +3,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from buscador_vacantes.config import RAIZ, ErrorConfiguracion, cargar_configuracion, cargar_secretos
-from buscador_vacantes.modelo import Categoria
+from buscador_vacantes.comun.config import (
+    RAIZ,
+    ErrorConfiguracion,
+    cargar_configuracion,
+    cargar_secretos,
+)
+from buscador_vacantes.comun.modelo import Categoria
 
 VARIABLES = (
     "ASISTENTE_BOT_TOKEN",
@@ -563,7 +568,7 @@ def test_grupos_de_la_cola_son_uno_por_area_y_se_parten_si_son_largos(config):
 
 
 def test_grupos_sin_repetidos_entre_areas_ni_comillas_internas():
-    from buscador_vacantes.config import PalabrasClave
+    from buscador_vacantes.comun.config import PalabrasClave
 
     palabras = PalabrasClave(
         nucleo=["a", "a", 'b "c"'], cola_larga={"x": ["u", "v"], "y": ["v", "w"]}

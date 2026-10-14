@@ -10,9 +10,9 @@ from buscador_vacantes.asistente.datos import BaseAsistente, abrir_vacantes_ro
 from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina, Ritmo, extraer, ficha_de
 from buscador_vacantes.asistente.enlaces import id_corto
 from buscador_vacantes.asistente.vacantes import Indice, plataforma_de_url
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado, a_texto
-from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado, a_texto
+from buscador_vacantes.comun.modelo import Vacante
 
 FIXTURES = Path(__file__).parent / "fixtures" / "detalle"
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)

@@ -9,12 +9,18 @@ from datetime import datetime, timedelta
 
 from pydantic import BaseModel, ValidationError
 
-from buscador_vacantes import config as cfg
-from buscador_vacantes.detalle import recortar_descripcion
-from buscador_vacantes.estado import Estado, a_texto, de_texto, vacante_a_json, vacante_de_json
-from buscador_vacantes.filtros import REMOTO_O_HIBRIDO, SOLO_REMOTO, Filtros
-from buscador_vacantes.ia_cliente import ClienteIA
-from buscador_vacantes.modelo import Categoria, Vacante
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import (
+    Estado,
+    a_texto,
+    de_texto,
+    vacante_a_json,
+    vacante_de_json,
+)
+from buscador_vacantes.comun.modelo import Categoria, Vacante
+from buscador_vacantes.radar.detalle import recortar_descripcion
+from buscador_vacantes.radar.filtros import REMOTO_O_HIBRIDO, SOLO_REMOTO, Filtros
+from buscador_vacantes.radar.ia_cliente import ClienteIA
 
 log = logging.getLogger(__name__)
 

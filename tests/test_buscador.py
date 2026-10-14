@@ -6,17 +6,17 @@ import httpx
 import pytest
 import respx
 
-from buscador_vacantes import corrida as buscador
-from buscador_vacantes import rotacion
-from buscador_vacantes.config import Fuente as ConfFuente
-from buscador_vacantes.config import Secretos, cargar_configuracion
-from buscador_vacantes.corrida import Corrida, Modo, chat_admin, es_sin_red
-from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import Fuente, Intento, Peticion, TipoError
-from buscador_vacantes.ia_cliente import RespuestaIA
-from buscador_vacantes.modelo import Categoria, Vacante
-from buscador_vacantes.notificador_telegram import ResultadoEnvio
+from buscador_vacantes.comun.config import Fuente as ConfFuente
+from buscador_vacantes.comun.config import Secretos, cargar_configuracion
+from buscador_vacantes.comun.estado import Estado, EstadoNoInicializado, a_texto
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.modelo import Categoria, Vacante
+from buscador_vacantes.radar import corrida as buscador
+from buscador_vacantes.radar import rotacion
+from buscador_vacantes.radar.corrida import Corrida, Modo, chat_admin, es_sin_red
+from buscador_vacantes.radar.fuentes.base import Fuente, Intento, Peticion, TipoError
+from buscador_vacantes.radar.ia_cliente import RespuestaIA
+from buscador_vacantes.radar.notificador_telegram import ResultadoEnvio
 
 AHORA = datetime(2026, 10, 3, 10, 0, tzinfo=ZONA)
 URL = "https://falsa.test/buscar"
@@ -375,7 +375,7 @@ def test_deduplicar_por_clave_y_huella():
 
 
 def test_subcomando_con_lock_ocupado_falla_visible(tmp_path, capsys, monkeypatch):
-    from buscador_vacantes.lock import Lock
+    from buscador_vacantes.comun.lock import Lock
 
     texto = (buscador.cfg.RAIZ / "config.yaml").read_text(encoding="utf-8")
     texto = texto.replace("base_datos: data/vacantes.db", f"base_datos: {tmp_path}/v.db")

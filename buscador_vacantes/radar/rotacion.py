@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from buscador_vacantes.estado import Estado
+from buscador_vacantes.comun.estado import Estado
 
 NUCLEO = "nucleo"
 COLA_LARGA = "cola_larga"

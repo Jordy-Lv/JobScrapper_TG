@@ -22,11 +22,11 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.vacantes import VacanteIndexada
-from buscador_vacantes.estado import a_texto, de_texto
-from buscador_vacantes.normalizar import normalizar_texto
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import a_texto, de_texto
+from buscador_vacantes.comun.normalizar import normalizar_texto
 
 log = logging.getLogger(__name__)
 

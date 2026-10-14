@@ -12,7 +12,7 @@ from enum import StrEnum
 
 from buscador_vacantes.asistente.cifrado import Cifrador, huella
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.estado import a_texto
+from buscador_vacantes.comun.estado import a_texto
 
 
 class EstadoCuenta(StrEnum):

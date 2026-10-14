@@ -17,7 +17,6 @@ from typing import TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.ia.anthropic import AdaptadorAnthropic
 from buscador_vacantes.asistente.ia.contrato import INSTRUCCION_DATOS, Adaptador, Parte, Resultado
@@ -30,8 +29,9 @@ from buscador_vacantes.asistente.ia.errores import (
 )
 from buscador_vacantes.asistente.ia.gemini import AdaptadorGemini
 from buscador_vacantes.asistente.ia.openai import AdaptadorOpenAI
-from buscador_vacantes.estado import a_texto, ahora_utc
-from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import a_texto, ahora_utc
+from buscador_vacantes.comun.fechas import ZONA
 
 log = logging.getLogger(__name__)
 

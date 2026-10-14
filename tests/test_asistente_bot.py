@@ -26,9 +26,9 @@ from buscador_vacantes.asistente.nucleo import Nucleo  # noqa: E402
 from buscador_vacantes.asistente.respuestas import sembrar_banco  # noqa: E402
 from buscador_vacantes.asistente.usuarios import EstadoUsuario  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
-from buscador_vacantes.config import cargar_configuracion  # noqa: E402
-from buscador_vacantes.estado import Estado, a_texto  # noqa: E402
-from buscador_vacantes.modelo import Vacante  # noqa: E402
+from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
+from buscador_vacantes.comun.estado import Estado, a_texto  # noqa: E402
+from buscador_vacantes.comun.modelo import Vacante  # noqa: E402
 
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 DUENO = 999

@@ -9,7 +9,7 @@ from buscador_vacantes.asistente.usuarios import (
     Usuarios,
     interpretar_miembro,
 )
-from buscador_vacantes.estado import a_texto
+from buscador_vacantes.comun.estado import a_texto
 
 AHORA = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 

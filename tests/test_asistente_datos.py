@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from buscador_vacantes.asistente.datos import ESQUEMA_VERSION, BaseAsistente, abrir_vacantes_ro
-from buscador_vacantes.estado import Estado
+from buscador_vacantes.comun.estado import Estado
 
 AHORA = "2026-10-04T15:00:00+00:00"
 

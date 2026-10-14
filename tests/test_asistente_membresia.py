@@ -11,7 +11,7 @@ from telegram.error import BadRequest, NetworkError  # noqa: E402
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos  # noqa: E402
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuarios  # noqa: E402
-from buscador_vacantes.estado import a_texto  # noqa: E402
+from buscador_vacantes.comun.estado import a_texto  # noqa: E402
 
 AHORA = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 

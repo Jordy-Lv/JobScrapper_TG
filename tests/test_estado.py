@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from buscador_vacantes.estado import (
+from buscador_vacantes.comun.estado import (
     COLUMNAS_ESQUEMA_2,
     COLUMNAS_ESQUEMA_3,
     Estado,
@@ -13,8 +13,8 @@ from buscador_vacantes.estado import (
     vacante_a_json,
     vacante_de_json,
 )
-from buscador_vacantes.modelo import Categoria, Vacante
-from buscador_vacantes.normalizar import huella
+from buscador_vacantes.comun.modelo import Categoria, Vacante
+from buscador_vacantes.comun.normalizar import huella
 
 AHORA = datetime(2026, 10, 3, 15, 0, tzinfo=UTC)
 

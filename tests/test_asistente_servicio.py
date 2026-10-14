@@ -12,10 +12,10 @@ pytest.importorskip("uvicorn", reason="requiere uv sync --group asistente")
 import httpx  # noqa: E402
 import respx  # noqa: E402
 
-from buscador_vacantes import config as cfg  # noqa: E402
 from buscador_vacantes.asistente import cli, servicio  # noqa: E402
 from buscador_vacantes.asistente.cifrado import generar_clave  # noqa: E402
-from buscador_vacantes.estado import Estado  # noqa: E402
+from buscador_vacantes.comun import config as cfg  # noqa: E402
+from buscador_vacantes.comun.estado import Estado  # noqa: E402
 
 TOKEN = "123456:ABC-token-de-prueba"
 BOT = {"id": 123456, "is_bot": True, "first_name": "Asistente", "username": "AsistentePruebaBot"}

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import yaml
 
-from buscador_vacantes.config import RAIZ
-from buscador_vacantes.normalizar import normalizar_texto
+from buscador_vacantes.comun.config import RAIZ
+from buscador_vacantes.comun.normalizar import normalizar_texto
 
 RUTA = RAIZ / "assets" / "tecnologias.yaml"
 

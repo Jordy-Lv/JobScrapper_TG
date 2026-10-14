@@ -15,7 +15,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.afinidad import Afinidad, calcular_afinidad, obtener_requisitos
 from buscador_vacantes.asistente.api import ResultadoFormulario
 from buscador_vacantes.asistente.campos import CAMPOS, DatosUsuario
@@ -40,7 +39,8 @@ from buscador_vacantes.asistente.respuestas import (
 )
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuario, Usuarios
 from buscador_vacantes.asistente.vacantes import Indice, VacanteIndexada
-from buscador_vacantes.estado import a_texto, ahora_utc
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import a_texto, ahora_utc
 
 log = logging.getLogger(__name__)
 

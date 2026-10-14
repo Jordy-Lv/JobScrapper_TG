@@ -18,7 +18,7 @@ from buscador_vacantes.asistente.cv_lectura import (  # noqa: E402
 )
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
 from buscador_vacantes.asistente.ia import ClienteIA  # noqa: E402
-from buscador_vacantes.config import cargar_configuracion  # noqa: E402
+from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
 
 URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
 CONFIG = cargar_configuracion().asistente

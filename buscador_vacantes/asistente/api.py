@@ -23,14 +23,14 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente import vinculos
 from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal, EstadoCuenta
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.preferencias import Preferencias
 from buscador_vacantes.asistente.respuestas import Pregunta, Respuesta
-from buscador_vacantes.estado import a_texto
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import a_texto
 
 log = logging.getLogger(__name__)
 

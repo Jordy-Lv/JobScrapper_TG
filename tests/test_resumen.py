@@ -4,12 +4,12 @@ from datetime import datetime, timedelta
 import pytest
 
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado, a_texto
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.ia_cliente import RespuestaIA
-from buscador_vacantes.notificador_telegram import ResultadoEnvio
-from buscador_vacantes.resumen import Resumen, calcular_metricas, calcular_metricas_asistente
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado, a_texto
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.radar.ia_cliente import RespuestaIA
+from buscador_vacantes.radar.notificador_telegram import ResultadoEnvio
+from buscador_vacantes.radar.resumen import Resumen, calcular_metricas, calcular_metricas_asistente
 
 AHORA = datetime(2026, 10, 4, 8, 0, tzinfo=ZONA)
 

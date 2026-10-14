@@ -8,7 +8,6 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.ia.contrato import (
     Parte,
     Resultado,
@@ -17,6 +16,7 @@ from buscador_vacantes.asistente.ia.contrato import (
     sin_contacto,
 )
 from buscador_vacantes.asistente.ia.errores import ErrorIA
+from buscador_vacantes.comun import config as cfg
 
 VERSION_API = "2023-06-01"
 HERRAMIENTA = "entregar_resultado"

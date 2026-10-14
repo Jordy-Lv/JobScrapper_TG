@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from buscador_vacantes import rotacion
-from buscador_vacantes.estado import Estado
-from buscador_vacantes.fechas import ZONA, desde_epoch, fecha_relativa, interpretar_fecha
+from buscador_vacantes.comun.estado import Estado
+from buscador_vacantes.comun.fechas import ZONA, desde_epoch, fecha_relativa, interpretar_fecha
+from buscador_vacantes.radar import rotacion
 
 AHORA = datetime(2026, 10, 3, 15, 30, tzinfo=ZONA)
 

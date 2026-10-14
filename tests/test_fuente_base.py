@@ -4,13 +4,13 @@ import httpx
 import pytest
 import respx
 
-from buscador_vacantes.config import Fuente as ConfFuente
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import CambioHTML, Fuente, Peticion, TipoError
-from buscador_vacantes.modelo import Vacante
-from buscador_vacantes.rotacion import Consulta
+from buscador_vacantes.comun.config import Fuente as ConfFuente
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.modelo import Vacante
+from buscador_vacantes.radar.fuentes.base import CambioHTML, Fuente, Peticion, TipoError
+from buscador_vacantes.radar.rotacion import Consulta
 
 URL = "https://empleos.ejemplo/buscar"
 HTML_OK = "<html><body><div class='oferta'>Practicante</div></body></html>"
@@ -405,7 +405,7 @@ def test_retry_after_no_cambia_el_escalon_ni_los_fallos(fuente, estado, reloj):
 
 
 def test_segundos_retry_after():
-    from buscador_vacantes.fuentes.base import segundos_retry_after
+    from buscador_vacantes.radar.fuentes.base import segundos_retry_after
 
     ahora = datetime(2026, 10, 3, 10, 0, tzinfo=ZONA)
     assert segundos_retry_after("120", ahora) == 120

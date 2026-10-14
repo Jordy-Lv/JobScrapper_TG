@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.estado import a_texto
+from buscador_vacantes.comun.estado import a_texto
 
 
 @dataclass

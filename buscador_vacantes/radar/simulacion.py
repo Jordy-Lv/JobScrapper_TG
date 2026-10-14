@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
-from buscador_vacantes import config as cfg
-from buscador_vacantes.estado import Estado, a_texto
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import Fuente, Intento, TipoError
-from buscador_vacantes.ia_cliente import ClienteIA, RespuestaIA
-from buscador_vacantes.incidentes import (
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import Estado, a_texto
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.radar.fuentes.base import Fuente, Intento, TipoError
+from buscador_vacantes.radar.ia_cliente import ClienteIA, RespuestaIA
+from buscador_vacantes.radar.incidentes import (
     RED,
     TELEGRAM,
     TIPOS,
@@ -18,8 +18,8 @@ from buscador_vacantes.incidentes import (
     Incidente,
     ResultadoEvaluacion,
 )
-from buscador_vacantes.notificador_telegram import Notificador, ResultadoEnvio
-from buscador_vacantes.reportero import DatosFuente, Reportero
+from buscador_vacantes.radar.notificador_telegram import Notificador, ResultadoEnvio
+from buscador_vacantes.radar.reportero import DatosFuente, Reportero
 
 FALLAS_IA = {
     "saldo_bajo": RespuestaIA(False, motivo="saldo bajo", realizada=False),

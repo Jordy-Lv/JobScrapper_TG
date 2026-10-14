@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-from buscador_vacantes import config as cfg
-from buscador_vacantes.modelo import Categoria, Vacante, Veredicto
-from buscador_vacantes.normalizar import (
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.modelo import Categoria, Vacante, Veredicto
+from buscador_vacantes.comun.normalizar import (
     coincidencias,
     compilar_terminos,
     normalizar_empresa,

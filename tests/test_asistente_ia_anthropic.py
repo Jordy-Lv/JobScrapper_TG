@@ -17,7 +17,7 @@ from buscador_vacantes.asistente.ia import (
     Parte,
     datos,
 )
-from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.comun.config import cargar_configuracion
 
 BASE = "https://api.anthropic.com/v1/"
 URL = BASE + "messages"

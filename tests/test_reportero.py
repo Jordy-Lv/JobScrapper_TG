@@ -5,14 +5,14 @@ import httpx
 import pytest
 import respx
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado, a_texto
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import Intento, TipoError
-from buscador_vacantes.ia_cliente import ClienteIA, RespuestaIA
-from buscador_vacantes.incidentes import Detector, Incidente, ResultadoEvaluacion
-from buscador_vacantes.notificador_telegram import ResultadoEnvio
-from buscador_vacantes.reportero import DatosFuente, Reportero, duracion, muestra_cuerpo
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado, a_texto
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.radar.fuentes.base import Intento, TipoError
+from buscador_vacantes.radar.ia_cliente import ClienteIA, RespuestaIA
+from buscador_vacantes.radar.incidentes import Detector, Incidente, ResultadoEvaluacion
+from buscador_vacantes.radar.notificador_telegram import ResultadoEnvio
+from buscador_vacantes.radar.reportero import DatosFuente, Reportero, duracion, muestra_cuerpo
 
 AHORA = datetime(2026, 10, 3, 15, 30, tzinfo=ZONA)
 TOKEN = "123456789:AAFakeTokenFakeTokenFakeTokenFake12"

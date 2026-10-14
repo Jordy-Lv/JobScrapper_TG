@@ -11,7 +11,7 @@ import hashlib
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.config import ErrorConfiguracion
+from buscador_vacantes.comun.config import ErrorConfiguracion
 
 # (tabla, columna cifrada, columnas de la clave primaria)
 COLUMNAS_CIFRADAS = (

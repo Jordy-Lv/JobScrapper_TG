@@ -11,9 +11,9 @@ import yaml
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from buscador_vacantes.modelo import Categoria
+from buscador_vacantes.comun.modelo import Categoria
 
-RAIZ = Path(__file__).resolve().parent.parent
+RAIZ = Path(__file__).resolve().parent.parent.parent
 
 
 class ErrorConfiguracion(Exception):

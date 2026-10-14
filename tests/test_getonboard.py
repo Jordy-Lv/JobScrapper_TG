@@ -6,12 +6,12 @@ import httpx
 import pytest
 import respx
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import TipoError
-from buscador_vacantes.fuentes.getonboard import URL_BUSQUEDA, GetOnBoard
-from buscador_vacantes.rotacion import Consulta
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.radar.fuentes.base import TipoError
+from buscador_vacantes.radar.fuentes.getonboard import URL_BUSQUEDA, GetOnBoard
+from buscador_vacantes.radar.rotacion import Consulta
 
 FIXTURE = Path(__file__).parent / "fixtures" / "getonboard_busqueda.json"
 AHORA = datetime(2026, 10, 3, 12, 0, tzinfo=ZONA)

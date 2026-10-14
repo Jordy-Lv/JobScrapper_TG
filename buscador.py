@@ -2,7 +2,7 @@
 
 import sys
 
-from buscador_vacantes.corrida import main
+from buscador_vacantes.radar.corrida import main
 
 if __name__ == "__main__":
     sys.exit(main())

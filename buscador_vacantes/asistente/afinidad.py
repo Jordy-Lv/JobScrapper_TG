@@ -16,7 +16,7 @@ from buscador_vacantes.asistente.cv_lectura import PerfilExtraido
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.ia import ClienteIA, ErrorIA, Parte, datos
 from buscador_vacantes.asistente.tecnologias import Diccionario, diccionario
-from buscador_vacantes.normalizar import normalizar_texto
+from buscador_vacantes.comun.normalizar import normalizar_texto
 
 log = logging.getLogger(__name__)
 

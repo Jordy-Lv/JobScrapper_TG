@@ -12,7 +12,6 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.ia.contrato import (
     Parte,
     Resultado,
@@ -21,6 +20,7 @@ from buscador_vacantes.asistente.ia.contrato import (
     sin_contacto,
 )
 from buscador_vacantes.asistente.ia.errores import ErrorIA
+from buscador_vacantes.comun import config as cfg
 
 AVISO_ESQUEMA = (
     "Responde únicamente con un objeto JSON que cumpla este esquema JSON, sin texto adicional "

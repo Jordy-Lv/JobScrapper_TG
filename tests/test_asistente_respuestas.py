@@ -31,7 +31,7 @@ from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     semilla,
     separar_preguntas,
 )
-from buscador_vacantes.config import cargar_configuracion  # noqa: E402
+from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
 
 AHORA = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"

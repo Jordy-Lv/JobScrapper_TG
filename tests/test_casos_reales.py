@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.filtros import Filtros
-from buscador_vacantes.modelo import Categoria, Vacante, Veredicto
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.modelo import Categoria, Vacante, Veredicto
+from buscador_vacantes.radar.filtros import Filtros
 
 FIXTURE = Path(__file__).parent / "fixtures" / "casos_reales_2026-10.yaml"
 AHORA = datetime(2026, 10, 13, 12, 0, tzinfo=ZONA)

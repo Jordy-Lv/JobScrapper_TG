@@ -5,12 +5,12 @@ import httpx
 import pytest
 import respx
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import CambioHTML
-from buscador_vacantes.fuentes.elempleo import Elempleo
-from buscador_vacantes.rotacion import Consulta
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.radar.fuentes.base import CambioHTML
+from buscador_vacantes.radar.fuentes.elempleo import Elempleo
+from buscador_vacantes.radar.rotacion import Consulta
 
 FIXTURE = Path(__file__).parent / "fixtures" / "elempleo_busqueda.html"
 AHORA = datetime(2026, 10, 3, 22, 0, tzinfo=ZONA)

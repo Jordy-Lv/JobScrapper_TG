@@ -12,14 +12,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.estado import Estado, a_texto
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.formato import NOMBRES_FUENTE, empaquetar, escapar
-from buscador_vacantes.modelo import Categoria
-from buscador_vacantes.notificador_telegram import Notificador
-from buscador_vacantes.reportero import ClienteChat
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import Estado, a_texto
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.modelo import Categoria
+from buscador_vacantes.radar.formato import NOMBRES_FUENTE, empaquetar, escapar
+from buscador_vacantes.radar.notificador_telegram import Notificador
+from buscador_vacantes.radar.reportero import ClienteChat
 
 log = logging.getLogger(__name__)
 

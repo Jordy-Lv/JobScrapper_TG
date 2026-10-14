@@ -22,7 +22,7 @@ from buscador_vacantes.asistente.cuentas_portal import CuentasPortal  # noqa: E4
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
 from buscador_vacantes.asistente.preferencias import Preferencias  # noqa: E402
 from buscador_vacantes.asistente.respuestas import Origen, Respuesta  # noqa: E402
-from buscador_vacantes.config import cargar_configuracion  # noqa: E402
+from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
 
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 CT = "computrabajo"

@@ -20,9 +20,9 @@ from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
 from buscador_vacantes.asistente.respuestas import Pregunta, sembrar_banco  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
-from buscador_vacantes.config import cargar_configuracion  # noqa: E402
-from buscador_vacantes.estado import Estado  # noqa: E402
-from buscador_vacantes.modelo import Vacante  # noqa: E402
+from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
+from buscador_vacantes.comun.estado import Estado  # noqa: E402
+from buscador_vacantes.comun.modelo import Vacante  # noqa: E402
 
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 FIXTURES = Path(__file__).parent / "fixtures" / "detalle"

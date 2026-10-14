@@ -2,12 +2,12 @@ from datetime import datetime
 
 import pytest
 
-from buscador_vacantes import corrida as buscador
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.ia_cliente import RespuestaIA
-from buscador_vacantes.incidentes import TIPOS
-from buscador_vacantes.simulacion import NotificadorConsola, simular, validar_objetivo
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.radar import corrida as buscador
+from buscador_vacantes.radar.ia_cliente import RespuestaIA
+from buscador_vacantes.radar.incidentes import TIPOS
+from buscador_vacantes.radar.simulacion import NotificadorConsola, simular, validar_objetivo
 
 AHORA = datetime(2026, 10, 3, 10, 0, tzinfo=ZONA)
 
@@ -49,7 +49,7 @@ def test_diagnostico_ia_simulado(config, monkeypatch):
         "accion_recomendada": "Actualizar selectores", "requiere_intervencion": True,
         "sugerencia_tecnica": "section.offer-card"}]}  # fmt: skip
     monkeypatch.setattr(
-        "buscador_vacantes.simulacion.FALLAS_IA", {"fija": RespuestaIA(True, diagnostico)}
+        "buscador_vacantes.radar.simulacion.FALLAS_IA", {"fija": RespuestaIA(True, diagnostico)}
     )
     texto = correr(config, "computrabajo:cambio_html", "fija")
     assert "<b>Incidente: Computrabajo · cambio_html</b> (severidad media)" in texto

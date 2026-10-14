@@ -15,10 +15,10 @@ from urllib.parse import urlsplit, urlunsplit
 import certifi
 import httpx
 
-from buscador_vacantes.config import RAIZ
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import CambioHTML, Fuente, Peticion
-from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.comun.config import RAIZ
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.modelo import Vacante
+from buscador_vacantes.radar.fuentes.base import CambioHTML, Fuente, Peticion
 
 URL_BUSQUEDA = "https://www.buscadordeempleo.gov.co/backbue/v1/vacantes/resultados"
 # El servidor no envía su certificado intermedio; se completa la cadena con el de DigiCert

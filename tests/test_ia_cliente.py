@@ -5,9 +5,9 @@ import httpx
 import pytest
 import respx
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado
-from buscador_vacantes.ia_cliente import ClienteIA
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado
+from buscador_vacantes.radar.ia_cliente import ClienteIA
 
 BASE = "https://api.deepseek.com"
 CLAVE = "sk-clave-de-prueba-123456"

@@ -11,14 +11,20 @@ from typing import Any, Literal, Protocol
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, ValidationError
 
-from buscador_vacantes import config as cfg
-from buscador_vacantes.estado import Estado, a_texto, de_texto
-from buscador_vacantes.fechas import ZONA, fecha_relativa
-from buscador_vacantes.formato import NOMBRES_FUENTE, empaquetar, escapar
-from buscador_vacantes.fuentes.base import Intento, filtrar_cabeceras
-from buscador_vacantes.ia_cliente import RespuestaIA
-from buscador_vacantes.incidentes import RED, TELEGRAM, Detector, Incidente, ResultadoEvaluacion
-from buscador_vacantes.notificador_telegram import Notificador
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import Estado, a_texto, de_texto
+from buscador_vacantes.comun.fechas import ZONA, fecha_relativa
+from buscador_vacantes.radar.formato import NOMBRES_FUENTE, empaquetar, escapar
+from buscador_vacantes.radar.fuentes.base import Intento, filtrar_cabeceras
+from buscador_vacantes.radar.ia_cliente import RespuestaIA
+from buscador_vacantes.radar.incidentes import (
+    RED,
+    TELEGRAM,
+    Detector,
+    Incidente,
+    ResultadoEvaluacion,
+)
+from buscador_vacantes.radar.notificador_telegram import Notificador
 
 log = logging.getLogger(__name__)
 

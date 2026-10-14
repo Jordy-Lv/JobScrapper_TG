@@ -1,8 +1,8 @@
 import json
 import zipfile
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.cli import empaquetar_extension
+from buscador_vacantes.comun import config as cfg
 
 
 def test_paquete_de_la_extension_para_la_tienda(tmp_path):

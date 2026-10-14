@@ -19,7 +19,7 @@ from buscador_vacantes.asistente.ia import (
     datos,
 )
 from buscador_vacantes.asistente.ia.gemini import esquema_gemini
-from buscador_vacantes.config import cargar_configuracion
+from buscador_vacantes.comun.config import cargar_configuracion
 
 BASE = "https://generativelanguage.googleapis.com/v1beta/"
 URL = BASE + "models/gemini-flash-latest:generateContent"

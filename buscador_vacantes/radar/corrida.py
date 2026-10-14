@@ -24,42 +24,43 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from buscador_vacantes import config as cfg
-from buscador_vacantes import registro, rotacion
 from buscador_vacantes.asistente import cli as asistente_cli
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.enlaces import bot_para_enlaces
-from buscador_vacantes.clasificador import Clasificador, Dudosa
-from buscador_vacantes.detalle import recortar_descripcion
-from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto, ahora_utc
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.filtros import Evaluacion, Filtros, Motivo
-from buscador_vacantes.formato import componer
-from buscador_vacantes.fuentes.base import (
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun import registro
+from buscador_vacantes.comun.estado import Estado, EstadoNoInicializado, a_texto, ahora_utc
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.lock import CorridaActiva, Lock
+from buscador_vacantes.comun.modelo import Vacante, Veredicto
+from buscador_vacantes.comun.normalizar import huella
+from buscador_vacantes.radar import rotacion
+from buscador_vacantes.radar.clasificador import Clasificador, Dudosa
+from buscador_vacantes.radar.detalle import recortar_descripcion
+from buscador_vacantes.radar.filtros import Evaluacion, Filtros, Motivo
+from buscador_vacantes.radar.formato import componer
+from buscador_vacantes.radar.fuentes.base import (
     Fuente,
     Intento,
     ResultadoDetalle,
     ResultadoFuente,
     TipoError,
 )
-from buscador_vacantes.fuentes.computrabajo import Computrabajo
-from buscador_vacantes.fuentes.elempleo import Elempleo
-from buscador_vacantes.fuentes.getonboard import GetOnBoard
-from buscador_vacantes.fuentes.linkedin import LinkedIn
-from buscador_vacantes.fuentes.magneto import Magneto
-from buscador_vacantes.fuentes.spe import ServicioPublicoEmpleo
-from buscador_vacantes.ia_cliente import ClienteIA
-from buscador_vacantes.incidentes import Detector, ResultadoEvaluacion
-from buscador_vacantes.lock import CorridaActiva, Lock
-from buscador_vacantes.migrar_historial import migrar
-from buscador_vacantes.modelo import Vacante, Veredicto
-from buscador_vacantes.normalizar import huella
-from buscador_vacantes.notificador_telegram import Notificador, crear_notificador
-from buscador_vacantes.publicacion import ResultadoPublicacion, publicar
-from buscador_vacantes.reportero import DatosFuente, Reportero
-from buscador_vacantes.resumen import Resumen
-from buscador_vacantes.salud import Salud
-from buscador_vacantes.simulacion import FALLAS_IA, NotificadorConsola, simular
+from buscador_vacantes.radar.fuentes.computrabajo import Computrabajo
+from buscador_vacantes.radar.fuentes.elempleo import Elempleo
+from buscador_vacantes.radar.fuentes.getonboard import GetOnBoard
+from buscador_vacantes.radar.fuentes.linkedin import LinkedIn
+from buscador_vacantes.radar.fuentes.magneto import Magneto
+from buscador_vacantes.radar.fuentes.spe import ServicioPublicoEmpleo
+from buscador_vacantes.radar.ia_cliente import ClienteIA
+from buscador_vacantes.radar.incidentes import Detector, ResultadoEvaluacion
+from buscador_vacantes.radar.migrar_historial import migrar
+from buscador_vacantes.radar.notificador_telegram import Notificador, crear_notificador
+from buscador_vacantes.radar.publicacion import ResultadoPublicacion, publicar
+from buscador_vacantes.radar.reportero import DatosFuente, Reportero
+from buscador_vacantes.radar.resumen import Resumen
+from buscador_vacantes.radar.salud import Salud
+from buscador_vacantes.radar.simulacion import FALLAS_IA, NotificadorConsola, simular
 
 log = logging.getLogger("buscador")
 

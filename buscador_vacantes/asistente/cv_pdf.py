@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from fpdf import FPDF
 
 from buscador_vacantes.asistente.cv_adaptado import CVFinal
-from buscador_vacantes.config import RAIZ
+from buscador_vacantes.comun.config import RAIZ
 
 FUENTES = RAIZ / "assets" / "fuentes"
 MAX_PAGINAS = 2

@@ -47,7 +47,7 @@ from buscador_vacantes.asistente.respuestas import (
 )
 from buscador_vacantes.asistente.tarjeta import Tarjeta
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuario
-from buscador_vacantes.estado import a_texto, de_texto
+from buscador_vacantes.comun.estado import a_texto, de_texto
 
 log = logging.getLogger(__name__)
 

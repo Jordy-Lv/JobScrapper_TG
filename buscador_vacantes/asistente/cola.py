@@ -14,10 +14,10 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from enum import StrEnum
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.estado import a_texto, de_texto
-from buscador_vacantes.fechas import ZONA
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import a_texto, de_texto
+from buscador_vacantes.comun.fechas import ZONA
 
 
 class E(StrEnum):

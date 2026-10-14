@@ -5,14 +5,14 @@ import httpx
 import pytest
 import respx
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado, a_texto, de_texto
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import CambioHTML, ResultadoDetalle
-from buscador_vacantes.fuentes.computrabajo import Computrabajo, slug
-from buscador_vacantes.fuentes.linkedin import URL_BUSQUEDA, LinkedIn
-from buscador_vacantes.modelo import Vacante
-from buscador_vacantes.rotacion import Consulta
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado, a_texto, de_texto
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.modelo import Vacante
+from buscador_vacantes.radar.fuentes.base import CambioHTML, ResultadoDetalle
+from buscador_vacantes.radar.fuentes.computrabajo import Computrabajo, slug
+from buscador_vacantes.radar.fuentes.linkedin import URL_BUSQUEDA, LinkedIn
+from buscador_vacantes.radar.rotacion import Consulta
 
 FIXTURES = Path(__file__).parent / "fixtures"
 AHORA = datetime(2026, 10, 3, 22, 0, tzinfo=ZONA)
@@ -99,7 +99,7 @@ def test_linkedin_nunca_inventa_la_modalidad(entorno):
 
 
 def test_linkedin_en_otra_ciudad_sin_modalidad_se_rechaza(entorno):
-    from buscador_vacantes.filtros import Filtros
+    from buscador_vacantes.radar.filtros import Filtros
 
     vacante = crear(LinkedIn, entorno).parsear(respuesta("linkedin_busqueda.html"), "kw", AHORA)[0]
     vacante.titulo, vacante.ubicacion = "Practicante de Sistemas", "Bogotá, Distrito Capital"

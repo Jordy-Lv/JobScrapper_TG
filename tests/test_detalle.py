@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.detalle import (
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.radar.detalle import (
     MAX_EXTRA_MODALIDAD,
     extraer_descripcion,
     recortar_descripcion,

@@ -9,18 +9,18 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
-from buscador_vacantes.config import ConsultaOpciones
-from buscador_vacantes.detalle import extraer_descripcion
-from buscador_vacantes.estado import a_texto, de_texto
-from buscador_vacantes.fechas import interpretar_fecha
-from buscador_vacantes.fuentes.base import (
+from buscador_vacantes.comun.config import ConsultaOpciones
+from buscador_vacantes.comun.estado import a_texto, de_texto
+from buscador_vacantes.comun.fechas import interpretar_fecha
+from buscador_vacantes.comun.modelo import Vacante
+from buscador_vacantes.radar.detalle import extraer_descripcion
+from buscador_vacantes.radar.fuentes.base import (
     CambioHTML,
     Fuente,
     Intento,
     Peticion,
     ResultadoFuente,
 )
-from buscador_vacantes.modelo import Vacante
 
 URL_BUSQUEDA = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 URL_DETALLE = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{id}"

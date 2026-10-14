@@ -16,7 +16,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.estado import a_texto, de_texto
+from buscador_vacantes.comun.estado import a_texto, de_texto
 
 MOTIVO_FUERA_DEL_GRUPO = "fuera_del_grupo"
 MOTIVO_ADMIN = "suspendido_por_admin"

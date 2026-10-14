@@ -9,9 +9,9 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.ia.contrato import Parte, Resultado, error_http, sin_contacto
 from buscador_vacantes.asistente.ia.errores import ErrorIA
+from buscador_vacantes.comun import config as cfg
 
 
 def esquema_gemini(modelo: type[BaseModel]) -> dict[str, Any]:

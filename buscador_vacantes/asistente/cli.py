@@ -11,8 +11,8 @@ import asyncio
 import sys
 from pathlib import Path
 
-from buscador_vacantes import config as cfg
-from buscador_vacantes import registro
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun import registro
 
 INSTALAR = "Faltan las dependencias del asistente. Instálalas con:\n  uv sync --group asistente"
 

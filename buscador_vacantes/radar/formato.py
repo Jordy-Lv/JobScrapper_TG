@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from buscador_vacantes.asistente.enlaces import enlace
-from buscador_vacantes.fechas import fecha_relativa
-from buscador_vacantes.modelo import Categoria, Vacante
-from buscador_vacantes.normalizar import normalizar_texto
+from buscador_vacantes.comun.fechas import fecha_relativa
+from buscador_vacantes.comun.modelo import Categoria, Vacante
+from buscador_vacantes.comun.normalizar import normalizar_texto
 
 LIMITE_TELEGRAM = 4096
 SEPARADOR = "\n\n"

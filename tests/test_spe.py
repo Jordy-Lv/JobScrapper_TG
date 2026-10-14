@@ -6,11 +6,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import CambioHTML
-from buscador_vacantes.fuentes.spe import (
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.radar.fuentes.base import CambioHTML
+from buscador_vacantes.radar.fuentes.spe import (
     CERTIFICADO_INTERMEDIO,
     URL_BUSQUEDA,
     ServicioPublicoEmpleo,

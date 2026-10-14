@@ -8,7 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 
-from buscador_vacantes import config as cfg
+from buscador_vacantes.comun import config as cfg
 
 LARGO_ID = 12
 PREFIJO_VACANTE = "v_"

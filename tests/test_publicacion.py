@@ -2,13 +2,13 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from buscador_vacantes.config import RAIZ, cargar_configuracion
-from buscador_vacantes.estado import Estado
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.modelo import Categoria, Vacante
-from buscador_vacantes.normalizar import huella
-from buscador_vacantes.notificador_telegram import ResultadoEnvio
-from buscador_vacantes.publicacion import publicar
+from buscador_vacantes.comun.config import RAIZ, cargar_configuracion
+from buscador_vacantes.comun.estado import Estado
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.modelo import Categoria, Vacante
+from buscador_vacantes.comun.normalizar import huella
+from buscador_vacantes.radar.notificador_telegram import ResultadoEnvio
+from buscador_vacantes.radar.publicacion import publicar
 
 AHORA = datetime(2026, 10, 3, 7, 0, tzinfo=ZONA)
 CHAT = "-100123"
@@ -185,7 +185,7 @@ def test_sin_asistente_no_hay_botones(estado, banner):
 
 
 def test_etiqueta_del_boton_se_recorta():
-    from buscador_vacantes.publicacion import LARGO_BOTON, etiqueta_boton
+    from buscador_vacantes.radar.publicacion import LARGO_BOTON, etiqueta_boton
 
     vacante = candidatas(1, largo=True)[0][0]
     etiqueta = etiqueta_boton(vacante)

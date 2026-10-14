@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from buscador_vacantes.normalizar import normalizar_texto
+from buscador_vacantes.comun.normalizar import normalizar_texto
 
 ZONA = ZoneInfo("America/Bogota")
 

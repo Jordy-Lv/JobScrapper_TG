@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.enlaces import id_corto
-from buscador_vacantes.estado import a_texto, de_texto
+from buscador_vacantes.comun.estado import a_texto, de_texto
 
 CLAVE_MARCA = "indice_enviada_hasta"
 

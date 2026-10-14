@@ -23,9 +23,9 @@ from buscador_vacantes.asistente import campos
 from buscador_vacantes.asistente.campos import DatosUsuario
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.ia import ClienteIA, ErrorIA, Parte, datos
-from buscador_vacantes.config import RAIZ
-from buscador_vacantes.estado import a_texto
-from buscador_vacantes.normalizar import normalizar_texto
+from buscador_vacantes.comun.config import RAIZ
+from buscador_vacantes.comun.estado import a_texto
+from buscador_vacantes.comun.normalizar import normalizar_texto
 
 RUTA_BANCO = RAIZ / "assets" / "banco_preguntas.yaml"
 MAX_PREGUNTAS_PEGADAS = 15

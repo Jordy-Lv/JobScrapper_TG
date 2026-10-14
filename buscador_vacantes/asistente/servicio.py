@@ -17,7 +17,6 @@ from pathlib import Path
 import uvicorn
 from telegram import Update
 
-from buscador_vacantes import config as cfg
 from buscador_vacantes.asistente.api import crear_app
 from buscador_vacantes.asistente.bot import SalidaTelegram, crear_aplicacion
 from buscador_vacantes.asistente.cifrado import Cifrador
@@ -29,7 +28,8 @@ from buscador_vacantes.asistente.membresia import Comprobador
 from buscador_vacantes.asistente.nucleo import Nucleo
 from buscador_vacantes.asistente.respuestas import sembrar_banco
 from buscador_vacantes.asistente.vacantes import Indice
-from buscador_vacantes.estado import a_texto, ahora_utc, de_texto
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import a_texto, ahora_utc, de_texto
 
 log = logging.getLogger(__name__)
 

@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 from html.parser import HTMLParser
 
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.formato import LIMITE_TELEGRAM, componer, encabezado, ficha, longitud
-from buscador_vacantes.modelo import Categoria, Vacante
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.comun.modelo import Categoria, Vacante
+from buscador_vacantes.radar.formato import LIMITE_TELEGRAM, componer, encabezado, ficha, longitud
 
 AHORA = datetime(2026, 10, 3, 23, 30, tzinfo=ZONA)
 
@@ -150,7 +150,7 @@ def test_longitud_cuenta_emojis_como_dos():
 # --- Enlace ⚡ Postularme del asistente ---
 
 from buscador_vacantes.asistente.enlaces import bot_para_enlaces, enlace, id_corto  # noqa: E402
-from buscador_vacantes.config import cargar_configuracion  # noqa: E402
+from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
 
 
 def test_id_corto_estable_y_de_12_caracteres():

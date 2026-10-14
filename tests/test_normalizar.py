@@ -1,4 +1,4 @@
-from buscador_vacantes.normalizar import (
+from buscador_vacantes.comun.normalizar import (
     coincidencias,
     compilar_terminos,
     huella,

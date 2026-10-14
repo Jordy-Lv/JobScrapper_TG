@@ -7,7 +7,7 @@ from functools import lru_cache
 
 from bs4 import BeautifulSoup
 
-from buscador_vacantes.normalizar import compilar_terminos, normalizar_texto
+from buscador_vacantes.comun.normalizar import compilar_terminos, normalizar_texto
 
 # Bloque de descripción de la página de invitados de LinkedIn
 SELECTORES_DESCRIPCION = "div.description__text, section.show-more-less-html"

@@ -15,13 +15,13 @@ from test_buscador import (
     NotificadorFalso,
 )
 
-from buscador_vacantes.config import Detalle, cargar_configuracion
-from buscador_vacantes.config import Fuente as ConfFuente
-from buscador_vacantes.corrida import Corrida, Modo
-from buscador_vacantes.estado import Estado, a_texto
-from buscador_vacantes.fuentes.base import Peticion
-from buscador_vacantes.ia_cliente import RespuestaIA
-from buscador_vacantes.normalizar import huella
+from buscador_vacantes.comun.config import Detalle, cargar_configuracion
+from buscador_vacantes.comun.config import Fuente as ConfFuente
+from buscador_vacantes.comun.estado import Estado, a_texto
+from buscador_vacantes.comun.normalizar import huella
+from buscador_vacantes.radar.corrida import Corrida, Modo
+from buscador_vacantes.radar.fuentes.base import Peticion
+from buscador_vacantes.radar.ia_cliente import RespuestaIA
 
 URL_DETALLE = "https://falsa.test/detalle/{id}"
 
@@ -101,7 +101,7 @@ def mock_detalle(id_, texto="Esta posición es 100% remota.", status=200, **kwar
 
 
 def encolar(estado, id_, horas_atras=1, **vacante):
-    from buscador_vacantes.modelo import Vacante
+    from buscador_vacantes.comun.modelo import Vacante
 
     v = Vacante(
         fuente="con_detalle", id_fuente=id_, empresa="Sezzle", keyword="kw", ubicacion="Bogotá",

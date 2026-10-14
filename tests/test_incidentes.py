@@ -2,9 +2,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado, a_texto
-from buscador_vacantes.incidentes import Detector
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado, a_texto
+from buscador_vacantes.radar.incidentes import Detector
 
 T0 = datetime(2026, 10, 3, 10, 0, tzinfo=UTC)
 

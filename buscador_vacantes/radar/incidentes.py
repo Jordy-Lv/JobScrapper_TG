@@ -7,8 +7,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from buscador_vacantes import config as cfg
-from buscador_vacantes.estado import Estado, a_texto, de_texto
+from buscador_vacantes.comun import config as cfg
+from buscador_vacantes.comun.estado import Estado, a_texto, de_texto
 
 log = logging.getLogger(__name__)
 

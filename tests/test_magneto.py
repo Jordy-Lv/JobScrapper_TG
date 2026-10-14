@@ -5,12 +5,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from buscador_vacantes.config import cargar_configuracion
-from buscador_vacantes.estado import Estado
-from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.filtros import Filtros, Motivo
-from buscador_vacantes.fuentes.base import CambioHTML
-from buscador_vacantes.fuentes.magneto import URL_BUSQUEDA, Magneto
+from buscador_vacantes.comun.config import cargar_configuracion
+from buscador_vacantes.comun.estado import Estado
+from buscador_vacantes.comun.fechas import ZONA
+from buscador_vacantes.radar.filtros import Filtros, Motivo
+from buscador_vacantes.radar.fuentes.base import CambioHTML
+from buscador_vacantes.radar.fuentes.magneto import URL_BUSQUEDA, Magneto
 
 FIXTURE = Path(__file__).parent / "fixtures" / "magneto_busqueda.json"
 AHORA = datetime(2026, 10, 3, 22, 0, tzinfo=ZONA)
