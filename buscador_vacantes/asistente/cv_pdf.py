@@ -11,7 +11,7 @@ from fpdf import FPDF
 from buscador_vacantes.asistente.cv_adaptado import CVFinal
 from buscador_vacantes.comun.config import RAIZ
 
-FUENTES = RAIZ / "assets" / "fuentes"
+FUENTES = RAIZ / "assets" / "asistente" / "fuentes"
 MAX_PAGINAS = 2
 GRIS = (90, 98, 112)
 AZUL = (31, 58, 95)

@@ -27,7 +27,7 @@ from buscador_vacantes.comun.config import RAIZ
 from buscador_vacantes.comun.estado import a_texto
 from buscador_vacantes.comun.normalizar import normalizar_texto
 
-RUTA_BANCO = RAIZ / "assets" / "banco_preguntas.yaml"
+RUTA_BANCO = RAIZ / "assets" / "asistente" / "banco_preguntas.yaml"
 MAX_PREGUNTAS_PEGADAS = 15
 MAX_CARACTERES_PEGADOS = 4000
 

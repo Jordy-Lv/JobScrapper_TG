@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 
 PROVEEDOR_PROVISIONAL = "gemini"  # se elimina en la tarea 3.3 (proveedor por usuario)
 
-RUTA_SELECTORES = cfg.RAIZ / "assets" / "selectores"
+RUTA_SELECTORES = cfg.RAIZ / "assets" / "asistente" / "selectores"
 
 
 class Camino(StrEnum):
@@ -197,7 +197,7 @@ class Nucleo:
         return None if v is None else {"url": v.url, "titulo": v.titulo, "empresa": v.empresa}
 
     def cargar_selectores(self) -> int:
-        """Carga assets/selectores/<plataforma>.json a la base (al arrancar o con el comando)."""
+        """Carga assets/asistente/selectores/<plataforma>.json a la base (arranque o comando)."""
         cargados = 0
         if not RUTA_SELECTORES.is_dir():
             return 0

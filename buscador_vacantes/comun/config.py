@@ -308,7 +308,7 @@ class Telegram(Modelo):
 
 class Banner(Modelo):
     modo: Literal["diario", "nunca", "siempre"] = "diario"
-    imagen: Path = Path("assets/encabezado_vacantes.jpg")
+    imagen: Path = Path("assets/radar/encabezado_vacantes.jpg")
 
 
 class PresupuestoIA(Modelo):

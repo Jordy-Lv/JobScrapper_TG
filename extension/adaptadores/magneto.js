@@ -1,5 +1,5 @@
 // Adaptador de Magneto. El flujo y los selectores llegan del servidor
-// (assets/selectores/magneto.json); aquí solo va lo que no se puede expresar como datos.
+// (assets/asistente/selectores/magneto.json); aquí solo va lo que no se puede expresar como datos.
 
 (() => {
   const motor = globalThis.__asistente;

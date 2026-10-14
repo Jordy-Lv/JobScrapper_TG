@@ -868,7 +868,7 @@ telegram:
 
 banner:
   modo: diario   # diario | nunca | siempre
-  imagen: assets/encabezado_vacantes.jpg
+  imagen: assets/radar/encabezado_vacantes.jpg
 
 ia:
   base_url: https://api.deepseek.com

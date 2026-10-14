@@ -84,7 +84,7 @@ def test_primer_envio_del_dia_lleva_banner(estado, banner):
     notificador = NotificadorFalso()
     resultado = publicar_con(notificador, estado, banner, candidatas(2))
     assert tipos(notificador) == ["foto", "mensaje"]
-    assert notificador.envios[0][2] == RAIZ / "assets" / "encabezado_vacantes.jpg"
+    assert notificador.envios[0][2] == RAIZ / "assets" / "radar" / "encabezado_vacantes.jpg"
     assert resultado.banner_enviado
     assert estado.kv_obtener("ultimo_banner") == "2026-10-03"
     assert estado.contar_vistas(enviadas=True) == 2

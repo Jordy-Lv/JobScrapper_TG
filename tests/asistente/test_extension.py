@@ -31,7 +31,7 @@ pytestmark = pytest.mark.navegador
 RAIZ = Path(__file__).resolve().parents[2]
 EXTENSION = RAIZ / "extension"
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "extension"
-SELECTORES = RAIZ / "assets" / "selectores"
+SELECTORES = RAIZ / "assets" / "asistente" / "selectores"
 TOKEN = "token-de-prueba"
 PDF = b"%PDF-1.4\n% CV de prueba\n"
 

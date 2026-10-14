@@ -1,4 +1,4 @@
-"""Diccionario de tecnologías con sinónimos (assets/tecnologias.yaml)."""
+"""Diccionario de tecnologías con sinónimos (assets/asistente/tecnologias.yaml)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import yaml
 from buscador_vacantes.comun.config import RAIZ
 from buscador_vacantes.comun.normalizar import normalizar_texto
 
-RUTA = RAIZ / "assets" / "tecnologias.yaml"
+RUTA = RAIZ / "assets" / "asistente" / "tecnologias.yaml"
 
 # Términos que en texto libre dan falsos positivos (S.A.S., "go", "r", "ia" en palabras…).
 # Cuentan si el usuario los declara en su perfil, pero no se buscan en descripciones.

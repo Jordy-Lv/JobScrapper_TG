@@ -22,7 +22,7 @@ from buscador_vacantes.radar.fuentes.base import CambioHTML, Fuente, Peticion
 
 URL_BUSQUEDA = "https://www.buscadordeempleo.gov.co/backbue/v1/vacantes/resultados"
 # El servidor no envía su certificado intermedio; se completa la cadena con el de DigiCert
-CERTIFICADO_INTERMEDIO = RAIZ / "assets" / "certs" / "geotrust-tls-rsa-ca-g1.pem"
+CERTIFICADO_INTERMEDIO = RAIZ / "assets" / "radar" / "certs" / "geotrust-tls-rsa-ca-g1.pem"
 MAX_DESCRIPCION = 600
 TODO_EL_TERRITORIO = "vacantes para todo el territorio"
 SALARIOS_VACIOS = {"a convenir", ""}
