@@ -35,5 +35,4 @@ def test_recursos_de_marca_existen():
 
 def test_no_quedan_archivos_sueltos_en_la_raiz_de_assets():
     sueltos = sorted(p.name for p in (cfg.RAIZ / "assets").iterdir() if p.is_file())
-    # logo_v1 y logo_v2 esperan la decisión del dueño (se borran o pasan a marca/)
-    assert set(sueltos) <= {"logo_v1.jpg", "logo_v2.jpg"}, sueltos
+    assert not sueltos, sueltos
