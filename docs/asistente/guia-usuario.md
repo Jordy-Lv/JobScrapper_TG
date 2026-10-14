@@ -5,7 +5,7 @@ tu cuenta, llena tus datos, responde las preguntas, usa un CV levemente adaptado
 envía la postulación y te confirma por Telegram qué respondió.
 
 Es solo para miembros del grupo privado **JOBS - PRÁCTICAS/APRENDIZ** (el bot lo comprueba) y es
-gratuito. La versión con diagramas está en `docs/guia-asistente-postulacion.pdf`.
+gratuito. La versión con diagramas está en `docs/asistente/guia-asistente-postulacion.pdf`.
 
 ## Qué necesitas
 

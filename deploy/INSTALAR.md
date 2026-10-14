@@ -263,7 +263,7 @@ El asistente (bot de Telegram, API para la extensión y CV adaptado) corre como 
 de systemd de usuario, aparte del buscador: si se detiene, el buscador sigue publicando igual.
 Viene desactivado (`asistente.activo: false`). Orden: instalar → piloto privado → piloto con
 invitados → tienda de Edge → `enlace_canal: true`. Lo que ven los usuarios está en
-`docs/guia-usuario.md`.
+`docs/asistente/guia-usuario.md`.
 
 ### 11.1 Bot en BotFather
 
@@ -373,8 +373,8 @@ El servicio sale al instante si `activo` es `false`, y avisa si faltan dependenc
   (`edge://extensions` → Modo de desarrollador → *Cargar descomprimida*).
 - **Para la tienda de Edge:** `uv run --group asistente buscador.py asistente empaquetar-extension`
   deja `dist/asistente-postulacion-<versión>.zip`. El material de la ficha está en
-  `docs/tienda-edge/ficha.md`.
-- **Selectores de los portales:** son datos, no código. Viven en `assets/selectores/<portal>.json`
+  `docs/asistente/tienda-edge/ficha.md`.
+- **Selectores de los portales:** son datos, no código. Viven en `assets/asistente/selectores/<portal>.json`
   y la extensión los pide al servidor cuando cambia su `version`. Si un portal cambia su HTML
   (el bot avisa al dueño con evidencia de `formulario_desconocido`): corregir el JSON, **subir
   su `version`**, correr `uv run --group asistente buscador.py asistente selectores recargar` y

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="APOLO TI Logo" width="220" style="border-radius: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);">
+  <img src="assets/marca/logo.jpg" alt="APOLO TI Logo" width="220" style="border-radius: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);">
 </p>
 
 <h1 align="center">APOLO TI 🏹⚡</h1>
@@ -211,11 +211,11 @@ JobScrapper_TG/
 ├── buscador.py                     # Punto de entrada principal (CLI de uv)
 ├── config.yaml                     # Configuración funcional (fuentes, filtros, límites)
 ├── pyproject.toml                  # Dependencias y configuración de herramientas
-├── assets/                         # Recursos gráficos y certificados
-│   ├── logo.jpg                    # Logotipo e identidad visual de APOLO TI
-│   ├── certs/                      # Certificado intermedio del SPE (TLS)
-│   ├── fuentes/                    # Tipografías oficiales para generación de PDF (Liberation Sans)
-│   └── selectores/                 # Selectores dinámicos JSON para Computrabajo y Magneto
+├── assets/                         # Recursos por pertenencia
+│   ├── marca/                      # Identidad visual de APOLO TI (logotipo, emblema, banner)
+│   ├── radar/                      # Encabezado de publicaciones y certificado del SPE (TLS)
+│   └── asistente/                  # Banco de preguntas, tecnologías, selectores JSON de los portales
+│       └── fuentes/                # Tipografías para generación de PDF (Liberation Sans)
 ├── buscador_vacantes/              # Núcleo del sistema (comun ← asistente ← radar)
 │   ├── comun/                      # Infraestructura compartida
 │   │   ├── config.py               # Carga y validación de config.yaml y .env
@@ -259,7 +259,11 @@ JobScrapper_TG/
 │   ├── popup.html / popup.js       # Interfaz visual de vinculación y estado
 │   └── adaptadores/                # Adaptadores por portal (Computrabajo, Magneto)
 ├── deploy/                         # Unidades systemd y guías de despliegue en servidor
-├── docs/                           # Especificaciones técnicas de referencia
+├── docs/                           # Documentación por tema
+│   ├── radar/                      # Especificación del buscador y análisis
+│   ├── asistente/                  # Guía de usuario, PDF y ficha de la tienda de Edge
+│   ├── referencia/                 # Material histórico (cronjob de Hermes)
+│   └── decisiones/                 # Registro de decisiones de arquitectura (ADR)
 └── tests/                          # Suite de pruebas (pytest + respx): comun/, radar/ y asistente/
 ```
 
