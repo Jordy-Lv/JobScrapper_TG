@@ -162,7 +162,7 @@ async def responder_faltantes(m, tid):
 
 
 async def alta_completa(m, tid, *, payload=None):
-    """Camino corto: "Información correcta", solo las preguntas que faltan y vincula el navegador."""
+    """Camino corto: "Información correcta", solo las preguntas que faltan y vincula el navegador"""
     await hasta_resumen(m, tid, payload=payload)
     await m.c.al_boton(tid, cb("resumen", "ok"))
     await responder_faltantes(m, tid)

@@ -382,7 +382,7 @@ class Conversacion:
         reintento: int = 0,
         silencioso: bool = False,
     ) -> bool:
-        """Lee el CV con la IA. Con ``silencioso`` no molesta si falla; devuelve si quedó resuelto."""
+        """Lee el CV con la IA. Con ``silencioso`` no avisa si falla; devuelve si quedó resuelto."""
         clave = self.n.clave_gemini(usuario.id)
         if not clave:
             await self._enviar(
@@ -460,7 +460,7 @@ class Conversacion:
     ):
         """Llama a la IA y reintenta los fallos pasajeros (red, error del proveedor) hasta 3 veces.
 
-        La saturación, la cuota y la clave inválida no se reintentan aquí: no se arreglan en segundos.
+        La saturación, la cuota y la clave inválida no se reintentan aquí: no se arreglan rápido.
         """
         intentos = intentos or self.INTENTOS_CV
         for numero in range(1, intentos + 1):
