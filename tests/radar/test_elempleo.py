@@ -12,7 +12,7 @@ from buscador_vacantes.radar.fuentes.base import CambioHTML
 from buscador_vacantes.radar.fuentes.elempleo import Elempleo
 from buscador_vacantes.radar.rotacion import Consulta
 
-FIXTURE = Path(__file__).parent / "fixtures" / "elempleo_busqueda.html"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "elempleo_busqueda.html"
 AHORA = datetime(2026, 10, 3, 22, 0, tzinfo=ZONA)
 
 

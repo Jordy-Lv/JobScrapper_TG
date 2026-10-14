@@ -12,7 +12,7 @@ from buscador_vacantes.radar.filtros import Filtros, Motivo
 from buscador_vacantes.radar.fuentes.base import CambioHTML
 from buscador_vacantes.radar.fuentes.magneto import URL_BUSQUEDA, Magneto
 
-FIXTURE = Path(__file__).parent / "fixtures" / "magneto_busqueda.json"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "magneto_busqueda.json"
 AHORA = datetime(2026, 10, 3, 22, 0, tzinfo=ZONA)
 
 

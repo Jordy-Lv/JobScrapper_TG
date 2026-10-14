@@ -28,9 +28,9 @@ from buscador_vacantes.asistente.api import PAGINA_VINCULO  # noqa: E402
 
 pytestmark = pytest.mark.navegador
 
-RAIZ = Path(__file__).resolve().parent.parent
+RAIZ = Path(__file__).resolve().parents[2]
 EXTENSION = RAIZ / "extension"
-FIXTURES = Path(__file__).parent / "fixtures" / "extension"
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "extension"
 SELECTORES = RAIZ / "assets" / "selectores"
 TOKEN = "token-de-prueba"
 PDF = b"%PDF-1.4\n% CV de prueba\n"

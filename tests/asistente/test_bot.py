@@ -34,7 +34,9 @@ T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 DUENO = 999
 ANA, LUIS, EVA, EXTRANO = 111, 222, 333, 444
 URL_LI = "https://co.linkedin.com/jobs/view/4475512580"
-FIXTURE_LI = (Path(__file__).parent / "fixtures" / "detalle" / "linkedin.html").read_text("utf-8")
+FIXTURE_LI = (Path(__file__).parent.parent / "fixtures" / "detalle" / "linkedin.html").read_text(
+    "utf-8"
+)
 CLAVE = "AIzaSyClaveDePrueba1234567890"
 MODELOS = "https://generativelanguage.googleapis.com/v1beta/models"
 

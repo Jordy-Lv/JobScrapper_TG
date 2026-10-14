@@ -25,7 +25,7 @@ from buscador_vacantes.comun.estado import Estado  # noqa: E402
 from buscador_vacantes.comun.modelo import Vacante  # noqa: E402
 
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
-FIXTURES = Path(__file__).parent / "fixtures" / "detalle"
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "detalle"
 URL_CT = "https://co.computrabajo.com/ofertas-de-trabajo/oferta-1"
 URL_LI = "https://co.linkedin.com/jobs/view/4475512580"
 

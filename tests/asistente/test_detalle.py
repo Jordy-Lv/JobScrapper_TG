@@ -14,7 +14,7 @@ from buscador_vacantes.comun.config import cargar_configuracion
 from buscador_vacantes.comun.estado import Estado, a_texto
 from buscador_vacantes.comun.modelo import Vacante
 
-FIXTURES = Path(__file__).parent / "fixtures" / "detalle"
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "detalle"
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 HOY = date(2026, 10, 4)
 URLS = {

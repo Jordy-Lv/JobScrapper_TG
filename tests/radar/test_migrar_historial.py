@@ -12,7 +12,7 @@ from buscador_vacantes.radar.migrar_historial import (
     migrar,
 )
 
-FIXTURE = Path(__file__).parent / "fixtures" / "historial_hermes.json"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "historial_hermes.json"
 AHORA = datetime(2026, 10, 3, 15, 0, tzinfo=UTC)
 
 

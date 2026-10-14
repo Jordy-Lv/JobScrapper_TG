@@ -13,7 +13,7 @@ from buscador_vacantes.radar.fuentes.base import TipoError
 from buscador_vacantes.radar.fuentes.getonboard import URL_BUSQUEDA, GetOnBoard
 from buscador_vacantes.radar.rotacion import Consulta
 
-FIXTURE = Path(__file__).parent / "fixtures" / "getonboard_busqueda.json"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "getonboard_busqueda.json"
 AHORA = datetime(2026, 10, 3, 12, 0, tzinfo=ZONA)
 
 

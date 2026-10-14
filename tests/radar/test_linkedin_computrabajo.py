@@ -14,7 +14,7 @@ from buscador_vacantes.radar.fuentes.computrabajo import Computrabajo, slug
 from buscador_vacantes.radar.fuentes.linkedin import URL_BUSQUEDA, LinkedIn
 from buscador_vacantes.radar.rotacion import Consulta
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 AHORA = datetime(2026, 10, 3, 22, 0, tzinfo=ZONA)
 
 

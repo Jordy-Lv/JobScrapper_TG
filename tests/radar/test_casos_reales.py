@@ -15,7 +15,7 @@ from buscador_vacantes.comun.fechas import ZONA
 from buscador_vacantes.comun.modelo import Categoria, Vacante, Veredicto
 from buscador_vacantes.radar.filtros import Filtros
 
-FIXTURE = Path(__file__).parent / "fixtures" / "casos_reales_2026-10.yaml"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "casos_reales_2026-10.yaml"
 AHORA = datetime(2026, 10, 13, 12, 0, tzinfo=ZONA)
 CASOS = yaml.safe_load(FIXTURE.read_text(encoding="utf-8"))
 

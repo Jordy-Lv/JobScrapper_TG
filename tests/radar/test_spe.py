@@ -19,7 +19,7 @@ from buscador_vacantes.radar.fuentes.spe import (
 
 # Respuesta real del 2026-10-04 recortada. Variantes sintéticas (códigos 99999990xx): sin
 # enlace, con teletrabajo, solo con enlace universitario público y vencida.
-FIXTURE = Path(__file__).parent / "fixtures" / "spe_practicas.json"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "spe_practicas.json"
 AHORA = datetime(2026, 10, 4, 12, 0, tzinfo=ZONA)
 
 

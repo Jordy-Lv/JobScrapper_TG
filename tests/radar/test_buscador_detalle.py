@@ -6,14 +6,6 @@ from datetime import timedelta
 import httpx
 import pytest
 import respx
-from test_buscador import (
-    AHORA,
-    SECRETOS,
-    URL,
-    FuenteFalsa,
-    IAFalsa,
-    NotificadorFalso,
-)
 
 from buscador_vacantes.comun.config import Detalle, cargar_configuracion
 from buscador_vacantes.comun.config import Fuente as ConfFuente
@@ -22,6 +14,14 @@ from buscador_vacantes.comun.normalizar import huella
 from buscador_vacantes.radar.corrida import Corrida, Modo
 from buscador_vacantes.radar.fuentes.base import Peticion
 from buscador_vacantes.radar.ia_cliente import RespuestaIA
+from tests.radar.test_buscador import (
+    AHORA,
+    SECRETOS,
+    URL,
+    FuenteFalsa,
+    IAFalsa,
+    NotificadorFalso,
+)
 
 URL_DETALLE = "https://falsa.test/detalle/{id}"
 

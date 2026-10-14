@@ -14,7 +14,7 @@ from buscador_vacantes.radar.filtros import Filtros
 from buscador_vacantes.radar.ia_cliente import ClienteIA, RespuestaIA
 
 AHORA = datetime(2026, 10, 3, 15, 0, tzinfo=UTC)
-FIXTURE = Path(__file__).parent / "fixtures" / "dudosas_reales.json"
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "dudosas_reales.json"
 
 
 class IAFalsa:
