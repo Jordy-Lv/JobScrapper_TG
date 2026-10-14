@@ -218,8 +218,8 @@ Las opciones están comentadas en `config.yaml` (`fuentes.linkedin`).
 
 Las tarjetas de LinkedIn no dicen la modalidad: una oferta de otra ciudad sin «remoto» (o un call
 center sin modalidad) espera en la cola `pendientes_detalle` y cada corrida pide el detalle de hasta
-`fuentes.linkedin.detalle.max_por_corrida` (6) con una pausa de 6 a 12 s. Con 48 corridas al día el
-tope es de 288 peticiones diarias. Solo sale de la cola al resolverse, al cerrarse (404 o 410) o a
+`fuentes.linkedin.detalle.max_por_corrida` (2 por ahora; el diseño parte de 6) con una pausa de 6 a 12 s. Con 48 corridas al día el
+tope es de 96 peticiones diarias con 2 (288 con 6). Solo sale de la cola al resolverse, al cerrarse (404 o 410) o a
 las 48 h (`horas_vencimiento`), siempre con una línea en el log.
 
 La oferta se evalúa de nuevo con su descripción (recortada a `max_caracteres`, conservando las

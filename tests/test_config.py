@@ -103,7 +103,7 @@ def test_nucleo_ocupa_al_menos_la_mitad_del_presupuesto(config):
 def test_detalle_de_linkedin(config):
     detalle = config.fuentes["linkedin"].detalle
     assert detalle is not None and detalle.activo
-    assert (detalle.max_por_corrida, detalle.pausa_min_s, detalle.pausa_max_s) == (6, 6, 12)
+    assert (detalle.max_por_corrida, detalle.pausa_min_s, detalle.pausa_max_s) == (2, 6, 12)
     assert (detalle.max_caracteres, detalle.horas_vencimiento) == (3000, 48)
     assert detalle.espera_reintento_min == 30
     # Las demás fuentes no piden detalle

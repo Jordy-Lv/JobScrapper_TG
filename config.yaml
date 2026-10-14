@@ -158,10 +158,11 @@ fuentes:
     # y solo sale al resolverse, cerrarse la oferta (404/410) o vencer horas_vencimiento.
     # Un 429 aplica el cooldown de la fuente y corta los detalles de la corrida. Con 48
     # corridas al día, 6 por corrida son hasta 288 peticiones diarias: si LinkedIn bloquea,
-    # baja max_por_corrida. activo: false vuelve al rechazo anterior sin tocar el código
+    # baja max_por_corrida (rige 2 mientras LinkedIn siga con 429). activo: false vuelve al
+    # rechazo anterior sin tocar el código
     detalle:
       activo: true
-      max_por_corrida: 6        # peticiones de detalle por corrida
+      max_por_corrida: 2        # peticiones de detalle por corrida (subir a 6 si LinkedIn no bloquea)
       pausa_min_s: 6            # pausa propia del detalle, más lenta que la de la búsqueda
       pausa_max_s: 12
       max_caracteres: 3000      # recorte de la descripción guardada
