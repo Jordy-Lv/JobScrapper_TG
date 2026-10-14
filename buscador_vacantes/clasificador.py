@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -10,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from buscador_vacantes import config as cfg
 from buscador_vacantes.estado import Estado, a_texto, de_texto, vacante_a_json, vacante_de_json
-from buscador_vacantes.filtros import Filtros
+from buscador_vacantes.filtros import REMOTO_O_HIBRIDO, SOLO_REMOTO, Filtros
 from buscador_vacantes.ia_cliente import ClienteIA
 from buscador_vacantes.modelo import Categoria, Vacante
 
@@ -18,6 +19,8 @@ log = logging.getLogger(__name__)
 
 TOKENS_POR_VACANTE = 60
 TOKENS_BASE = 100
+# Cómo se le cuenta a la IA la condición de modalidad que debe confirmar
+CONDICIONES_MODALIDAD = {REMOTO_O_HIBRIDO: "remoto o híbrido", SOLO_REMOTO: "solo remoto"}
 
 
 class ItemIA(BaseModel):
@@ -55,13 +58,13 @@ class Clasificador:
         ia: ClienteIA | None,
         estado: Estado,
         filtros: Filtros,
-        fuentes_con_filtro_nivel: frozenset[str] = frozenset(),
     ) -> None:
         self.config = config
         self.ia = ia
         self.estado = estado
         self.filtros = filtros
-        self.fuentes_con_filtro_nivel = fuentes_con_filtro_nivel
+        # Una clasificación solo se reutiliza si la hizo este mismo prompt
+        self.version_prompt = hashlib.sha256(config.prompt_sistema.encode("utf-8")).hexdigest()[:12]
 
     # --- persistencia -----------------------------------------------------------------------
 
@@ -86,7 +89,9 @@ class Clasificador:
 
     def _cache(self, huella: str) -> tuple[bool, Categoria | None] | None:
         fila = self.estado.cx.execute(
-            "SELECT aceptar, categoria FROM clasificaciones WHERE huella = ?", (huella,)
+            "SELECT aceptar, categoria FROM clasificaciones "
+            "WHERE huella = ? AND version_prompt = ?",
+            (huella, self.version_prompt),
         ).fetchone()
         if fila is None:
             return None
@@ -99,10 +104,11 @@ class Clasificador:
         with self.estado.transaccion() as cx:
             cx.execute(
                 """
-                INSERT INTO clasificaciones(huella, aceptar, categoria, motivo, ts)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO clasificaciones(huella, aceptar, categoria, motivo, ts, version_prompt)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(huella) DO UPDATE SET aceptar = excluded.aceptar,
-                    categoria = excluded.categoria, motivo = excluded.motivo, ts = excluded.ts
+                    categoria = excluded.categoria, motivo = excluded.motivo, ts = excluded.ts,
+                    version_prompt = excluded.version_prompt
                 """,
                 (
                     huella,
@@ -110,6 +116,7 @@ class Clasificador:
                     categoria.value if categoria else None,
                     motivo,
                     a_texto(ahora),
+                    self.version_prompt,
                 ),
             )
             cx.execute("DELETE FROM pendientes WHERE huella = ?", (huella,))
@@ -175,6 +182,7 @@ class Clasificador:
     def _clasificar_lote(
         self, lote: list[Dudosa], ahora: datetime, resultado: ResultadoClasificacion
     ) -> None:
+        ciudad_base = self.filtros.ciudad_base_texto()
         payload = {
             "vacantes": [
                 {
@@ -185,7 +193,8 @@ class Clasificador:
                     "modalidad": d.vacante.modalidad,
                     "salario": d.vacante.salario,
                     "palabra_clave": d.vacante.keyword,
-                    "nivel_filtrado_por_fuente": d.vacante.fuente in self.fuentes_con_filtro_nivel,
+                    "ciudad_base": ciudad_base,
+                    "exige_modalidad": CONDICIONES_MODALIDAD.get(d.vacante.exige_modalidad),
                     "descripcion": d.vacante.descripcion,
                 }
                 for indice, d in enumerate(lote)

@@ -62,13 +62,18 @@ def estado():
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (clave, clave, fuente, categoria, hace(hours=horas), hace(hours=horas)),
             )
-        for horas, modo in [(2, "normal"), (4, "normal"), (6, "dry-run")]:
+        # (horas, modo, prácticas recategorizadas, prácticas rechazadas por el guardarraíl)
+        for horas, modo, recategorizadas, rechazadas in [
+            (2, "normal", 3, 1), (4, "normal", 1, 0), (6, "dry-run", 9, 9)
+        ]:  # fmt: skip
             corrida_id = cx.execute(
                 "INSERT INTO corridas(inicio, modo, crudas, descartes_json, duplicadas, dudosas, "
-                "ia_aceptadas, ia_rechazadas, pendientes, enviadas) "
-                "VALUES (?, ?, 50, ?, 5, 4, 2, 1, 1, 2)",
+                "ia_aceptadas, ia_rechazadas, pendientes, enviadas, practicas_recategorizadas, "
+                "practicas_rechazadas) VALUES (?, ?, 50, ?, 5, 4, 2, 1, 1, 2, ?, ?)",
                 (hace(hours=horas), modo,
-                 json.dumps({"seniority": 3, "antiguedad": 1, "ubicacion": 0, "no_ti": 20})),
+                 json.dumps({"seniority": 3, "antiguedad": 1, "ubicacion": 0, "no_ti": 20,
+                             "presencial_fuera": 15, "call_center": 2}),
+                 recategorizadas, rechazadas),
             ).lastrowid  # fmt: skip
             for keyword, items in [("semillero", 0), ("practicante TI", 12)]:
                 cx.execute(
@@ -104,6 +109,8 @@ def test_metricas_de_24h(estado):
     assert m.crudas == 100 and m.duplicadas == 10 and m.dudosas == 8
     assert (m.ia_aceptadas, m.ia_rechazadas, m.pendientes) == (4, 2, 1)
     assert m.descartes["no_ti"] == 40
+    assert m.descartes["presencial_fuera"] == 30 and m.descartes["call_center"] == 4
+    assert (m.practicas_recategorizadas, m.practicas_rechazadas) == (4, 1)
     assert m.requests_por_fuente["linkedin"] == 4
     assert m.incidentes_abiertos == ["elempleo:cambio_html"]
     assert m.incidentes_cerrados == ["linkedin:bloqueo"]
@@ -121,7 +128,11 @@ def test_resumen_activado_una_llamada_y_un_envio(config, estado):
     assert "<i>Día estable con 3 vacantes enviadas</i>" in texto
     assert "📨 Enviadas: 3 (LinkedIn 2 · Magneto 1)" in texto
     assert "🗂 Por categoría: Prácticas 2 · Desarrollo 1" in texto
-    assert "🧹 Descartes: seniority 6 · antigüedad 2 · ubicación 0 · no TI 40" in texto
+    assert (
+        "🧹 Descartes: lista negra 0 · seniority 6 · antigüedad 2 · ubicación 0 · "
+        "presencial fuera de la ciudad base 30 · call center no remoto 4 · no TI 40"
+    ) in texto
+    assert "🛡️ Guardarraíl de prácticas: 4 recategorizadas · 1 rechazada" in texto
     assert "🤖 Dudosas: 8 → 4 aceptadas · 2 rechazadas · 1 pendientes" in texto
     assert "elempleo:cambio_html" in texto and "cerrados hoy: 1" in texto
     assert "💡 <b>Recomendaciones</b>\n1. Revisar 'semillero'" in texto
@@ -133,6 +144,10 @@ def test_payload_solo_metricas_agregadas(config, estado):
     payload = json.dumps(ia.llamadas[0][1])
     assert "semillero" in payload  # dato para recomendar revisar la palabra clave
     assert "https://" not in payload and "-100REAL" not in payload
+    metricas = ia.llamadas[0][1]["metricas"]
+    assert metricas["guardarrail_practicas"] == {"recategorizadas": 4, "rechazadas": 1}
+    assert metricas["descartes_por_regla"]["presencial_fuera"] == 30
+    assert metricas["descartes_por_regla"]["call_center"] == 4
 
 
 def test_resumen_ya_enviado_hoy(config, estado):
@@ -299,3 +314,13 @@ def test_el_cuerpo_a_deepseek_no_lleva_ids_ni_nombres(config, estado, base_asist
     assert '"asistente"' in payload and "postulaciones_enviadas" in payload
     for prohibido in ("Ana", "Luis", "Eva", "111", "222", "dir-", "t1", "computrabajo"):
         assert prohibido not in payload
+
+
+def test_guardarrail_sin_correcciones_se_muestra_en_cero(config, estado):
+    with estado.transaccion() as cx:
+        cx.execute("UPDATE corridas SET practicas_recategorizadas = 0, practicas_rechazadas = 0")
+    notificador = NotificadorFalso()
+    crear(config, estado, IAFalsa(RECOMENDACIONES), notificador).enviar()
+    assert (
+        "🛡️ Guardarraíl de prácticas: 0 recategorizadas · 0 rechazadas" in notificador.mensajes[0][1]
+    )

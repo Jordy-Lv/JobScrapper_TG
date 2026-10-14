@@ -53,7 +53,7 @@ ENV_COMPLETO = {
 
 def test_config_inicial_carga(config):
     assert config.zona_horaria == "America/Bogota"
-    assert config.fuentes["linkedin"].presupuesto == 3
+    assert config.fuentes["linkedin"].presupuesto == 2
     assert config.fuentes["computrabajo"].presupuesto == 8
     assert config.fuentes["computrabajo"].paginas_nucleo == 3
     assert config.fuentes["elempleo"].presupuesto == 5
@@ -376,3 +376,176 @@ def test_chat_admin_es_opcional(tmp_path, config):
     valores = dict(ENV_COMPLETO, TELEGRAM_CHAT_ADMIN="-100ADMIN")
     con = cargar_secretos(config, escribir_env(tmp_path, **valores))
     assert con.telegram_chat_admin == "-100ADMIN"
+
+
+# --- Filtro de vacantes limpias ---
+
+
+def test_filtros_nuevos_cargan_de_la_configuracion_real(config):
+    filtros = config.filtros
+    assert filtros.ubicacion.ciudad_base == ["cartagena", "turbaco", "mamonal"]
+    assert "presencial y remoto" in filtros.ubicacion.hibrido
+    assert "en sitio" in filtros.ubicacion.presencial
+    assert "asesor/a" in filtros.call_center
+    assert filtros.lista_negra.empresas == [] and filtros.lista_negra.palabras == []
+    assert "aprendiz" in filtros.nivel.evidencia_practica
+    assert "etapa productiva" in filtros.nivel.evidencia_practica_descripcion
+    assert filtros.anios_experiencia_excluidos_desde == 2
+    assert "middle" in filtros.exclusion_seniority
+
+
+def test_config_sin_los_campos_nuevos_usa_los_valores_por_defecto(tmp_path):
+    def quitar(datos):
+        filtros = datos["filtros"]
+        for campo in ("call_center", "lista_negra"):
+            filtros.pop(campo)
+        for campo in ("ciudad_base", "hibrido", "presencial"):
+            filtros["ubicacion"].pop(campo)
+        for campo in ("evidencia_practica", "evidencia_practica_descripcion"):
+            filtros["nivel"].pop(campo)
+
+    filtros = cargar_configuracion(escribir_config(tmp_path, quitar)).filtros
+    assert filtros.ubicacion.ciudad_base == ["cartagena", "turbaco", "mamonal"]
+    assert "call center" in filtros.call_center
+    assert "pasantía" in filtros.nivel.evidencia_practica
+    assert filtros.lista_negra.empresas == []
+
+
+def test_variantes_de_una_fuente_son_opcionales_y_se_validan(tmp_path, config):
+    assert "variantes" not in config.fuentes["magneto"].opciones
+    ruta = escribir_config(
+        tmp_path, lambda d: d["fuentes"]["linkedin"]["opciones"].update(variantes="Colombia")
+    )
+    with pytest.raises(ErrorConfiguracion, match="variantes"):
+        cargar_configuracion(ruta)
+
+
+# --- LinkedIn: peticiones eficientes ------------------------------------------------------------
+
+
+def test_linkedin_trae_ritmo_pausa_propia_y_consulta_combinada(config):
+    linkedin = config.fuentes["linkedin"]
+    assert (linkedin.pausa_min_s, linkedin.pausa_max_s) == (20, 45)
+    assert linkedin.ritmo.intervalos_min == [30, 60, 120]
+    assert linkedin.ritmo.limpias_para_bajar == 12 and linkedin.ritmo.tolerancia_min == 5
+    assert linkedin.consulta.modo == "or" and linkedin.consulta.orden == "DD"
+    assert linkedin.paginas_nucleo == 2 and linkedin.reservado_nucleo == 1
+    assert config.red.retry_after_max_h == 24
+
+
+def test_las_otras_fuentes_no_traen_ritmo_ni_pausa_propia(config):
+    for nombre, fuente in config.fuentes.items():
+        if nombre != "linkedin":
+            assert fuente.ritmo is None and fuente.consulta is None, nombre
+            assert fuente.pausa_min_s is None and fuente.pausa_max_s is None, nombre
+
+
+def test_config_sin_los_campos_nuevos_carga_con_valores_por_defecto(tmp_path):
+    def quitar(datos):
+        linkedin = datos["fuentes"]["linkedin"]
+        for campo in ("pausa_min_s", "pausa_max_s", "ritmo"):
+            linkedin.pop(campo)
+        linkedin["opciones"].pop("consulta")
+        datos["red"].pop("retry_after_max_h")
+
+    config = cargar_configuracion(escribir_config(tmp_path, quitar))
+    linkedin = config.fuentes["linkedin"]
+    assert linkedin.ritmo is None and linkedin.consulta is None
+    assert linkedin.pausa_min_s is None
+    assert config.red.retry_after_max_h == 24
+
+
+def test_consulta_vacia_usa_los_valores_por_defecto(tmp_path):
+    ruta = escribir_config(
+        tmp_path, lambda d: d["fuentes"]["linkedin"]["opciones"].update(consulta={})
+    )
+    consulta = cargar_configuracion(ruta).fuentes["linkedin"].consulta
+    assert (consulta.modo, consulta.max_terminos, consulta.cola_cada) == ("or", 14, 4)
+    assert (consulta.orden, consulta.margen_min, consulta.ventana_min_h) == ("DD", 30, 2)
+
+
+@pytest.mark.parametrize(
+    ("cambio", "texto"),
+    [
+        ({"pausa_min_s": 50}, "pausa_max_s debe ser mayor"),
+        ({"pausa_max_s": None}, "se definen juntas"),
+        ({"ritmo": {"intervalos_min": []}}, "intervalos_min"),
+        ({"ritmo": {"intervalos_min": [60, 30]}}, "creciente"),
+        ({"ritmo": {"limpias_para_bajar": 0}}, "limpias_para_bajar"),
+        ({"ritmo": {"tolerancia_min": -1}}, "tolerancia_min"),
+    ],
+)
+def test_ritmo_y_pausa_propia_invalidos_fallan_con_mensaje_claro(tmp_path, cambio, texto):
+    ruta = escribir_config(tmp_path, lambda d: d["fuentes"]["linkedin"].update(cambio))
+    with pytest.raises(ErrorConfiguracion, match=texto):
+        cargar_configuracion(ruta)
+
+
+@pytest.mark.parametrize(
+    ("consulta", "texto"),
+    [
+        ({"modo": "ambos"}, "modo"),
+        ({"max_terminos": 0}, "max_terminos"),
+        ({"cola_cada": 1}, "cola_cada"),
+        ({"margen_min": -5}, "margen_min"),
+        ({"ventana_min_h": 0}, "ventana_min_h"),
+        ({"ventana_min_h": 30}, "ventana_min_h"),
+        ({"ritmo": 1}, "ritmo"),
+    ],
+)
+def test_consulta_invalida_falla_con_mensaje_claro(tmp_path, consulta, texto):
+    ruta = escribir_config(
+        tmp_path, lambda d: d["fuentes"]["linkedin"]["opciones"]["consulta"].update(consulta)
+    )
+    with pytest.raises(ErrorConfiguracion, match=texto):
+        cargar_configuracion(ruta)
+
+
+def test_retry_after_max_h_invalido(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["red"].update(retry_after_max_h=0))
+    with pytest.raises(ErrorConfiguracion, match="retry_after_max_h"):
+        cargar_configuracion(ruta)
+
+
+def test_grupos_del_nucleo_se_unen_con_or_y_comillas(config):
+    palabras = config.palabras_clave
+    [unico] = palabras.grupos_nucleo(14)
+    assert len(palabras.nucleo) == 14
+    assert unico.startswith('"practicante sistemas" OR "practicante TI" OR ')
+    assert unico.endswith('"trainee tecnología"')
+    assert unico.count(" OR ") == 13
+    dos = palabras.grupos_nucleo(7)
+    assert len(dos) == 2 and all(g.count(" OR ") == 6 for g in dos)
+    assert ('"' + '" OR "'.join(palabras.nucleo[:7]) + '"') == dos[0]
+
+
+def test_grupos_de_la_cola_son_uno_por_area_y_se_parten_si_son_largos(config):
+    palabras = config.palabras_clave
+    cola = palabras.cola_larga
+    assert len(cola["desarrollo"]) == 16
+    grupos = palabras.grupos_cola(14)
+    assert len(grupos) == len(cola) + 1  # solo desarrollo se parte
+    assert [g.count(" OR ") + 1 for g in grupos[:2]] == [8, 8]  # partes iguales, no 14 y 2
+    assert grupos[2].startswith('"DevOps junior" OR')
+    terminos = [t.strip('"') for g in grupos for t in g.split(" OR ")]
+    assert terminos == palabras.cola_larga_plana  # todos, sin repetidos y en orden
+
+
+def test_grupos_sin_repetidos_entre_areas_ni_comillas_internas():
+    from buscador_vacantes.config import PalabrasClave
+
+    palabras = PalabrasClave(
+        nucleo=["a", "a", 'b "c"'], cola_larga={"x": ["u", "v"], "y": ["v", "w"]}
+    )
+    assert palabras.grupos_nucleo(10) == ['"a" OR "b c"']
+    assert palabras.grupos_cola(10) == ['"u" OR "v"', '"w"']
+
+
+def test_prompt_del_clasificador_sin_las_reglas_viejas(config):
+    prompt = " ".join(config.clasificador.prompt_sistema.split())
+    assert "nivel_filtrado_por_fuente" not in prompt
+    assert 'ACÉPTALA con categoría "practicas", aunque no se mencione TI' not in prompt
+    assert "hasta 1 año" in prompt
+    assert "exige_modalidad" in prompt and "ciudad_base" in prompt
+    assert "en sitio" in prompt and "con moto" in prompt
+    assert "uno bajo nunca basta por sí solo para aceptar" in prompt

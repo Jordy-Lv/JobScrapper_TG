@@ -11,11 +11,11 @@ from buscador_vacantes import rotacion
 from buscador_vacantes.config import Fuente as ConfFuente
 from buscador_vacantes.config import Secretos, cargar_configuracion
 from buscador_vacantes.corrida import Corrida, Modo, chat_admin, es_sin_red
-from buscador_vacantes.estado import Estado, EstadoNoInicializado
+from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto
 from buscador_vacantes.fechas import ZONA
 from buscador_vacantes.fuentes.base import Fuente, Intento, Peticion, TipoError
 from buscador_vacantes.ia_cliente import RespuestaIA
-from buscador_vacantes.modelo import Vacante
+from buscador_vacantes.modelo import Categoria, Vacante
 from buscador_vacantes.notificador_telegram import ResultadoEnvio
 
 AHORA = datetime(2026, 10, 3, 10, 0, tzinfo=ZONA)
@@ -44,7 +44,7 @@ class FuenteFalsa(Fuente):
             Vacante(
                 fuente=self.nombre, id_fuente=o["id"], titulo=o["titulo"], empresa=o["empresa"],
                 url=f"https://falsa.test/{o['id']}", keyword=keyword,
-                ubicacion=o.get("ubicacion", "Bogotá"),
+                ubicacion=o.get("ubicacion", "Cartagena, Bolívar"),
                 publicada=ahora - timedelta(days=o.get("dias", 1)),
             )
             for o in respuesta.json()
@@ -155,14 +155,21 @@ def test_metricas_de_la_corrida(config, estado, caplog):
     fila = dict(estado.cx.execute("SELECT * FROM corridas").fetchone())
     assert fila["crudas"] == 12 and fila["duplicadas"] == 2
     assert json.loads(fila["descartes_json"]) == {
+        "lista_negra": 0,
         "seniority": 2,
         "antiguedad": 2,
         "ubicacion": 2,
+        "presencial_fuera": 0,
+        "call_center": 0,
         "no_ti": 2,
     }
+    assert (fila["practicas_recategorizadas"], fila["practicas_rechazadas"]) == (0, 0)
     assert (fila["dudosas"], fila["ia_aceptadas"], fila["ia_rechazadas"]) == (1, 1, 0)
     assert fila["enviadas"] == 2 and fila["fin"] is not None and fila["modo"] == "normal"
-    assert "descartes={'seniority': 2, 'antiguedad': 2, 'ubicacion': 2, 'no_ti': 2}" in caplog.text
+    assert (
+        "descartes={'lista_negra': 0, 'seniority': 2, 'antiguedad': 2, 'ubicacion': 2, "
+        "'presencial_fuera': 0, 'call_center': 0, 'no_ti': 2}" in caplog.text
+    )
     assert "ia_aceptadas=1" in caplog.text and "enviadas=2" in caplog.text
 
 
@@ -459,3 +466,270 @@ def test_chat_admin_en_modo_prueba_usa_el_chat_de_prueba():
     assert chat_admin(secretos, prueba=True) == "-100PRUEBA"
     assert chat_admin(secretos, prueba=False) == "-100ADMIN"
     assert chat_admin(SECRETOS, prueba=False) == "-100REAL"
+
+
+class FuenteConVariantes(FuenteFalsa):
+    """Envía la variante de la corrida como parámetro, para ver cuál se usó."""
+
+    def construir_peticion(self, keyword, pagina=1):
+        return Peticion(URL, params={"q": keyword, **(self.variante or {})})
+
+
+def config_con_variantes(config, presupuesto=2):
+    variantes = [{"v": "a"}, {"v": "b"}]
+    fuentes = {
+        "falsa": ConfFuente(
+            presupuesto=presupuesto, reservado_nucleo=1, opciones={"variantes": variantes}
+        )
+    }
+    return config.model_copy(update={"fuentes": fuentes})
+
+
+def variantes_pedidas(ruta):
+    return [llamada.request.url.params["v"] for llamada in ruta.calls]
+
+
+@respx.mock
+def test_dos_corridas_seguidas_usan_variantes_distintas(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    conf = config_con_variantes(config)
+    fuentes = {"falsa": FuenteConVariantes}
+    corrida(conf, estado, fuentes=fuentes).ejecutar()
+    corrida(conf, estado, fuentes=fuentes).ejecutar()
+    corrida(conf, estado, fuentes=fuentes).ejecutar()
+    # 2 peticiones por corrida (el presupuesto no cambia); la variante rota a, b, a
+    assert variantes_pedidas(ruta) == ["a", "a", "b", "b", "a", "a"]
+    assert rotacion.obtener_indice(estado, "falsa", "variante") == 1
+
+
+@respx.mock
+def test_dry_run_no_avanza_la_variante(config, estado):
+    ruta = mock_ofertas()
+    conf = config_con_variantes(config)
+    fuentes = {"falsa": FuenteConVariantes}
+    corrida(conf, estado, Modo(dry_run=True), fuentes=fuentes).ejecutar()
+    corrida(conf, estado, Modo(dry_run=True), fuentes=fuentes).ejecutar()
+    assert variantes_pedidas(ruta) == ["a", "a", "a", "a"]
+    assert rotacion.obtener_indice(estado, "falsa", "variante") == 0
+
+
+@respx.mock
+def test_fuente_sin_variantes_no_toca_la_rotacion_de_variantes(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas()
+    corrida(config, estado).ejecutar()
+    existe = estado.cx.execute("SELECT 1 FROM rotacion WHERE grupo = 'variante'").fetchone()
+    assert existe is None
+
+
+def config_combinada(config, consulta=None, ritmo=None, **campos):
+    variantes = [{"v": "a"}, {"v": "b"}]
+    opciones = {"variantes": variantes, "consulta": {"modo": "or", **(consulta or {})}}
+    fuentes = {
+        "falsa": ConfFuente(
+            presupuesto=2, reservado_nucleo=1, opciones=opciones, ritmo=ritmo, **campos
+        )
+    }
+    return config.model_copy(update={"fuentes": fuentes})
+
+
+def consultas_pedidas(ruta):
+    return [llamada.request.url.params["q"] for llamada in ruta.calls]
+
+
+@respx.mock
+def test_modo_or_hace_una_sola_peticion_con_la_consulta_combinada(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    resumen = corrida(
+        config_combinada(config), estado, fuentes={"falsa": FuenteConVariantes}
+    ).ejecutar()
+    assert ruta.call_count == 1
+    [consulta] = consultas_pedidas(ruta)
+    assert consulta.count(" OR ") == 13 and consulta.startswith('"practicante sistemas" OR ')
+    assert [(c.grupo, c.pagina) for c in resumen.resultados[0].ejecutadas] == [("nucleo", 1)]
+
+
+@respx.mock
+def test_modo_or_alterna_variantes_y_lee_la_cola_en_la_cuarta_corrida(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    conf = config_combinada(config, {"cola_cada": 4})
+    for _ in range(8):
+        corrida(conf, estado, fuentes={"falsa": FuenteConVariantes}).ejecutar()
+    nucleo, cola, *_ = consultas_pedidas(ruta)[0], consultas_pedidas(ruta)[3]
+    assert cola.startswith('"desarrollador junior" OR ')  # el primer grupo de la cola larga
+    assert consultas_pedidas(ruta) == [nucleo] * 3 + [cola] + [nucleo] * 3 + [cola]
+    # Núcleo y cola llevan su propio contador de variantes: a, b, a | b, a, b | y la cola a, b
+    assert variantes_pedidas(ruta) == ["a", "b", "a", "a", "b", "a", "b", "b"]
+    assert rotacion.obtener_indice(estado, "falsa", "variante") == 0  # no se usa en este modo
+
+
+@respx.mock
+def test_modo_simple_conserva_el_comportamiento_por_palabra_clave(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    conf = config_combinada(config, {"modo": "simple"})
+    for _ in range(2):
+        corrida(conf, estado, fuentes={"falsa": FuenteConVariantes}).ejecutar()
+    assert consultas_pedidas(ruta) == [
+        "practicante sistemas", "desarrollador junior",
+        "practicante TI", "programador junior",
+    ]  # fmt: skip
+    assert variantes_pedidas(ruta) == ["a", "a", "b", "b"]
+    assert rotacion.obtener_indice(estado, "falsa", "variante") == 0
+
+
+@respx.mock
+def test_fuente_sin_seccion_consulta_conserva_el_comportamiento_anterior(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    corrida(config_con_variantes(config), estado, fuentes={"falsa": FuenteConVariantes}).ejecutar()
+    assert consultas_pedidas(ruta) == ["practicante sistemas", "desarrollador junior"]
+
+
+@respx.mock
+def test_modo_or_en_dry_run_no_mueve_ninguna_rotacion_ni_ritmo(config, estado):
+    ruta = mock_ofertas()
+    conf = config_combinada(config, ritmo={"intervalos_min": [30, 60]})
+    for _ in range(2):
+        corrida(conf, estado, Modo(dry_run=True), fuentes={"falsa": FuenteConVariantes}).ejecutar()
+    assert variantes_pedidas(ruta) == ["a", "a"]
+    assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0
+    claves = estado.cx.execute("SELECT clave FROM kv WHERE clave LIKE 'ritmo:%'").fetchall()
+    assert claves == []
+
+
+@respx.mock
+def test_modo_or_no_avanza_si_la_fuente_estaba_en_cooldown(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    estado.cx.execute(
+        "INSERT INTO fuentes_estado(fuente, cooldown_hasta, escalon, fallos_consecutivos) "
+        "VALUES ('falsa', ?, 0, 1)",
+        (a_texto(AHORA + timedelta(hours=1)),),
+    )
+    resumen = corrida(
+        config_combinada(config), estado, fuentes={"falsa": FuenteConVariantes}
+    ).ejecutar()
+    assert not ruta.called and "cooldown" in resumen.omitidas["falsa"]
+    assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0
+
+
+class FuenteOtra(FuenteFalsa):
+    nombre = "otra"
+
+
+RITMO = {"intervalos_min": [30, 60, 120], "tolerancia_min": 5}
+
+
+@respx.mock
+def test_ritmo_adaptado_omite_la_fuente_y_deja_el_motivo(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    fuentes_conf = {
+        "falsa": ConfFuente(presupuesto=1, reservado_nucleo=1, ritmo=RITMO),
+        "otra": ConfFuente(presupuesto=1, reservado_nucleo=1),
+    }
+    conf = config.model_copy(update={"fuentes": fuentes_conf})
+    estado.kv_guardar("ritmo:falsa:nivel", "1")  # un bloqueo previo: cada 60 min
+    estado.kv_guardar("ritmo:falsa:ultima", a_texto(AHORA - timedelta(minutes=30)))
+    resumen = corrida(conf, estado, fuentes={"falsa": FuenteFalsa, "otra": FuenteOtra}).ejecutar()
+    assert resumen.omitidas == {"falsa": "ritmo adaptado a 60 min"}
+    assert ruta.call_count == 1  # solo la otra fuente consultó
+    assert [r.fuente for r in resumen.resultados] == ["otra"]
+    # Omitir no avanza ninguna rotación ni mueve el ritmo
+    assert estado.cx.execute("SELECT 1 FROM rotacion WHERE fuente='falsa'").fetchone() is None
+    assert estado.kv_obtener("ritmo:falsa:ultima") == a_texto(AHORA - timedelta(minutes=30))
+
+
+@respx.mock
+def test_ritmo_cumplido_consulta_y_anota_la_peticion(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    conf = config.model_copy(update={"fuentes": {
+        "falsa": ConfFuente(presupuesto=1, reservado_nucleo=1, ritmo=RITMO)}})  # fmt: skip
+    estado.kv_guardar("ritmo:falsa:nivel", "1")
+    estado.kv_guardar("ritmo:falsa:ultima", a_texto(AHORA - timedelta(minutes=56)))
+    resumen = corrida(conf, estado).ejecutar()
+    assert ruta.call_count == 1 and not resumen.omitidas
+    assert estado.kv_obtener("ritmo:falsa:ultima") == a_texto(AHORA)
+
+
+class IAAceptaComoPracticas(IAFalsa):
+    """Acepta todo lo dudoso con categoría «practicas», como hacía el prompt viejo."""
+
+    def chat_json(self, proposito, prompt, payload, **kwargs):
+        self.llamadas += 1
+        return RespuestaIA(True, {"vacantes": [
+            {"id": v["id"], "aceptar": True, "categoria": "practicas", "motivo": "práctica"}
+            for v in payload["vacantes"]
+        ]})  # fmt: skip
+
+
+def config_una_peticion(config):
+    fuentes = {"falsa": ConfFuente(presupuesto=1, reservado_nucleo=1)}
+    return config.model_copy(update={"fuentes": fuentes})
+
+
+@respx.mock
+def test_guardarrail_recategoriza_lo_que_acepta_la_ia(config, estado, caplog):
+    estado.marcar_inicializada()
+    mock_ofertas([
+        {"id": "1", "titulo": "Programador Staff CELLS", "empresa": "Santander"},
+        {"id": "2", "titulo": "Software Engineer Intern", "empresa": "Acme"},
+        {"id": "3", "titulo": "Ingeniero de Procesos", "empresa": "Planta"},
+    ])  # fmt: skip
+    notificador, ia = NotificadorFalso(), IAAceptaComoPracticas()
+    with caplog.at_level(logging.INFO, logger="buscador"):
+        resumen = corrida(
+            config_una_peticion(config), estado, ia=ia, notificador=notificador
+        ).ejecutar()
+    categorias = {v.titulo: v.categoria for v in resumen.a_publicar}
+    assert categorias == {
+        "Programador Staff CELLS": Categoria.DESARROLLO,  # sin evidencia de práctica
+        "Software Engineer Intern": Categoria.PRACTICAS,  # con evidencia: no se toca
+    }
+    assert (resumen.practicas_recategorizadas, resumen.practicas_rechazadas) == (1, 1)
+    assert "Ingeniero de Procesos" not in notificador.mensajes[0][1]
+    assert "practicas_recategorizadas=1 practicas_rechazadas=1" in caplog.text
+    assert "Guardarraíl de prácticas recategoriza: Programador Staff CELLS" in caplog.text
+    fila = estado.cx.execute("SELECT * FROM corridas").fetchone()
+    assert (fila["practicas_recategorizadas"], fila["practicas_rechazadas"]) == (1, 1)
+    guardada = estado.cx.execute(
+        "SELECT categoria, ubicacion FROM vistas WHERE clave = 'falsa:1'"
+    ).fetchone()
+    assert (guardada["categoria"], guardada["ubicacion"]) == ("desarrollo", "Cartagena, Bolívar")
+
+
+class IACapturaPayload(IAFalsa):
+    def __init__(self):
+        super().__init__()
+        self.payloads = []
+
+    def chat_json(self, proposito, prompt, payload, **kwargs):
+        self.payloads.append(payload)
+        return super().chat_json(proposito, prompt, payload, **kwargs)
+
+
+class FuenteMedellin(FuenteFalsa):
+    """Vacantes de otra ciudad, sin modalidad y con descripción."""
+
+    def parsear(self, respuesta, keyword, ahora):
+        vacantes = super().parsear(respuesta, keyword, ahora)
+        for v in vacantes:
+            v.ubicacion, v.descripcion = "Medellín", "Analizarás datos con SQL."
+        return vacantes
+
+
+@respx.mock
+def test_vacante_con_condicion_de_modalidad_la_envia_a_la_ia(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas([{"id": "1", "titulo": "Analista de datos Jr", "empresa": "Acme"}])
+    ia = IACapturaPayload()
+    fuentes = {"falsa": FuenteMedellin}
+    corrida(config_una_peticion(config), estado, ia=ia, fuentes=fuentes).ejecutar()
+    [item] = ia.payloads[0]["vacantes"]
+    assert item["exige_modalidad"] == "remoto o híbrido"
+    assert item["ciudad_base"] == "Cartagena"

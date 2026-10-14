@@ -12,7 +12,17 @@ from pathlib import Path
 
 from buscador_vacantes.modelo import Categoria, Vacante
 
-ESQUEMA_VERSION = 1
+ESQUEMA_VERSION = 2
+
+# Columnas que el esquema 2 agrega al 1 (tabla, columna, definición). Una base nueva ya nace con
+# ellas en ESQUEMA; una del esquema 1 las recibe con ALTER TABLE en _migrar_esquema
+COLUMNAS_ESQUEMA_2 = (
+    ("vistas", "ubicacion", "TEXT"),
+    ("vistas", "modalidad", "TEXT"),
+    ("clasificaciones", "version_prompt", "TEXT"),
+    ("corridas", "practicas_recategorizadas", "INTEGER NOT NULL DEFAULT 0"),
+    ("corridas", "practicas_rechazadas", "INTEGER NOT NULL DEFAULT 0"),
+)
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS esquema_version (version INTEGER NOT NULL);
@@ -27,7 +37,9 @@ CREATE TABLE IF NOT EXISTS vistas (
     categoria TEXT,
     primera_vez TEXT NOT NULL,
     enviada_en TEXT,
-    prueba_en TEXT
+    prueba_en TEXT,
+    ubicacion TEXT,
+    modalidad TEXT
 );
 CREATE INDEX IF NOT EXISTS vistas_huella ON vistas(huella);
 
@@ -82,7 +94,9 @@ CREATE TABLE IF NOT EXISTS corridas (
     pendientes INTEGER NOT NULL DEFAULT 0,
     enviadas INTEGER NOT NULL DEFAULT 0,
     sin_red INTEGER NOT NULL DEFAULT 0,
-    error TEXT
+    error TEXT,
+    practicas_recategorizadas INTEGER NOT NULL DEFAULT 0,
+    practicas_rechazadas INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS clasificaciones (
@@ -90,7 +104,8 @@ CREATE TABLE IF NOT EXISTS clasificaciones (
     aceptar INTEGER NOT NULL,
     categoria TEXT,
     motivo TEXT,
-    ts TEXT NOT NULL
+    ts TEXT NOT NULL,
+    version_prompt TEXT
 );
 
 CREATE TABLE IF NOT EXISTS pendientes (
@@ -183,12 +198,29 @@ class Estado:
             self.cx.executescript(ESQUEMA)
             fila = self.cx.execute("SELECT version FROM esquema_version").fetchone()
             if fila is None:
+                # Base nueva: las tablas ya se crearon con las columnas del esquema vigente
                 self.cx.execute("INSERT INTO esquema_version VALUES (?)", (ESQUEMA_VERSION,))
-            elif fila["version"] > ESQUEMA_VERSION:
+                return
+            version = fila["version"]
+            if version > ESQUEMA_VERSION:
                 raise RuntimeError(
-                    f"La base tiene esquema {fila['version']} y el código soporta "
-                    f"hasta {ESQUEMA_VERSION}"
+                    f"La base tiene esquema {version} y el código soporta hasta {ESQUEMA_VERSION}"
                 )
+            if version < 2:
+                self._migrar_a_2()
+
+    def _migrar_a_2(self) -> None:
+        """Esquema 1 → 2 en una transacción: solo agrega columnas, sin tocar filas.
+
+        Ignora las columnas que ya existen: tras volver atrás con ``UPDATE esquema_version``
+        (el código anterior las ignora) la base las conserva.
+        """
+        self.cx.execute("BEGIN")
+        for tabla, columna, definicion in COLUMNAS_ESQUEMA_2:
+            existentes = {f["name"] for f in self.cx.execute(f"PRAGMA table_info({tabla})")}
+            if columna not in existentes:
+                self.cx.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}")
+        self.cx.execute("UPDATE esquema_version SET version = 2")
 
     @contextmanager
     def transaccion(self) -> Iterator[sqlite3.Connection]:
@@ -260,12 +292,14 @@ class Estado:
             self.cx.execute(
                 """
                 INSERT INTO vistas(clave, huella, fuente, titulo, empresa, url, categoria,
-                                   primera_vez, enviada_en, prueba_en)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   primera_vez, enviada_en, prueba_en, ubicacion, modalidad)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(clave) DO UPDATE SET
                     enviada_en = COALESCE(vistas.enviada_en, excluded.enviada_en),
                     prueba_en = COALESCE(vistas.prueba_en, excluded.prueba_en),
-                    categoria = COALESCE(excluded.categoria, vistas.categoria)
+                    categoria = COALESCE(excluded.categoria, vistas.categoria),
+                    ubicacion = COALESCE(vistas.ubicacion, excluded.ubicacion),
+                    modalidad = COALESCE(vistas.modalidad, excluded.modalidad)
                 """,
                 (
                     vacante.clave,
@@ -278,6 +312,8 @@ class Estado:
                     ts,
                     enviada_en,
                     prueba_en,
+                    vacante.ubicacion,
+                    vacante.modalidad,
                 ),
             )
 

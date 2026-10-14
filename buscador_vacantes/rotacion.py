@@ -8,6 +8,9 @@ from buscador_vacantes.estado import Estado
 
 NUCLEO = "nucleo"
 COLA_LARGA = "cola_larga"
+# Contadores de las consultas combinadas (no se mezclan con los de la rotación por palabra clave)
+TURNO = "turno"
+_GRUPO_TURNO = {NUCLEO: "turno_nucleo", COLA_LARGA: "turno_cola"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,60 @@ def calcular_lote(
         for k in _tomar(cola_larga, obtener_indice(estado, fuente, COLA_LARGA), n_cola)
     ]
     return lote
+
+
+@dataclass(frozen=True)
+class Turno:
+    """Una corrida de consultas combinadas: qué se lee y con qué variante de búsqueda."""
+
+    lote: list[Consulta]
+    variante: int
+    cola: bool  # el turno lee la cola larga en lugar del núcleo
+
+
+def calcular_turno(
+    estado: Estado,
+    fuente: str,
+    grupos_nucleo: list[str],
+    grupos_cola: list[str],
+    variantes: int,
+    cola_cada: int,
+    paginas_nucleo: int = 1,
+) -> Turno:
+    """Lote de una petición por corrida: el núcleo, salvo una corrida de cada ``cola_cada`` que
+    lee un grupo de la cola larga (solo página 1).
+
+    El núcleo y la cola recorren el producto *(grupo × variante)* con contadores propios, de modo
+    que ninguna variante queda atada a un solo grupo. Un grupo vacío cede su turno al otro.
+    """
+    variantes = max(1, variantes)
+    turno = obtener_indice(estado, fuente, TURNO) % cola_cada
+    cola = (turno == cola_cada - 1 and bool(grupos_cola)) or not grupos_nucleo
+    grupos, nombre = (grupos_cola, COLA_LARGA) if cola else (grupos_nucleo, NUCLEO)
+    posicion = obtener_indice(estado, fuente, _GRUPO_TURNO[nombre]) % (variantes * len(grupos))
+    variante, grupo = posicion % variantes, posicion // variantes
+    paginas = 1 if cola else max(1, paginas_nucleo)
+    lote = [Consulta(grupos[grupo], nombre, pagina) for pagina in range(1, paginas + 1)]
+    return Turno(lote, variante, cola)
+
+
+def avanzar_turno(
+    estado: Estado,
+    fuente: str,
+    turno: Turno,
+    ejecutadas: list[Consulta],
+    grupos_nucleo: int,
+    grupos_cola: int,
+    variantes: int,
+    cola_cada: int,
+) -> None:
+    """Avanza el turno y la posición de su grupo, solo si se ejecutó alguna consulta."""
+    if not ejecutadas:
+        return
+    nombre = COLA_LARGA if turno.cola else NUCLEO
+    total = max(1, variantes) * (grupos_cola if turno.cola else grupos_nucleo)
+    avanzar(estado, fuente, TURNO, 1, cola_cada)
+    avanzar(estado, fuente, _GRUPO_TURNO[nombre], 1, total)
 
 
 def avanzar(estado: Estado, fuente: str, grupo: str, cantidad: int, total: int) -> None:

@@ -24,11 +24,22 @@ from buscador_vacantes.reportero import ClienteChat
 log = logging.getLogger(__name__)
 
 MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
-DESCARTES = ("seniority", "antiguedad", "ubicacion", "no_ti")
+DESCARTES = (
+    "lista_negra",
+    "seniority",
+    "antiguedad",
+    "ubicacion",
+    "presencial_fuera",
+    "call_center",
+    "no_ti",
+)
 NOMBRES_DESCARTE = {
+    "lista_negra": "lista negra",
     "seniority": "seniority",
     "antiguedad": "antigüedad",
     "ubicacion": "ubicación",
+    "presencial_fuera": "presencial fuera de la ciudad base",
+    "call_center": "call center no remoto",
     "no_ti": "no TI",
 }
 MIN_INTENTOS_KEYWORD = 2
@@ -98,6 +109,8 @@ class Metricas:
     ia_aceptadas: int = 0
     ia_rechazadas: int = 0
     pendientes: int = 0
+    practicas_recategorizadas: int = 0
+    practicas_rechazadas: int = 0
     requests_por_fuente: Counter = field(default_factory=Counter)
     errores_por_fuente: dict[str, Counter] = field(default_factory=dict)
     crudas_por_fuente: Counter = field(default_factory=Counter)
@@ -131,6 +144,10 @@ class Metricas:
             "ia_aceptadas": self.ia_aceptadas,
             "ia_rechazadas": self.ia_rechazadas,
             "pendientes": self.pendientes,
+            "guardarrail_practicas": {
+                "recategorizadas": self.practicas_recategorizadas,
+                "rechazadas": self.practicas_rechazadas,
+            },
             "requests_por_fuente": dict(self.requests_por_fuente),
             "errores_por_fuente": {f: dict(c) for f, c in self.errores_por_fuente.items()},
             "incidentes_abiertos": self.incidentes_abiertos,
@@ -178,6 +195,8 @@ def calcular_metricas(estado: Estado, ahora: datetime, *, prueba: bool = False) 
         m.ia_aceptadas += f["ia_aceptadas"]
         m.ia_rechazadas += f["ia_rechazadas"]
         m.pendientes = f["pendientes"]  # las pendientes son un estado, no se suman
+        m.practicas_recategorizadas += f["practicas_recategorizadas"]
+        m.practicas_rechazadas += f["practicas_rechazadas"]
         m.descartes.update(json.loads(f["descartes_json"] or "{}"))
 
     for f in estado.cx.execute(
@@ -270,6 +289,10 @@ def _lista(contador: Counter, nombres: Callable[[str], str]) -> str:
     return " · ".join(f"{nombres(k)} {v}" for k, v in contador.most_common())
 
 
+def _cantidad(n: int, singular: str, plural: str) -> str:
+    return f"{n} {singular if n == 1 else plural}"
+
+
 NOMBRES_CATEGORIA = {
     Categoria.PRACTICAS: "Prácticas",
     Categoria.DESARROLLO: "Desarrollo",
@@ -316,6 +339,9 @@ def componer_resumen(
     descartes = " · ".join(f"{NOMBRES_DESCARTE[d]} {m.descartes.get(d, 0)}" for d in DESCARTES)
     lineas.append(f"🔎 Crudas: {m.crudas} · ya vistas: {m.duplicadas} · corridas: {m.corridas}")
     lineas.append(f"🧹 Descartes: {descartes}")
+    recategorizadas = _cantidad(m.practicas_recategorizadas, "recategorizada", "recategorizadas")
+    rechazadas = _cantidad(m.practicas_rechazadas, "rechazada", "rechazadas")
+    lineas.append(f"🛡️ Guardarraíl de prácticas: {recategorizadas} · {rechazadas}")
     lineas.append(
         f"🤖 Dudosas: {m.dudosas} → {m.ia_aceptadas} aceptadas · {m.ia_rechazadas} rechazadas"
         f" · {m.pendientes} pendientes"

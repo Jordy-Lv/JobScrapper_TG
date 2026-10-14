@@ -77,7 +77,16 @@ FUENTES: dict[str, type[Fuente]] = {
 HISTORIAL_HERMES = Path("~/.hermes/cron/output/historial_vacantes.json")
 HORAS_COLA_ENVIO = 24
 ESPERA_LOCK_RESUMEN_S = 600
-DESCARTES = (Motivo.SENIORITY, Motivo.ANTIGUEDAD, Motivo.UBICACION, Motivo.NO_TI)
+VARIANTE = "variante"  # grupo de rotación de las variantes de búsqueda de una fuente
+DESCARTES = (
+    Motivo.LISTA_NEGRA,
+    Motivo.SENIORITY,
+    Motivo.ANTIGUEDAD,
+    Motivo.UBICACION,
+    Motivo.PRESENCIAL_FUERA,
+    Motivo.CALL_CENTER,
+    Motivo.NO_TI,
+)
 
 
 @dataclass
@@ -115,6 +124,8 @@ class ResumenCorrida:
     ia_rechazadas: int = 0
     ia_desde_cache: int = 0
     ia_llamadas: int = 0
+    practicas_recategorizadas: int = 0
+    practicas_rechazadas: int = 0
     pendientes: int = 0
     vencidas: int = 0
     a_publicar: list[Vacante] = field(default_factory=list)
@@ -143,7 +154,9 @@ class ResumenCorrida:
             f"aceptadas_reglas={len(self.aceptadas_reglas)} dudosas={len(self.dudosas)} "
             f"ia_aceptadas={self.ia_aceptadas} ia_rechazadas={self.ia_rechazadas} "
             f"ia_cache={self.ia_desde_cache} pendientes={self.pendientes} "
-            f"vencidas={self.vencidas} ia_llamadas={self.ia_llamadas} enviadas={self.enviadas} "
+            f"vencidas={self.vencidas} ia_llamadas={self.ia_llamadas} "
+            f"practicas_recategorizadas={self.practicas_recategorizadas} "
+            f"practicas_rechazadas={self.practicas_rechazadas} enviadas={self.enviadas} "
             f"sembradas={self.sembradas} sin_red={self.sin_red} "
             f"incidentes={self._resumen_incidentes()} duracion={self.duracion_s:.1f}s"
         )
@@ -245,7 +258,40 @@ class Corrida:
                     resumen.omitidas[nombre] = f"en cooldown hasta {hasta.astimezone(ZONA):%H:%M}"
                     log.info("%s omitida: %s", nombre, resumen.omitidas[nombre])
                     continue
-                if fuente.consulta_fija:
+                espera = fuente.ritmo_espera(self.reloj())
+                if espera:
+                    resumen.omitidas[nombre] = f"ritmo adaptado a {espera:g} min"
+                    log.info("%s omitida: %s", nombre, resumen.omitidas[nombre])
+                    continue
+                fuente.persistir_estado = not self.modo.dry_run
+                variantes = conf.opciones.get("variantes")
+                consulta = conf.consulta
+                combinada = (
+                    consulta is not None and consulta.modo == "or" and not fuente.consulta_fija
+                )
+                turno = None
+                if combinada:
+                    # Una petición por corrida con varias palabras unidas por OR: el turno elige
+                    # el grupo y la variante, y ambos avanzan al terminar
+                    paginas = conf.paginas_nucleo if fuente.soporta_paginas else 1
+                    grupos_nucleo = palabras.grupos_nucleo(consulta.max_terminos)
+                    grupos_cola = palabras.grupos_cola(consulta.max_terminos)
+                    turno = rotacion.calcular_turno(
+                        self.estado, nombre, grupos_nucleo, grupos_cola, len(variantes or []),
+                        consulta.cola_cada, paginas,
+                    )  # fmt: skip
+                    indice = turno.variante
+                elif variantes:
+                    # La variante de la corrida sale de la rotación y avanza al terminar
+                    indice = rotacion.obtener_indice(self.estado, nombre, VARIANTE) % len(variantes)
+                else:
+                    indice = 0
+                if variantes:
+                    fuente.variante = variantes[indice]
+                fuente.variante_id = indice
+                if turno:
+                    lote = turno.lote
+                elif fuente.consulta_fija:
                     # Fuente que no usa palabras clave: lee sus páginas más recientes
                     lote = [
                         rotacion.Consulta(fuente.consulta_fija, rotacion.NUCLEO, pagina)
@@ -262,10 +308,18 @@ class Corrida:
                     )  # fmt: skip
                 resultado = fuente.ejecutar(lote)
                 # El dry-run no mueve la rotación de producción; la consulta fija no rota
-                if not self.modo.dry_run and not fuente.consulta_fija:
-                    rotacion.avanzar_lote(
-                        self.estado, nombre, resultado.ejecutadas, len(nucleo), len(cola)
-                    )
+                if not self.modo.dry_run:
+                    if turno:
+                        rotacion.avanzar_turno(
+                            self.estado, nombre, turno, resultado.ejecutadas, len(grupos_nucleo),
+                            len(grupos_cola), len(variantes or []), consulta.cola_cada,
+                        )  # fmt: skip
+                    elif not fuente.consulta_fija:
+                        rotacion.avanzar_lote(
+                            self.estado, nombre, resultado.ejecutadas, len(nucleo), len(cola)
+                        )
+                    if variantes and not turno and resultado.ejecutadas:
+                        rotacion.avanzar(self.estado, nombre, VARIANTE, 1, len(variantes))
                 resumen.resultados.append(resultado)
                 vacantes.extend(resultado.vacantes)
             except Exception:  # noqa: BLE001 - una fuente rota no detiene a las demás
@@ -298,6 +352,7 @@ class Corrida:
                 vacante.categoria = evaluacion.categoria
                 resumen.aceptadas_reglas.append(vacante)
             else:
+                vacante.exige_modalidad = evaluacion.exige_modalidad
                 resumen.dudosas.append(vacante)
 
     def _cola_de_envio(self, ya_incluidas: set[str]) -> list[Vacante]:
@@ -328,10 +383,7 @@ class Corrida:
             self.estado.marcar_inicializada(ahora)
 
     def _clasificar(self, resumen: ResumenCorrida) -> list[Vacante]:
-        con_filtro = frozenset(n for n, f in self.config.fuentes.items() if f.filtra_nivel)
-        clasificador = Clasificador(
-            self.config.clasificador, self.ia, self.estado, self.filtros, con_filtro
-        )
+        clasificador = Clasificador(self.config.clasificador, self.ia, self.estado, self.filtros)
         nuevas = [Dudosa(v, huella(v.titulo, v.empresa, v.clave)) for v in resumen.dudosas]
         resultado = clasificador.clasificar(nuevas, self.reloj())
         resumen.ia_aceptadas = len(resultado.aceptadas)
@@ -345,6 +397,29 @@ class Corrida:
             d.vacante for d in resultado.aceptadas
             if not self.estado.ya_vista(d.vacante.clave, d.huella, prueba=prueba)
         ]  # fmt: skip
+
+    def _aplicar_guardarrail(
+        self, aceptadas: list[Vacante], resumen: ResumenCorrida
+    ) -> list[Vacante]:
+        """Revisa la categoría «Prácticas y Aprendizaje» de lo aceptado, venga de las reglas o de
+        la IA: sin evidencia de práctica, la vacante pasa a su área o se rechaza."""
+        revisadas = []
+        for vacante in aceptadas:
+            correccion = self.filtros.guardarrail_practicas(vacante)
+            if correccion is None:
+                revisadas.append(vacante)
+            elif correccion.rechaza:
+                resumen.practicas_rechazadas += 1
+                log.info("Guardarraíl de prácticas rechaza: %s (%s)", vacante.titulo, vacante.clave)
+            else:
+                resumen.practicas_recategorizadas += 1
+                log.info(
+                    "Guardarraíl de prácticas recategoriza: %s (%s) de %s a %s",
+                    vacante.titulo, vacante.clave, correccion.original, correccion.nueva,
+                )  # fmt: skip
+                vacante.categoria = correccion.nueva
+                revisadas.append(vacante)
+        return revisadas
 
     def _publicar(self, resumen: ResumenCorrida) -> None:
         if not resumen.a_publicar:
@@ -424,14 +499,16 @@ class Corrida:
                 """
                 UPDATE corridas SET fin = ?, crudas = ?, descartes_json = ?, duplicadas = ?,
                     dudosas = ?, ia_aceptadas = ?, ia_rechazadas = ?, pendientes = ?,
-                    enviadas = ?, sin_red = ?, error = ?
+                    enviadas = ?, sin_red = ?, error = ?, practicas_recategorizadas = ?,
+                    practicas_rechazadas = ?
                 WHERE id = ?
                 """,
                 (
                     a_texto(ahora_utc()), resumen.crudas, json.dumps(descartes),
                     resumen.duplicadas, len(resumen.dudosas), resumen.ia_aceptadas,
                     resumen.ia_rechazadas, resumen.pendientes, resumen.enviadas,
-                    int(resumen.sin_red), error, resumen.corrida_id,
+                    int(resumen.sin_red), error, resumen.practicas_recategorizadas,
+                    resumen.practicas_rechazadas, resumen.corrida_id,
                 ),
             )  # fmt: skip
 
@@ -463,6 +540,9 @@ class Corrida:
                 log.warning("Sin conexión a internet: todas las fuentes fallaron por red")
             self._evaluar(vacantes, resumen)
             if modo.dry_run:
+                resumen.aceptadas_reglas = self._aplicar_guardarrail(
+                    resumen.aceptadas_reglas, resumen
+                )
                 self._imprimir_dry_run(resumen)
             elif modo.seed:
                 self._sembrar(resumen)
@@ -473,6 +553,8 @@ class Corrida:
                     aceptadas += self._clasificar(resumen)
                 except Exception:  # noqa: BLE001
                     log.exception("Error en el clasificador; se envían las aceptadas por reglas")
+                # Un solo punto de control de la categoría, venga de las reglas o de la IA
+                aceptadas = self._aplicar_guardarrail(aceptadas, resumen)
                 aceptadas += self._cola_de_envio({v.clave for v in aceptadas})
                 resumen.a_publicar = deduplicar(aceptadas)
                 self._publicar(resumen)

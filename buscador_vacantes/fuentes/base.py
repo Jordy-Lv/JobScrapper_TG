@@ -10,7 +10,8 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from enum import StrEnum
 from typing import Any
 
@@ -79,6 +80,29 @@ class ResultadoFuente:
     cooldown_hasta: datetime | None = None
 
 
+def segundos_retry_after(valor: str | None, ahora: datetime) -> float | None:
+    """Segundos de la cabecera Retry-After (número o fecha HTTP); ``None`` si no se entiende."""
+    if not valor or not valor.strip():
+        return None
+    valor = valor.strip()
+    try:
+        segundos = float(valor)
+    except ValueError:
+        try:
+            fecha = parsedate_to_datetime(valor)
+        except (TypeError, ValueError):
+            return None
+        if fecha.tzinfo is None:
+            fecha = fecha.replace(tzinfo=UTC)
+        segundos = (fecha - ahora).total_seconds()
+    return segundos if 0 < segundos < float("inf") else None
+
+
+def _recortar(texto: str, maximo: int = 80) -> str:
+    """Las consultas combinadas con OR son largas: el log solo muestra el comienzo."""
+    return texto if len(texto) <= maximo else texto[: maximo - 1] + "…"
+
+
 def filtrar_cabeceras(cabeceras: httpx.Headers | dict[str, str]) -> dict[str, str]:
     return {
         k.lower(): v
@@ -101,6 +125,13 @@ class Fuente(ABC):
     # Fuentes que no usan la rotación de palabras clave (p. ej. el SPE con su filtro de
     # prácticas): la corrida pide las páginas 1..presupuesto con esta consulta
     consulta_fija: str | None = None
+    # Variante de búsqueda de esta corrida (una de opciones.variantes, elegida por la corrida
+    # en orden circular); la fuente que la soporta la combina con sus opciones
+    variante: dict[str, Any] | None = None
+    # Posición de la variante en opciones.variantes; forma parte de la clave de los sondeos
+    variante_id: int = 0
+    # False en un dry-run: la fuente no escribe estado (sondeos, ritmo) que mueva corridas reales
+    persistir_estado: bool = True
 
     def __init__(
         self,
@@ -189,19 +220,29 @@ class Fuente(ABC):
         hasta = de_texto(self._fila_estado()["cooldown_hasta"])
         return hasta if hasta and hasta > ahora else None
 
-    def aplicar_cooldown(self, ahora: datetime) -> datetime:
-        """2 h la primera vez, 6 h la segunda consecutiva y 24 h desde la tercera."""
+    def aplicar_cooldown(self, ahora: datetime, minimo_s: float | None = None) -> datetime:
+        """2 h la primera vez, 6 h la segunda consecutiva y 24 h desde la tercera.
+
+        ``minimo_s`` (el Retry-After del bloqueo) alarga el cooldown si supera al escalón, con el
+        tope ``red.retry_after_max_h``.
+        """
         fila = self._fila_estado()
         escalones = self.red.cooldown_horas
         escalon = min(fila["fallos_consecutivos"], len(escalones) - 1)
-        hasta = ahora + timedelta(hours=escalones[escalon])
+        duracion = timedelta(hours=escalones[escalon])
+        if minimo_s:
+            pedido = timedelta(seconds=min(minimo_s, self.red.retry_after_max_h * 3600))
+            duracion = max(duracion, pedido)
+        hasta = ahora + duracion
         fila.update(
             cooldown_hasta=a_texto(hasta),
             escalon=escalon,
             fallos_consecutivos=fila["fallos_consecutivos"] + 1,
         )
         self._guardar_estado(fila)
-        self.log.warning("%s en cooldown %s h hasta %s", self.nombre, escalones[escalon], hasta)
+        self.log.warning(
+            "%s en cooldown %.4g h hasta %s", self.nombre, duracion.total_seconds() / 3600, hasta
+        )
         return hasta
 
     def registrar_exito(self, ahora: datetime) -> None:
@@ -210,6 +251,63 @@ class Fuente(ABC):
             cooldown_hasta=None, escalon=0, fallos_consecutivos=0, ultimo_exito=a_texto(ahora)
         )
         self._guardar_estado(fila)
+
+    # --- ritmo adaptativo ------------------------------------------------------------------
+
+    def _clave_ritmo(self, campo: str) -> str:
+        return f"ritmo:{self.nombre}:{campo}"
+
+    def _nivel_ritmo(self) -> int:
+        try:
+            nivel = int(self.estado.kv_obtener(self._clave_ritmo("nivel")) or 0)
+        except ValueError:
+            nivel = 0
+        return max(0, min(nivel, len(self.config.ritmo.intervalos_min) - 1))
+
+    def ritmo_espera(self, ahora: datetime) -> float | None:
+        """Minutos del intervalo vigente si todavía no toca consultar la fuente; si toca, ``None``.
+
+        Sin ``ritmo`` en la configuración, la fuente se consulta en cada corrida. La tolerancia
+        absorbe la demora aleatoria del timer.
+        """
+        if self.config.ritmo is None:
+            return None
+        ultima = de_texto(self.estado.kv_obtener(self._clave_ritmo("ultima")))
+        if ultima is None:
+            return None
+        intervalo = self.config.ritmo.intervalos_min[self._nivel_ritmo()]
+        transcurrido = (ahora - ultima).total_seconds() / 60
+        return intervalo if transcurrido < intervalo - self.config.ritmo.tolerancia_min else None
+
+    def _actualizar_ritmo(self, intento: Intento, bloqueo: bool, exito: bool) -> None:
+        """Anota la petición; sube de nivel con un bloqueo y baja tras varias exitosas seguidas."""
+        ritmo = self.config.ritmo
+        if ritmo is None or not self.persistir_estado:
+            return
+        estado = self.estado
+        estado.kv_guardar(self._clave_ritmo("ultima"), a_texto(intento.ts))
+        nivel = self._nivel_ritmo()
+        limpias = int(estado.kv_obtener(self._clave_ritmo("limpias")) or 0)
+        if bloqueo:
+            nivel, limpias = min(nivel + 1, len(ritmo.intervalos_min) - 1), 0
+            self.log.warning(
+                "%s: ritmo adaptado a %g min entre peticiones",
+                self.nombre,
+                ritmo.intervalos_min[nivel],
+            )
+        elif exito:
+            limpias += 1
+            if nivel > 0 and limpias >= ritmo.limpias_para_bajar:
+                nivel, limpias = nivel - 1, 0
+                self.log.info(
+                    "%s: ritmo recuperado a %g min entre peticiones",
+                    self.nombre,
+                    ritmo.intervalos_min[nivel],
+                )
+            elif nivel == 0:
+                limpias = 0
+        estado.kv_guardar(self._clave_ritmo("nivel"), str(nivel))
+        estado.kv_guardar(self._clave_ritmo("limpias"), str(limpias))
 
     def _registrar_intento(self, intento: Intento) -> None:
         with self.estado.transaccion() as cx:
@@ -271,7 +369,7 @@ class Fuente(ABC):
         self.log.info(
             "%s %r%s → %s %s ms, %s items%s",
             self.nombre,
-            consulta.keyword,
+            _recortar(consulta.keyword),
             f" p{consulta.pagina}" if consulta.pagina > 1 else "",
             intento.status or "-",
             intento.ms,
@@ -316,25 +414,38 @@ class Fuente(ABC):
         """
         resultado = ResultadoFuente(self.nombre)
         sin_mas_paginas: set[str] = set()
+        # La pausa propia de la fuente manda sobre la global
+        pausa_min, pausa_max = self.config.pausa_min_s, self.config.pausa_max_s
+        if pausa_min is None or pausa_max is None:
+            pausa_min, pausa_max = self.red.pausa_min_s, self.red.pausa_max_s
         for consulta in lote[: self.config.presupuesto]:
             if consulta.pagina > 1 and consulta.keyword in sin_mas_paginas:
                 continue
             if resultado.intentos:
-                self.dormir(self.aleatorio(self.red.pausa_min_s, self.red.pausa_max_s))
+                self.dormir(self.aleatorio(pausa_min, pausa_max))
             intento, vacantes = self.consultar(consulta)
             resultado.intentos.append(intento)
             resultado.ejecutadas.append(consulta)
             resultado.vacantes.extend(vacantes)
             if intento.tipo_error in (TipoError.BLOQUEO, TipoError.CAPTCHA):
-                resultado.cooldown_hasta = self.aplicar_cooldown(intento.ts)
+                espera = segundos_retry_after(intento.cabeceras.get("retry-after"), intento.ts)
+                resultado.cooldown_hasta = self.aplicar_cooldown(intento.ts, espera)
+                self._actualizar_ritmo(intento, bloqueo=True, exito=False)
                 break
             if intento.tipo_error or not self.pagina_completa(vacantes):
                 sin_mas_paginas.add(consulta.keyword)
-            if intento.status is not None and (
+            exito = intento.status is not None and (
                 200 <= intento.status < 300 or intento.status in self.status_sin_resultados
-            ):
+            )
+            if exito:
                 self.registrar_exito(intento.ts)
+            self._actualizar_ritmo(intento, bloqueo=False, exito=exito and not intento.tipo_error)
+        self.al_terminar(resultado)
         return resultado
+
+    def al_terminar(self, resultado: ResultadoFuente) -> None:
+        """Gancho al terminar de recorrer el lote, también tras un bloqueo."""
+        return None
 
     def cerrar(self) -> None:
         self.cliente.close()
