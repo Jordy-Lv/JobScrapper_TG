@@ -165,3 +165,95 @@ def test_cola_vacia_cede_presupuesto_a_palabras_paginadas(estado):
     lote = rotacion.calcular_lote(estado, "x", NUCLEO, [], 8, 2, 3)
     assert len(lote) == 6  # 8 // 3 = 2 palabras clave completas
     assert {c.keyword for c in lote} == {"n0", "n1"}
+
+
+# --- turnos de consultas combinadas ---------------------------------------------------------
+
+
+def turnos(estado, cantidad, grupos_nucleo, grupos_cola, variantes=2, cola_cada=4, paginas=2):
+    """Corre ``cantidad`` turnos ejecutando todo lo que piden; devuelve lo que fue cada uno."""
+    salida = []
+    for _ in range(cantidad):
+        turno = rotacion.calcular_turno(
+            estado, "linkedin", grupos_nucleo, grupos_cola, variantes, cola_cada, paginas
+        )
+        rotacion.avanzar_turno(
+            estado, "linkedin", turno, turno.lote, len(grupos_nucleo), len(grupos_cola),
+            variantes, cola_cada,
+        )  # fmt: skip
+        salida.append(turno)
+    return salida
+
+
+def test_turnos_ocho_corridas_dan_seis_de_nucleo_y_dos_de_cola(estado):
+    corridas = turnos(estado, 8, ["N"], ["C0", "C1", "C2"])
+    assert [t.cola for t in corridas] == [False, False, False, True] * 2
+    assert [t.lote[0].keyword for t in corridas if t.cola] == ["C0", "C0"]
+    assert sum(not t.cola for t in corridas) == 6
+
+
+def test_turnos_alternan_las_variantes(estado):
+    corridas = turnos(estado, 8, ["N"], ["C0", "C1"])
+    assert [t.variante for t in corridas if not t.cola] == [0, 1, 0, 1, 0, 1]
+    assert [t.variante for t in corridas if t.cola] == [0, 1]
+
+
+def test_turnos_con_dos_grupos_de_nucleo_pasan_por_todas_las_parejas(estado):
+    corridas = [t for t in turnos(estado, 40, ["N0", "N1"], ["C0"]) if not t.cola]
+    parejas = [(t.lote[0].keyword, t.variante) for t in corridas]
+    assert set(parejas[:4]) == {("N0", 0), ("N0", 1), ("N1", 0), ("N1", 1)}
+    assert parejas[:4] == parejas[4:8]  # el ciclo se repite
+
+
+def test_turnos_la_cola_recorre_grupos_y_variantes(estado):
+    corridas = [t for t in turnos(estado, 4 * 6, ["N"], ["C0", "C1", "C2"]) if t.cola]
+    parejas = [(t.lote[0].keyword, t.variante) for t in corridas]
+    assert len(set(parejas)) == 6 and set(parejas) == {
+        (g, v) for g in ("C0", "C1", "C2") for v in (0, 1)
+    }
+
+
+def test_turnos_el_nucleo_pide_dos_paginas_y_la_cola_una(estado):
+    nucleo, cola = turnos(estado, 4, ["N"], ["C0"])[2:4]
+    assert not nucleo.cola and [(c.pagina, c.grupo) for c in nucleo.lote] == [
+        (1, rotacion.NUCLEO), (2, rotacion.NUCLEO)
+    ]  # fmt: skip
+    assert cola.cola and [(c.pagina, c.grupo) for c in cola.lote] == [(1, rotacion.COLA_LARGA)]
+
+
+def test_turnos_sin_ejecutar_no_avanzan_nada(estado):
+    antes = rotacion.calcular_turno(estado, "linkedin", ["N"], ["C"], 2, 4, 2)
+    rotacion.avanzar_turno(estado, "linkedin", antes, [], 1, 1, 2, 4)  # nada se ejecutó
+    despues = rotacion.calcular_turno(estado, "linkedin", ["N"], ["C"], 2, 4, 2)
+    assert despues == antes
+    assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0
+
+
+def test_turnos_avanzan_aunque_la_consulta_haya_sido_bloqueada(estado):
+    turno = rotacion.calcular_turno(estado, "linkedin", ["N"], ["C"], 2, 4, 2)
+    rotacion.avanzar_turno(estado, "linkedin", turno, turno.lote[:1], 1, 1, 2, 4)
+    siguiente = rotacion.calcular_turno(estado, "linkedin", ["N"], ["C"], 2, 4, 2)
+    assert siguiente.variante == 1 and siguiente != turno
+
+
+def test_turnos_sin_variantes_usan_la_unica_posicion(estado):
+    corridas = turnos(estado, 6, ["N0", "N1"], ["C"], variantes=0)
+    assert {t.variante for t in corridas} == {0}
+    assert [t.lote[0].keyword for t in corridas if not t.cola] == ["N0", "N1", "N0", "N1", "N0"]
+
+
+def test_turnos_no_tocan_la_rotacion_por_palabra_clave(estado):
+    turnos(estado, 8, ["N"], ["C"])
+    grupos = {f["grupo"] for f in estado.cx.execute("SELECT grupo FROM rotacion")}
+    assert grupos == {"turno", "turno_nucleo", "turno_cola"}
+
+
+def test_turnos_el_contador_se_ajusta_si_cambia_cola_cada(estado):
+    turnos(estado, 2, ["N"], ["C"], cola_cada=4)  # el contador queda en 2
+    siguiente = rotacion.calcular_turno(estado, "linkedin", ["N"], ["C"], 2, 3, 2)
+    assert siguiente.cola  # con ciclos de 3, la posición 2 es la de la cola
+
+
+def test_turnos_un_grupo_vacio_cede_su_turno(estado):
+    assert all(t.cola for t in turnos(estado, 5, [], ["C0"]))
+    assert not any(t.cola for t in turnos(estado, 8, ["N"], []))

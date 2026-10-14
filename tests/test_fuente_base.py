@@ -70,8 +70,9 @@ def pausas():
 
 @pytest.fixture
 def fuente(config, estado, reloj, pausas):
+    # Una fuente genérica (presupuesto 3, pausa global): no depende de lo que traiga LinkedIn
     f = FuenteFalsa(
-        config.fuentes["linkedin"],
+        ConfFuente(presupuesto=3, reservado_nucleo=2),
         config.red,
         estado,
         corrida_id=1,
@@ -303,3 +304,225 @@ def test_pagina_con_error_corta_la_palabra_clave(paginada):
         ("a", 1), ("a", 2), ("b", 1), ("b", 2), ("b", 3),
     ]  # fmt: skip
     assert resultado.intentos[1].tipo_error == TipoError.SERVIDOR
+
+
+# --- pausa propia de la fuente ------------------------------------------------------------
+
+
+def crear_fuente(config, estado, reloj, pausas, **campos):
+    conf = ConfFuente(presupuesto=3, reservado_nucleo=2, **campos)
+    return FuenteFalsa(
+        conf, config.red, estado, corrida_id=1, dormir=pausas.append,
+        aleatorio=lambda a, b: (a + b) / 2, reloj=reloj,
+    )  # fmt: skip
+
+
+@respx.mock
+def test_pausa_propia_de_la_fuente_manda_sobre_la_global(config, estado, reloj, pausas):
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    f = crear_fuente(config, estado, reloj, pausas, pausa_min_s=20, pausa_max_s=45)
+    assert (config.red.pausa_min_s, config.red.pausa_max_s) == (4, 10)
+    f.ejecutar(lote(3))
+    assert pausas == [32.5, 32.5]  # el punto medio de 20-45 s, no el de 4-10 s
+    f.cerrar()
+
+
+@respx.mock
+def test_pausa_propia_se_sortea_en_su_rango(config, estado, reloj, pausas):
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    rangos = []
+    f = crear_fuente(config, estado, reloj, pausas, pausa_min_s=20, pausa_max_s=45)
+    f.aleatorio = lambda a, b: rangos.append((a, b)) or a
+    f.ejecutar(lote(2))
+    assert rangos == [(20, 45)]
+    f.cerrar()
+
+
+@respx.mock
+def test_sin_pausa_propia_usa_el_rango_global(config, estado, reloj, pausas):
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    rangos = []
+    f = crear_fuente(config, estado, reloj, pausas)
+    f.aleatorio = lambda a, b: rangos.append((a, b)) or a
+    f.ejecutar(lote(2))
+    assert rangos == [(4, 10)]
+    f.cerrar()
+
+
+# --- Retry-After ------------------------------------------------------------------------------
+
+
+def bloquear(fuente, retry_after=None, status=429):
+    cabeceras = {} if retry_after is None else {"Retry-After": retry_after}
+    respx.get(URL).mock(return_value=httpx.Response(status, headers=cabeceras))
+    return fuente.ejecutar(lote(1))
+
+
+@respx.mock
+def test_retry_after_mayor_que_el_escalon_alarga_el_cooldown(fuente, reloj):
+    resultado = bloquear(fuente, "14400")  # 4 h contra un escalón de 2 h
+    assert resultado.cooldown_hasta == reloj.momento + timedelta(hours=4)
+
+
+@respx.mock
+def test_retry_after_menor_que_el_escalon_se_ignora(fuente, reloj):
+    resultado = bloquear(fuente, "60")
+    assert resultado.cooldown_hasta == reloj.momento + timedelta(hours=2)
+
+
+@respx.mock
+def test_retry_after_absurdo_queda_en_el_tope(fuente, reloj):
+    resultado = bloquear(fuente, str(5 * 24 * 3600))  # 5 días, tope de 24 h
+    assert resultado.cooldown_hasta == reloj.momento + timedelta(hours=24)
+
+
+@respx.mock
+def test_retry_after_con_fecha_http(fuente, reloj):
+    # El reloj marca 2026-10-03 10:00 en Bogotá (UTC-5) = 15:00 GMT
+    resultado = bloquear(fuente, "Sat, 03 Oct 2026 20:00:00 GMT")  # 5 h
+    assert resultado.cooldown_hasta == reloj.momento + timedelta(hours=5)
+
+
+@respx.mock
+@pytest.mark.parametrize("valor", ["pronto", "-30", "0", "Sat, 03 Oct 2026 01:00:00 GMT"])
+def test_retry_after_ilegible_o_pasado_se_ignora(fuente, reloj, valor):
+    resultado = bloquear(fuente, valor)
+    assert resultado.cooldown_hasta == reloj.momento + timedelta(hours=2)
+
+
+@respx.mock
+@pytest.mark.parametrize("status", [403, 999])
+def test_retry_after_aplica_tambien_a_403_y_999(fuente, reloj, status):
+    resultado = bloquear(fuente, "14400", status)
+    assert resultado.cooldown_hasta == reloj.momento + timedelta(hours=4)
+
+
+@respx.mock
+def test_retry_after_no_cambia_el_escalon_ni_los_fallos(fuente, estado, reloj):
+    bloquear(fuente, "14400")
+    fila = fila_estado(estado)
+    assert fila["escalon"] == 0 and fila["fallos_consecutivos"] == 1
+
+
+def test_segundos_retry_after():
+    from buscador_vacantes.fuentes.base import segundos_retry_after
+
+    ahora = datetime(2026, 10, 3, 10, 0, tzinfo=ZONA)
+    assert segundos_retry_after("120", ahora) == 120
+    assert segundos_retry_after(" 90 ", ahora) == 90
+    assert segundos_retry_after("Sat, 03 Oct 2026 15:01:00 GMT", ahora) == 60
+    assert segundos_retry_after("inf", ahora) is None
+    assert segundos_retry_after("nan", ahora) is None
+    assert segundos_retry_after("", ahora) is None
+    assert segundos_retry_after(None, ahora) is None
+
+
+# --- ritmo adaptativo -------------------------------------------------------------------------
+
+RITMO = {"intervalos_min": [30, 60, 120], "limpias_para_bajar": 3, "tolerancia_min": 5}
+
+
+def kv(estado, campo):
+    return estado.kv_obtener(f"ritmo:falsa:{campo}")
+
+
+@pytest.fixture
+def con_ritmo(config, estado, reloj, pausas):
+    f = crear_fuente(config, estado, reloj, pausas, ritmo=RITMO)
+    yield f
+    f.cerrar()
+
+
+@respx.mock
+def test_sin_bloqueos_el_intervalo_es_el_primero_y_se_consulta_siempre(con_ritmo, estado, reloj):
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    assert con_ritmo.ritmo_espera(reloj.momento) is None  # nunca se ha consultado
+    con_ritmo.ejecutar(lote(1))
+    assert kv(estado, "nivel") == "0"
+    reloj.momento += timedelta(minutes=30)
+    assert con_ritmo.ritmo_espera(reloj.momento) is None
+
+
+@respx.mock
+def test_un_bloqueo_sube_el_intervalo_y_la_corrida_adelantada_se_omite(con_ritmo, estado, reloj):
+    bloquear(con_ritmo)
+    assert kv(estado, "nivel") == "1" and kv(estado, "limpias") == "0"
+    reloj.momento += timedelta(hours=2)  # termina el cooldown
+    assert con_ritmo.ritmo_espera(reloj.momento) is None
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    con_ritmo.ejecutar(lote(1))
+    reloj.momento += timedelta(minutes=30)
+    assert con_ritmo.ritmo_espera(reloj.momento) == 60  # a los 30 min aún no toca
+    reloj.momento += timedelta(minutes=26)
+    assert con_ritmo.ritmo_espera(reloj.momento) is None  # 56 min: dentro de la tolerancia
+
+
+@respx.mock
+def test_la_tolerancia_absorbe_la_demora_del_timer(con_ritmo, estado, reloj):
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    con_ritmo.ejecutar(lote(1))
+    reloj.momento += timedelta(minutes=29)  # intervalo de 30 y tolerancia de 5
+    assert con_ritmo.ritmo_espera(reloj.momento) is None
+    estado.kv_guardar("ritmo:falsa:nivel", "1")
+    reloj.momento -= timedelta(minutes=5)  # 24 min contra 60 - 5
+    assert con_ritmo.ritmo_espera(reloj.momento) == 60
+
+
+@respx.mock
+def test_los_bloqueos_no_pasan_del_ultimo_nivel(con_ritmo, estado, reloj):
+    for _ in range(5):
+        bloquear(con_ritmo)
+        reloj.momento += timedelta(hours=24)
+    assert kv(estado, "nivel") == "2"
+
+
+@respx.mock
+def test_las_exitosas_seguidas_bajan_el_intervalo_un_nivel(con_ritmo, estado, reloj):
+    estado.kv_guardar("ritmo:falsa:nivel", "2")
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    con_ritmo.ejecutar(lote(2))  # 2 de las 3 necesarias
+    assert (kv(estado, "nivel"), kv(estado, "limpias")) == ("2", "2")
+    reloj.momento += timedelta(hours=2)
+    con_ritmo.ejecutar(lote(1))
+    assert (kv(estado, "nivel"), kv(estado, "limpias")) == ("1", "0")  # 120 → 60
+    reloj.momento += timedelta(minutes=30)
+    assert con_ritmo.ritmo_espera(reloj.momento) == 60
+
+
+@respx.mock
+def test_un_bloqueo_reinicia_el_conteo_de_exitosas(con_ritmo, estado):
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    con_ritmo.ejecutar(lote(2))
+    assert kv(estado, "limpias") == "0"  # en el primer nivel no hay nada que recuperar
+    estado.kv_guardar("ritmo:falsa:nivel", "1")
+    con_ritmo.ejecutar(lote(2))
+    assert kv(estado, "limpias") == "2"
+    bloquear(con_ritmo)
+    assert (kv(estado, "nivel"), kv(estado, "limpias")) == ("2", "0")
+
+
+@respx.mock
+def test_un_error_no_cuenta_como_exitosa_ni_reinicia(con_ritmo, estado):
+    estado.kv_guardar("ritmo:falsa:nivel", "1")
+    estado.kv_guardar("ritmo:falsa:limpias", "2")
+    respx.get(URL).mock(return_value=httpx.Response(503))
+    con_ritmo.ejecutar(lote(1))
+    assert (kv(estado, "nivel"), kv(estado, "limpias")) == ("1", "2")
+
+
+@respx.mock
+def test_el_dry_run_no_cambia_el_estado_del_ritmo(con_ritmo, estado):
+    con_ritmo.persistir_estado = False
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    con_ritmo.ejecutar(lote(2))
+    bloquear(con_ritmo)
+    assert [kv(estado, c) for c in ("nivel", "limpias", "ultima")] == [None, None, None]
+
+
+@respx.mock
+def test_sin_ritmo_configurado_no_se_omite_ni_se_guarda_nada(fuente, estado, reloj):
+    respx.get(URL).mock(return_value=httpx.Response(200, text=HTML_OK))
+    fuente.ejecutar(lote(1))
+    assert fuente.config.ritmo is None
+    assert fuente.ritmo_espera(reloj.momento) is None
+    assert kv(estado, "ultima") is None

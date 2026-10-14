@@ -21,6 +21,8 @@ red:
   accept_language: "es-CO,es;q=0.9,en;q=0.6"
   # Escalones de cooldown ante 429/999/403 o desafío anti-bot (1.º, 2.º y 3.º en adelante)
   cooldown_horas: [2, 6, 24]
+  # Tope del cooldown que pide la cabecera Retry-After de un bloqueo
+  retry_after_max_h: 24
   marcadores_desafio:
     - captcha
     - cf-chl
@@ -134,13 +136,38 @@ palabras_clave:
 fuentes:
   linkedin:
     activa: true
-    presupuesto: 3
-    reservado_nucleo: 2
+    # Una sola petición por corrida (dos si la primera página del núcleo viene llena)
+    presupuesto: 2
+    reservado_nucleo: 1
+    paginas_nucleo: 2
     filtra_nivel: true   # f_E=1,2: solo prácticas y nivel de entrada
+    # Pausa entre las dos páginas de una consulta (más larga que la global de red)
+    pausa_min_s: 20
+    pausa_max_s: 45
+    # Ritmo adaptativo: tras un bloqueo, intervalo mínimo entre peticiones de 30 → 60 → 120 min;
+    # baja un nivel tras limpias_para_bajar peticiones exitosas seguidas. La tolerancia absorbe
+    # la demora aleatoria del timer
+    ritmo:
+      intervalos_min: [30, 60, 120]
+      limpias_para_bajar: 12
+      tolerancia_min: 5
     opciones:
       location: Colombia
       f_E: "1,2"        # Prácticas y nivel de entrada
-      f_TPR: r86400     # Últimas 24 h
+      # Consultas combinadas. modo "or": varias palabras unidas por OR en una petición (el
+      # núcleo en una consulta; la cola larga, una por área); una corrida de cada cola_cada lee
+      # la cola larga. modo "simple": una palabra por petición, con presupuesto y
+      # reservado_nucleo (con ese modo conviene presupuesto: 2). orden: sortBy (DD = más
+      # recientes primero). La ventana de publicación (f_TPR) es el tiempo desde el último
+      # sondeo exitoso más margen_min, entre ventana_min_h y 24 h; con ventana_min_h: 24 se
+      # piden siempre las últimas 24 h
+      consulta:
+        modo: or
+        max_terminos: 14
+        cola_cada: 4
+        orden: DD
+        margen_min: 30
+        ventana_min_h: 2
       # Variantes de búsqueda: cada corrida usa una, en orden circular, sin gastar más
       # peticiones. Sus claves reemplazan a las de arriba; "modalidad" no se envía: es la que
       # se le pone a las vacantes porque el filtro de LinkedIn la garantiza (f_WT: 2 remoto,

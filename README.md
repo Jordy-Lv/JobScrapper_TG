@@ -98,6 +98,32 @@ de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat d
   en orden circular y sin gastar más peticiones: Colombia filtrando a remoto o híbrido (`f_WT`) y
   solo Cartagena con cualquier modalidad. Las vacantes de la primera salen con modalidad «Remoto
   o híbrido». Sin `variantes`, LinkedIn usa solo sus `opciones`.
+- **Peticiones de LinkedIn** (`fuentes.linkedin`): LinkedIn bloquea con HTTP 429 si se le piden
+  demasiadas búsquedas, así que se pide poco y bien aprovechado (~48 peticiones al día en lugar
+  de ~144):
+  - **Orden y ventana**: cada petición pide lo más reciente primero (`opciones.consulta.orden`,
+    `sortBy=DD`) y solo lo publicado desde el último sondeo exitoso de esa misma consulta y
+    variante, más `margen_min` (entre `ventana_min_h` y 24 h). Tras un cooldown o un apagado la
+    ventana crece sola y cubre el hueco.
+  - **Modo `or`** (`opciones.consulta.modo`, el normal): una sola petición por corrida con varias
+    palabras unidas por `OR` y entre comillas (hasta `max_terminos`). El núcleo va en una
+    consulta y la cola larga en una por área; una corrida de cada `cola_cada` lee un grupo de la
+    cola. La segunda página del núcleo se lee solo si la primera viene llena (10 vacantes), con
+    la pausa propia de la fuente (`pausa_min_s` y `pausa_max_s`, 20–45 s).
+  - **Modo `simple`**: una palabra clave por petición, como antes, con `presupuesto` y
+    `reservado_nucleo` (conviene `presupuesto: 2`). Sigue ordenando por fecha y usando la ventana
+    y el ritmo. Es el respaldo si LinkedIn deja de aceptar el `OR`.
+  - **Ritmo adaptativo** (`ritmo`): tras un bloqueo, el intervalo mínimo entre peticiones sube
+    (`intervalos_min`: 30 → 60 → 120 min) y baja un nivel tras `limpias_para_bajar` peticiones
+    exitosas seguidas. Una corrida que llega antes se omite y queda anotado «ritmo adaptado a N
+    min» (`tolerancia_min` absorbe la demora aleatoria del timer). Se suma al cooldown, no lo
+    reemplaza. Cualquier fuente puede activarlo con el mismo bloque `ritmo`.
+  - **`Retry-After`**: si el bloqueo trae la cabecera, el cooldown dura como mínimo eso (tope
+    `red.retry_after_max_h`).
+  - **Volver atrás**: `opciones.consulta.modo: simple` con `presupuesto: 2`, o quitar el bloque
+    `ritmo`; con `ventana_min_h: 24` se piden siempre las últimas 24 h. No hay migración de
+    base de datos: el estado nuevo (`ritmo:*` y `sondeo:*` en `kv`, `turno*` en `rotacion`) se
+    ignora si se revierte.
 - **Prompt del clasificador**: la caché de clasificaciones guarda un hash del prompt
   (`clasificaciones.version_prompt`); al cambiar el prompt, lo clasificado antes se vuelve a
   consultar.

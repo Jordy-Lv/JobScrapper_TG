@@ -193,10 +193,23 @@ systemctl --user start buscador.timer
 | Corrida manual | `systemctl --user start buscador.service` |
 | Resumen manual | `~/.local/bin/uv run buscador.py --dry-run resumen` |
 | Cooldowns vigentes | `sqlite3 data/vacantes.db "select * from fuentes_estado"` |
+| Peticiones de LinkedIn hoy y bloqueos | `sqlite3 data/vacantes.db "select count(*), sum(status=429) from intentos where fuente='linkedin' and ts >= date('now')"` |
+| Ritmo de LinkedIn (nivel, limpias, última petición) | `sqlite3 data/vacantes.db "select clave, valor from kv where clave like 'ritmo:%'"` |
 | Incidentes abiertos | `sqlite3 data/vacantes.db "select fuente, tipo, abierto_desde from incidentes where cerrado_en is null"` |
 | Últimas corridas (métricas) | `sqlite3 data/vacantes.db "select id, inicio, modo, crudas, enviadas, error from corridas order by id desc limit 10"` |
 | Desactivar una fuente | `activa: false` en `config.yaml` (efecto en la siguiente corrida) |
 | Ajustar filtros o palabras clave | editar `config.yaml`; probar con `--dry-run` |
+
+### Ritmo de LinkedIn
+
+LinkedIn hace una petición por corrida (~48 al día) y, tras un bloqueo, espacia sus consultas
+(30 → 60 → 120 min); una corrida adelantada lo deja anotado como «ritmo adaptado a N min».
+Detalles en la sección «Peticiones de LinkedIn» del `README.md`.
+
+- Si vuelven los 429, bajar el ritmo base en `config.yaml`: `ritmo.intervalos_min: [60, 120, 240]`.
+- Si LinkedIn deja de aceptar el `OR` (respuestas vacías o 400): `opciones.consulta.modo: simple`
+  y `presupuesto: 2`.
+- Para ver qué pidió: `grep linkedin logs/$(date +%F).log` (las consultas largas se recortan).
 
 ### Actualizar
 

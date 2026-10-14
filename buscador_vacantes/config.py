@@ -40,6 +40,8 @@ class Red(Modelo):
     user_agent: str
     accept_language: str = "es-CO,es;q=0.9"
     cooldown_horas: list[float] = Field(default_factory=lambda: [2, 6, 24], min_length=1)
+    # Tope del cooldown que pide la cabecera Retry-After de un bloqueo
+    retry_after_max_h: float = Field(24, gt=0)
     marcadores_desafio: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -47,6 +49,21 @@ class Red(Modelo):
         if self.pausa_max_s < self.pausa_min_s:
             raise ValueError("pausa_max_s debe ser mayor o igual que pausa_min_s")
         return self
+
+
+def _agrupar(terminos: list[str], max_terminos: int) -> list[str]:
+    """Une los términos en consultas ``"a" OR "b"``, de como máximo ``max_terminos`` cada una.
+
+    Si no caben en una, se reparten en partes iguales (16 con máximo 14 dan 8 y 8, no 14 y 2).
+    """
+    if not terminos:
+        return []
+    partes = -(-len(terminos) // max_terminos)
+    tamano = -(-len(terminos) // partes)
+    return [
+        " OR ".join(f'"{t.replace(chr(34), "")}"' for t in terminos[i : i + tamano])
+        for i in range(0, len(terminos), tamano)
+    ]
 
 
 class PalabrasClave(Modelo):
@@ -62,6 +79,49 @@ class PalabrasClave(Modelo):
                 vistas.setdefault(termino, None)
         return list(vistas)
 
+    def grupos_nucleo(self, max_terminos: int) -> list[str]:
+        """Consultas combinadas con OR del núcleo (sin repetidos)."""
+        return _agrupar(list(dict.fromkeys(self.nucleo)), max_terminos)
+
+    def grupos_cola(self, max_terminos: int) -> list[str]:
+        """Consultas combinadas con OR de la cola larga: una por área, partida si es muy larga.
+
+        Un término que ya salió en un área anterior no se repite en las siguientes.
+        """
+        vistos: set[str] = set()
+        grupos: list[str] = []
+        for terminos in self.cola_larga.values():
+            nuevos = [t for t in dict.fromkeys(terminos) if t not in vistos]
+            vistos.update(nuevos)
+            grupos += _agrupar(nuevos, max_terminos)
+        return grupos
+
+
+class Ritmo(Modelo):
+    """Ritmo adaptativo de una fuente: intervalo mínimo entre peticiones según los bloqueos."""
+
+    intervalos_min: list[float] = Field(default_factory=lambda: [30, 60, 120], min_length=1)
+    limpias_para_bajar: int = Field(12, ge=1)  # peticiones exitosas para bajar un nivel
+    tolerancia_min: float = Field(5, ge=0)  # absorbe la demora aleatoria del timer
+
+    @model_validator(mode="after")
+    def _creciente(self) -> Ritmo:
+        pares = zip(self.intervalos_min, self.intervalos_min[1:], strict=False)
+        if self.intervalos_min[0] <= 0 or any(b <= a for a, b in pares):
+            raise ValueError("intervalos_min debe ser una lista creciente de minutos positivos")
+        return self
+
+
+class ConsultaOpciones(Modelo):
+    """Opciones de ``opciones.consulta`` de LinkedIn: orden, ventana y consultas combinadas."""
+
+    modo: Literal["or", "simple"] = "or"  # or: varias palabras por petición; simple: una
+    max_terminos: int = Field(14, ge=1)  # términos por consulta combinada
+    cola_cada: int = Field(4, ge=2)  # una corrida de cada N lee la cola larga
+    orden: str = "DD"  # sortBy; vacío no lo envía
+    margen_min: float = Field(30, ge=0)  # se suma al tiempo desde el último sondeo
+    ventana_min_h: float = Field(2, gt=0, le=24)  # 24 vuelve a pedir siempre las últimas 24 h
+
 
 class Fuente(Modelo):
     activa: bool = True
@@ -70,7 +130,40 @@ class Fuente(Modelo):
     paginas_nucleo: int = Field(1, ge=1)  # páginas por palabra clave del núcleo
     filtra_nivel: bool = False  # la fuente ya filtra por nivel de experiencia
     nota: str | None = None
+    # Pausa entre peticiones propia de la fuente; sin ella rige la de ``red``
+    pausa_min_s: float | None = Field(None, ge=0)
+    pausa_max_s: float | None = Field(None, ge=0)
+    ritmo: Ritmo | None = None
     opciones: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def consulta(self) -> ConsultaOpciones | None:
+        """``opciones.consulta`` validada, o ``None`` si la fuente no la define."""
+        datos = self.opciones.get("consulta")
+        return None if datos is None else ConsultaOpciones.model_validate(datos)
+
+    @model_validator(mode="after")
+    def _pausas_propias(self) -> Fuente:
+        if (self.pausa_min_s is None) != (self.pausa_max_s is None):
+            raise ValueError("pausa_min_s y pausa_max_s se definen juntas")
+        if self.pausa_min_s is not None and self.pausa_max_s < self.pausa_min_s:
+            raise ValueError("pausa_max_s debe ser mayor o igual que pausa_min_s")
+        return self
+
+    @model_validator(mode="after")
+    def _consulta(self) -> Fuente:
+        if "consulta" in self.opciones:
+            if not isinstance(self.opciones["consulta"], dict):
+                raise ValueError("opciones.consulta debe ser un diccionario")
+            try:
+                self.consulta  # noqa: B018 - solo valida
+            except ValidationError as exc:
+                detalles = "; ".join(
+                    f"opciones.consulta.{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
+                    for e in exc.errors()
+                )
+                raise ValueError(detalles) from exc
+        return self
 
     @model_validator(mode="after")
     def _variantes(self) -> Fuente:

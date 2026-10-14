@@ -247,12 +247,40 @@ class Corrida:
                     resumen.omitidas[nombre] = f"en cooldown hasta {hasta.astimezone(ZONA):%H:%M}"
                     log.info("%s omitida: %s", nombre, resumen.omitidas[nombre])
                     continue
+                espera = fuente.ritmo_espera(self.reloj())
+                if espera:
+                    resumen.omitidas[nombre] = f"ritmo adaptado a {espera:g} min"
+                    log.info("%s omitida: %s", nombre, resumen.omitidas[nombre])
+                    continue
+                fuente.persistir_estado = not self.modo.dry_run
                 variantes = conf.opciones.get("variantes")
-                if variantes:
+                consulta = conf.consulta
+                combinada = (
+                    consulta is not None and consulta.modo == "or" and not fuente.consulta_fija
+                )
+                turno = None
+                if combinada:
+                    # Una petición por corrida con varias palabras unidas por OR: el turno elige
+                    # el grupo y la variante, y ambos avanzan al terminar
+                    paginas = conf.paginas_nucleo if fuente.soporta_paginas else 1
+                    grupos_nucleo = palabras.grupos_nucleo(consulta.max_terminos)
+                    grupos_cola = palabras.grupos_cola(consulta.max_terminos)
+                    turno = rotacion.calcular_turno(
+                        self.estado, nombre, grupos_nucleo, grupos_cola, len(variantes or []),
+                        consulta.cola_cada, paginas,
+                    )  # fmt: skip
+                    indice = turno.variante
+                elif variantes:
                     # La variante de la corrida sale de la rotación y avanza al terminar
-                    indice = rotacion.obtener_indice(self.estado, nombre, VARIANTE)
-                    fuente.variante = variantes[indice % len(variantes)]
-                if fuente.consulta_fija:
+                    indice = rotacion.obtener_indice(self.estado, nombre, VARIANTE) % len(variantes)
+                else:
+                    indice = 0
+                if variantes:
+                    fuente.variante = variantes[indice]
+                fuente.variante_id = indice
+                if turno:
+                    lote = turno.lote
+                elif fuente.consulta_fija:
                     # Fuente que no usa palabras clave: lee sus páginas más recientes
                     lote = [
                         rotacion.Consulta(fuente.consulta_fija, rotacion.NUCLEO, pagina)
@@ -269,12 +297,18 @@ class Corrida:
                     )  # fmt: skip
                 resultado = fuente.ejecutar(lote)
                 # El dry-run no mueve la rotación de producción; la consulta fija no rota
-                if not self.modo.dry_run and not fuente.consulta_fija:
-                    rotacion.avanzar_lote(
-                        self.estado, nombre, resultado.ejecutadas, len(nucleo), len(cola)
-                    )
-                if variantes and not self.modo.dry_run and resultado.ejecutadas:
-                    rotacion.avanzar(self.estado, nombre, VARIANTE, 1, len(variantes))
+                if not self.modo.dry_run:
+                    if turno:
+                        rotacion.avanzar_turno(
+                            self.estado, nombre, turno, resultado.ejecutadas, len(grupos_nucleo),
+                            len(grupos_cola), len(variantes or []), consulta.cola_cada,
+                        )  # fmt: skip
+                    elif not fuente.consulta_fija:
+                        rotacion.avanzar_lote(
+                            self.estado, nombre, resultado.ejecutadas, len(nucleo), len(cola)
+                        )
+                    if variantes and not turno and resultado.ejecutadas:
+                        rotacion.avanzar(self.estado, nombre, VARIANTE, 1, len(variantes))
                 resumen.resultados.append(resultado)
                 vacantes.extend(resultado.vacantes)
             except Exception:  # noqa: BLE001 - una fuente rota no detiene a las demás

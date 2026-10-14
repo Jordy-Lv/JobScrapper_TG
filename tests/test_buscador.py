@@ -11,7 +11,7 @@ from buscador_vacantes import rotacion
 from buscador_vacantes.config import Fuente as ConfFuente
 from buscador_vacantes.config import Secretos, cargar_configuracion
 from buscador_vacantes.corrida import Corrida, Modo, es_sin_red
-from buscador_vacantes.estado import Estado, EstadoNoInicializado
+from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto
 from buscador_vacantes.fechas import ZONA
 from buscador_vacantes.fuentes.base import Fuente, Intento, Peticion, TipoError
 from buscador_vacantes.ia_cliente import RespuestaIA
@@ -499,6 +499,140 @@ def test_fuente_sin_variantes_no_toca_la_rotacion_de_variantes(config, estado):
     corrida(config, estado).ejecutar()
     existe = estado.cx.execute("SELECT 1 FROM rotacion WHERE grupo = 'variante'").fetchone()
     assert existe is None
+
+
+def config_combinada(config, consulta=None, ritmo=None, **campos):
+    variantes = [{"v": "a"}, {"v": "b"}]
+    opciones = {"variantes": variantes, "consulta": {"modo": "or", **(consulta or {})}}
+    fuentes = {
+        "falsa": ConfFuente(
+            presupuesto=2, reservado_nucleo=1, opciones=opciones, ritmo=ritmo, **campos
+        )
+    }
+    return config.model_copy(update={"fuentes": fuentes})
+
+
+def consultas_pedidas(ruta):
+    return [llamada.request.url.params["q"] for llamada in ruta.calls]
+
+
+@respx.mock
+def test_modo_or_hace_una_sola_peticion_con_la_consulta_combinada(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    resumen = corrida(
+        config_combinada(config), estado, fuentes={"falsa": FuenteConVariantes}
+    ).ejecutar()
+    assert ruta.call_count == 1
+    [consulta] = consultas_pedidas(ruta)
+    assert consulta.count(" OR ") == 13 and consulta.startswith('"practicante sistemas" OR ')
+    assert [(c.grupo, c.pagina) for c in resumen.resultados[0].ejecutadas] == [("nucleo", 1)]
+
+
+@respx.mock
+def test_modo_or_alterna_variantes_y_lee_la_cola_en_la_cuarta_corrida(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    conf = config_combinada(config, {"cola_cada": 4})
+    for _ in range(8):
+        corrida(conf, estado, fuentes={"falsa": FuenteConVariantes}).ejecutar()
+    nucleo, cola, *_ = consultas_pedidas(ruta)[0], consultas_pedidas(ruta)[3]
+    assert cola.startswith('"desarrollador junior" OR ')  # el primer grupo de la cola larga
+    assert consultas_pedidas(ruta) == [nucleo] * 3 + [cola] + [nucleo] * 3 + [cola]
+    # Núcleo y cola llevan su propio contador de variantes: a, b, a | b, a, b | y la cola a, b
+    assert variantes_pedidas(ruta) == ["a", "b", "a", "a", "b", "a", "b", "b"]
+    assert rotacion.obtener_indice(estado, "falsa", "variante") == 0  # no se usa en este modo
+
+
+@respx.mock
+def test_modo_simple_conserva_el_comportamiento_por_palabra_clave(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    conf = config_combinada(config, {"modo": "simple"})
+    for _ in range(2):
+        corrida(conf, estado, fuentes={"falsa": FuenteConVariantes}).ejecutar()
+    assert consultas_pedidas(ruta) == [
+        "practicante sistemas", "desarrollador junior",
+        "practicante TI", "programador junior",
+    ]  # fmt: skip
+    assert variantes_pedidas(ruta) == ["a", "a", "b", "b"]
+    assert rotacion.obtener_indice(estado, "falsa", "variante") == 0
+
+
+@respx.mock
+def test_fuente_sin_seccion_consulta_conserva_el_comportamiento_anterior(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    corrida(config_con_variantes(config), estado, fuentes={"falsa": FuenteConVariantes}).ejecutar()
+    assert consultas_pedidas(ruta) == ["practicante sistemas", "desarrollador junior"]
+
+
+@respx.mock
+def test_modo_or_en_dry_run_no_mueve_ninguna_rotacion_ni_ritmo(config, estado):
+    ruta = mock_ofertas()
+    conf = config_combinada(config, ritmo={"intervalos_min": [30, 60]})
+    for _ in range(2):
+        corrida(conf, estado, Modo(dry_run=True), fuentes={"falsa": FuenteConVariantes}).ejecutar()
+    assert variantes_pedidas(ruta) == ["a", "a"]
+    assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0
+    claves = estado.cx.execute("SELECT clave FROM kv WHERE clave LIKE 'ritmo:%'").fetchall()
+    assert claves == []
+
+
+@respx.mock
+def test_modo_or_no_avanza_si_la_fuente_estaba_en_cooldown(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    estado.cx.execute(
+        "INSERT INTO fuentes_estado(fuente, cooldown_hasta, escalon, fallos_consecutivos) "
+        "VALUES ('falsa', ?, 0, 1)",
+        (a_texto(AHORA + timedelta(hours=1)),),
+    )
+    resumen = corrida(
+        config_combinada(config), estado, fuentes={"falsa": FuenteConVariantes}
+    ).ejecutar()
+    assert not ruta.called and "cooldown" in resumen.omitidas["falsa"]
+    assert estado.cx.execute("SELECT COUNT(*) FROM rotacion").fetchone()[0] == 0
+
+
+class FuenteOtra(FuenteFalsa):
+    nombre = "otra"
+
+
+RITMO = {"intervalos_min": [30, 60, 120], "tolerancia_min": 5}
+
+
+@respx.mock
+def test_ritmo_adaptado_omite_la_fuente_y_deja_el_motivo(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    fuentes_conf = {
+        "falsa": ConfFuente(presupuesto=1, reservado_nucleo=1, ritmo=RITMO),
+        "otra": ConfFuente(presupuesto=1, reservado_nucleo=1),
+    }
+    conf = config.model_copy(update={"fuentes": fuentes_conf})
+    estado.kv_guardar("ritmo:falsa:nivel", "1")  # un bloqueo previo: cada 60 min
+    estado.kv_guardar("ritmo:falsa:ultima", a_texto(AHORA - timedelta(minutes=30)))
+    resumen = corrida(conf, estado, fuentes={"falsa": FuenteFalsa, "otra": FuenteOtra}).ejecutar()
+    assert resumen.omitidas == {"falsa": "ritmo adaptado a 60 min"}
+    assert ruta.call_count == 1  # solo la otra fuente consultó
+    assert [r.fuente for r in resumen.resultados] == ["otra"]
+    # Omitir no avanza ninguna rotación ni mueve el ritmo
+    assert estado.cx.execute("SELECT 1 FROM rotacion WHERE fuente='falsa'").fetchone() is None
+    assert estado.kv_obtener("ritmo:falsa:ultima") == a_texto(AHORA - timedelta(minutes=30))
+
+
+@respx.mock
+def test_ritmo_cumplido_consulta_y_anota_la_peticion(config, estado):
+    estado.marcar_inicializada()
+    ruta = mock_ofertas()
+    conf = config.model_copy(update={"fuentes": {
+        "falsa": ConfFuente(presupuesto=1, reservado_nucleo=1, ritmo=RITMO)}})  # fmt: skip
+    estado.kv_guardar("ritmo:falsa:nivel", "1")
+    estado.kv_guardar("ritmo:falsa:ultima", a_texto(AHORA - timedelta(minutes=56)))
+    resumen = corrida(conf, estado).ejecutar()
+    assert ruta.call_count == 1 and not resumen.omitidas
+    assert estado.kv_obtener("ritmo:falsa:ultima") == a_texto(AHORA)
 
 
 class IAAceptaComoPracticas(IAFalsa):
