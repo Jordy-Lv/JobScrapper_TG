@@ -169,11 +169,12 @@ fuentes:
         margen_min: 30
         ventana_min_h: 2
       # Variantes de búsqueda: cada corrida usa una, en orden circular, sin gastar más
-      # peticiones. Sus claves reemplazan a las de arriba; "modalidad" no se envía: es la que
-      # se le pone a las vacantes porque el filtro de LinkedIn la garantiza (f_WT: 2 remoto,
-      # 3 híbrido). Sin variantes, se usan solo las opciones de arriba
+      # peticiones. Sus claves reemplazan a las de arriba. Todo el país y solo la ciudad base.
+      # No sirve filtrar por modalidad (f_WT): la API pública de LinkedIn lo ignora y las
+      # tarjetas no dicen la modalidad, así que en otra ciudad solo pasa lo que dice "remoto"
+      # en el título o la ubicación. Sin variantes, se usan solo las opciones de arriba
       variantes:
-        - {location: Colombia, f_WT: "2,3", modalidad: "Remoto o híbrido"}
+        - {location: Colombia}
         - {location: "Cartagena, Bolívar, Colombia"}
   computrabajo:
     activa: true

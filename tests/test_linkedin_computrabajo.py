@@ -72,55 +72,38 @@ def test_linkedin_pagina_dos_empieza_en_la_tarjeta_diez(entorno):
     assert [fuente.construir_peticion("x", p).params["start"] for p in (1, 2, 3)] == [0, 10, 20]
 
 
-def test_linkedin_config_real_trae_dos_variantes(entorno):
+def test_linkedin_config_real_trae_dos_variantes_sin_filtro_de_modalidad(entorno):
     config, _ = entorno
     variantes = config.fuentes["linkedin"].opciones["variantes"]
     assert [v["location"] for v in variantes] == ["Colombia", "Cartagena, Bolívar, Colombia"]
-    assert variantes[0]["f_WT"] == "2,3" and "f_WT" not in variantes[1]
+    # LinkedIn ignora f_WT en su API pública: no se usa ni se supone una modalidad
+    assert all(set(v) == {"location"} for v in variantes)
 
 
-def test_linkedin_variante_remoto_o_hibrido_en_colombia(entorno):
+def test_linkedin_variante_cambia_la_ubicacion_de_la_peticion(entorno):
     fuente = crear(LinkedIn, entorno)
-    fuente.variante = entorno[0].fuentes["linkedin"].opciones["variantes"][0]
-    peticion = fuente.construir_peticion("practicante sistemas")
-    assert peticion.params == {
-        "keywords": "practicante sistemas", "location": "Colombia", "f_E": "1,2",
-        "f_TPR": "r86400", "f_WT": "2,3", "sortBy": "DD", "start": 0,
-    }  # fmt: skip
-
-
-def test_linkedin_variante_ciudad_base(entorno):
-    fuente = crear(LinkedIn, entorno)
-    fuente.variante = entorno[0].fuentes["linkedin"].opciones["variantes"][1]
+    fuente.variante = {"location": "Cartagena, Bolívar, Colombia"}
     params = fuente.construir_peticion("practicante sistemas").params
     assert params["location"] == "Cartagena, Bolívar, Colombia"
-    assert "f_WT" not in params and "modalidad" not in params
+    assert params["f_E"] == "1,2" and "f_WT" not in params
 
 
-def test_linkedin_variante_remoto_o_hibrido_pone_la_modalidad(entorno):
-    fuente = crear(LinkedIn, entorno)
-    fuente.variante = entorno[0].fuentes["linkedin"].opciones["variantes"][0]
-    vacantes = fuente.parsear(respuesta("linkedin_busqueda.html"), "kw", AHORA)
-    assert len(vacantes) == 10
-    assert {v.modalidad for v in vacantes} == {"Remoto o híbrido"}
+def test_linkedin_nunca_inventa_la_modalidad(entorno):
+    for variante in (None, {"location": "Colombia"}, {"location": "Cartagena, Bolívar"}):
+        fuente = crear(LinkedIn, entorno)
+        fuente.variante = variante
+        vacantes = fuente.parsear(respuesta("linkedin_busqueda.html"), "kw", AHORA)
+        assert len(vacantes) == 10
+        assert {v.modalidad for v in vacantes} == {None}
 
 
-def test_linkedin_variante_ciudad_base_deja_la_modalidad_vacia(entorno):
-    fuente = crear(LinkedIn, entorno)
-    fuente.variante = entorno[0].fuentes["linkedin"].opciones["variantes"][1]
-    vacantes = fuente.parsear(respuesta("linkedin_busqueda.html"), "kw", AHORA)
-    assert {v.modalidad for v in vacantes} == {None}
-
-
-def test_linkedin_variante_remoto_o_hibrido_pasa_el_filtro_geografico(entorno):
+def test_linkedin_en_otra_ciudad_sin_modalidad_se_rechaza(entorno):
     from buscador_vacantes.filtros import Filtros
 
-    fuente = crear(LinkedIn, entorno)
-    fuente.variante = entorno[0].fuentes["linkedin"].opciones["variantes"][0]
-    vacante = fuente.parsear(respuesta("linkedin_busqueda.html"), "kw", AHORA)[0]
+    vacante = crear(LinkedIn, entorno).parsear(respuesta("linkedin_busqueda.html"), "kw", AHORA)[0]
     vacante.titulo, vacante.ubicacion = "Practicante de Sistemas", "Bogotá, Distrito Capital"
     evaluacion = Filtros(entorno[0].filtros).evaluar(vacante, AHORA)
-    assert evaluacion.veredicto == "aceptar"
+    assert (evaluacion.veredicto, evaluacion.motivo) == ("rechazar", "presencial_fuera")
 
 
 # --- LinkedIn: ventana de publicación, sondeos y segunda página --------------------------------

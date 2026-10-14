@@ -180,7 +180,6 @@
   titulo: DBA Oracle Middle Bilingüe
   empresa: FactorlT
   ubicacion: Colombia
-  modalidad: Remoto o híbrido
   esperado: {veredicto: rechazar, motivo: seniority}
 
 # --- Guardarraíl de la categoría prácticas ----------------------------------------------------
@@ -226,8 +225,8 @@
   fuente: linkedin
   titulo: Software Engineer Intern
   empresa: Sezzle
-  ubicacion: Colombia
-  modalidad: Remoto o híbrido
+  ubicacion: Cartagena, Bolívar
+  modalidad: Presencial
   esperado: {veredicto: aceptar, categoria: practicas}
   final: practicas
 
@@ -268,13 +267,22 @@
   esperado: {veredicto: aceptar, categoria: practicas}
   final: practicas
 
-- caso: Programador junior de LinkedIn por la variante remoto o híbrido
+# LinkedIn no dice la modalidad en sus tarjetas ni respeta el filtro f_WT: una oferta de otra
+# ciudad sin descripción se rechaza. Este caso salió publicado como «Remoto o híbrido» y en
+# LinkedIn es «Presencial»
+- caso: Analista de desarrollo web presencial en Bogotá, visto en LinkedIn
+  fuente: linkedin
+  titulo: Analista Desarrollo Web Proyecto 6 Meses
+  empresa: "Los Olivos Bogotá: Un Homenaje al Amor"
+  ubicacion: Bogotá, Distrito Capital, Colombia
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+
+- caso: Programador junior de LinkedIn en otra ciudad, sin modalidad
   fuente: linkedin
   titulo: Programador Junior- Data Engineering
   empresa: Inetum
   ubicacion: Bogotá, Distrito Capital, Colombia
-  modalidad: Remoto o híbrido
-  esperado: {veredicto: aceptar, categoria: desarrollo}
+  esperado: {veredicto: rechazar, motivo: presencial_fuera}
 
 - caso: DevOps junior híbrido en Medellín
   fuente: computrabajo
@@ -284,12 +292,11 @@
   modalidad: Híbrido
   esperado: {veredicto: aceptar, categoria: infraestructura}
 
-- caso: DBA junior remoto
+- caso: DBA junior de LinkedIn con «Remote» en el título
   fuente: linkedin
-  titulo: DBA SQL Junior
+  titulo: DBA SQL Junior - Remote Work
   empresa: DB System
   ubicacion: Colombia
-  modalidad: Remoto o híbrido
   esperado: {veredicto: aceptar, categoria: bases_datos}
 
 - caso: Desarrollador junior en la ciudad base
@@ -331,5 +338,4 @@
   titulo: Junior SDET - Remote Work
   empresa: BairesDev
   ubicacion: Colombia
-  modalidad: Remoto o híbrido
   esperado: {veredicto: dudosa}

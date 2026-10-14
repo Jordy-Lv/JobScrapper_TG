@@ -16,7 +16,7 @@ El dueño vive en Cartagena: una vacante presencial solo le sirve si es en Carta
   - Las de otra ciudad de Colombia solo pasan si son remotas o híbridas.
   - Si no se sabe la modalidad, decide la IA, que solo acepta si hay un indicio de remoto o híbrido. Sin descripción no hay con qué decidir y se rechaza sin llamar a la IA.
   - Lo remoto en Colombia o LATAM sigue igual. **BREAKING** para el alcance «cualquier ciudad de Colombia».
-- **LinkedIn por modalidad:** con el mismo presupuesto de peticiones, LinkedIn alterna entre buscar en Colombia filtrando a remoto o híbrido (`f_WT`) y buscar solo en Cartagena, con cualquier modalidad.
+- **LinkedIn por ciudad base:** con el mismo presupuesto de peticiones, LinkedIn alterna entre buscar en toda Colombia y buscar solo en Cartagena. No filtra por modalidad: la API pública de LinkedIn ignora `f_WT` y sus tarjetas no dicen la modalidad.
 - **Soporte de call center solo si es remoto:**
   - Un título de atención o soporte al cliente («asesor/a de soporte», «agente de soporte», «call center»…) se rechaza si no es remoto, aunque sea en Cartagena.
   - Si no se sabe la modalidad, decide la IA exigiendo un indicio de remoto.

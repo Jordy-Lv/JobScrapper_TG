@@ -82,15 +82,15 @@ La función es `Filtros.guardarrail_practicas(vacante) -> Correccion | None`:
 El prompt se reescribe con las reglas del spec: hasta 1 año, salario solo como apoyo, modalidad exigida y sin excepción para el SENA genérico. Se suben los `TOKENS_POR_VACANTE` solo si las pruebas muestran respuestas cortadas.
 
 ### 9. Variantes de LinkedIn mediante la rotación existente
-`fuentes.linkedin.opciones.variantes` es una lista de dicts con parámetros de petición y una `modalidad` opcional. Ejemplo:
+`fuentes.linkedin.opciones.variantes` es una lista de dicts con parámetros de petición. Ejemplo:
 
 ```yaml
 variantes:
-  - {location: Colombia, f_WT: "2,3", modalidad: "Remoto o híbrido"}
+  - {location: Colombia}
   - {location: "Cartagena, Bolívar, Colombia"}
 ```
 
-`Corrida._consultar` lee el índice con `rotacion.obtener_indice(estado, "linkedin", "variante")`, se lo pasa a la fuente (`fuente.variante = ...`) y avanza el índice al final. La fuente combina la variante con sus `opciones` en `construir_peticion` y aplica su `modalidad` en `parsear`. Si `variantes` no existe, el comportamiento es el actual: así se mantiene la compatibilidad y las pruebas existentes.
+`Corrida._consultar` lee el índice con `rotacion.obtener_indice(estado, "linkedin", "variante")`, se lo pasa a la fuente (`fuente.variante = ...`) y avanza el índice al final. La fuente combina la variante con sus `opciones` en `construir_peticion`. Si `variantes` no existe, el comportamiento es el actual: así se mantiene la compatibilidad y las pruebas existentes.
 
 *Alternativa descartada*: alternar la variante por petición dentro de la misma corrida. Con 3 peticiones repartiría mal las palabras clave del núcleo.
 
@@ -111,8 +111,8 @@ Columnas nuevas:
 ## Risks / Trade-offs
 
 - [Caída fuerte del volumen publicado: LinkedIn sin descripción y Computrabajo sin modalidad pierden muchas vacantes de otras ciudades] → Es el comportamiento pedido. El resumen diario muestra cuántas descarta cada regla. Si una fuente queda casi vacía, se evalúa pedir el detalle en un change aparte.
-- [Remotas que el portal no marca como remotas y que no traen descripción se rechazan] → Se acepta. La variante remoto o híbrido de LinkedIn y las etiquetas de Computrabajo cubren la mayoría.
-- [LinkedIn podría ignorar `f_WT` o cambiar sus valores] → Una prueba con fixture verifica el parámetro enviado. Si LinkedIn deja de filtrar, la modalidad «Remoto o híbrido» sería falsa. Mitigación: en la verificación manual (tarea 8) se revisa una muestra real.
+- [Remotas que el portal no marca como remotas y que no traen descripción se rechazan] → Se acepta. Las etiquetas de Computrabajo cubren la mayoría; en LinkedIn solo pasan las que dicen «remoto» en el título o la ubicación.
+- [LinkedIn ignora el filtro de modalidad `f_WT`] → Comprobado el 2026-10-14: la API pública devuelve las mismas ofertas con `f_WT=2,3`, con `f_WT=1` y sin filtro. Una primera versión marcaba como «Remoto o híbrido» todo lo de esa variante y dejó pasar una oferta presencial; se quitó. Las tarjetas de LinkedIn no traen la modalidad: para recuperar las remotas habría que pedir el detalle de cada oferta, en un change aparte.
 - [Más llamadas a la IA por las dudosas de modalidad] → Solo pasan las que traen descripción. El presupuesto diario `ia.presupuesto_dia` sigue limitando, y la caché por versión evita repetir.
 - [Conflictos al unir con `asistente-postulacion-telegram` en `config.yaml`, `corrida.py` y `resumen.py`] → Los cambios de esa rama son en otras secciones (asistente, destino de avisos). Se resuelven al integrar; se anota en tasks.
 - [Un falso negativo de la ciudad base, por ejemplo «Bolívar» sin ciudad] → La lista es configurable. «Bolívar» solo no cuenta como base, para no aceptar Magangué presencial.

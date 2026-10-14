@@ -2,20 +2,24 @@
 
 ## ADDED Requirements
 
-### Requirement: Búsqueda de LinkedIn por modalidad y ciudad base
+### Requirement: Búsqueda de LinkedIn por ciudad base
 La fuente LinkedIn SHALL alternar sus peticiones entre variantes de búsqueda configurables, sin aumentar el presupuesto de peticiones por corrida. Por defecto hay dos variantes:
-- **Colombia remoto o híbrido**: ubicación Colombia, filtrada a remoto o híbrido.
-- **Ciudad base**: ubicación Cartagena, con cualquier modalidad.
+- **Colombia**: ubicación Colombia.
+- **Ciudad base**: ubicación Cartagena.
 
-La variante se elige en orden circular entre corridas y su posición MUST persistir entre corridas. Las vacantes de la variante «Colombia remoto o híbrido» MUST normalizarse con modalidad «Remoto o híbrido», porque el filtro de la propia fuente la garantiza. Las de la variante «Ciudad base» MUST quedar con la modalidad vacía si la tarjeta no la indica.
+La variante se elige en orden circular entre corridas y su posición MUST persistir entre corridas. La fuente MUST NOT asignar una modalidad que no conoce: la API pública de LinkedIn ignora el filtro de modalidad (`f_WT`) y sus tarjetas no indican la modalidad, así que las vacantes de LinkedIn quedan con la modalidad vacía salvo que el título o la ubicación la digan.
 
 #### Scenario: Variantes alternadas
-- **WHEN** la corrida N usa la variante «Colombia remoto o híbrido»
+- **WHEN** la corrida N usa la variante «Colombia»
 - **THEN** la corrida N+1 usa la variante «Ciudad base»
 
-#### Scenario: Modalidad desde el filtro
-- **WHEN** una vacante llega por la variante «Colombia remoto o híbrido» con ubicación "Bogotá, Distrito Capital"
-- **THEN** su modalidad normalizada es «Remoto o híbrido» y pasa el filtro geográfico
+#### Scenario: Sin modalidad inventada
+- **WHEN** una vacante llega de LinkedIn con ubicación "Bogotá, Distrito Capital, Colombia" y sin «remoto» en el título
+- **THEN** su modalidad queda vacía y, sin descripción, se rechaza por presencial fuera de la ciudad base
+
+#### Scenario: Remoto dicho en el título
+- **WHEN** una vacante de LinkedIn se titula "Junior QA Engineer - Remote Work" y su ubicación es "Colombia"
+- **THEN** se trata como remota y pasa el filtro geográfico
 
 #### Scenario: Presupuesto sin cambios
 - **WHEN** LinkedIn tiene un presupuesto de 3 peticiones por corrida

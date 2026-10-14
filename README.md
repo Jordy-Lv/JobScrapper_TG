@@ -95,9 +95,10 @@ de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat d
   - Una práctica cuya descripción y título no tienen ningún término de TI se rechaza sin llamar
     a la IA. Sin descripción no se rechaza: la decide la IA.
 - **Variantes de LinkedIn** (`fuentes.linkedin.opciones.variantes`): cada corrida usa una variante,
-  en orden circular y sin gastar más peticiones: Colombia filtrando a remoto o híbrido (`f_WT`) y
-  solo Cartagena con cualquier modalidad. Las vacantes de la primera salen con modalidad «Remoto
-  o híbrido». Sin `variantes`, LinkedIn usa solo sus `opciones`.
+  en orden circular y sin gastar más peticiones: toda Colombia y solo Cartagena. LinkedIn no
+  filtra por modalidad (ignora `f_WT`) ni la dice en sus tarjetas, así que en otra ciudad solo
+  pasan las ofertas que dicen «remoto» en el título o la ubicación. Sin `variantes`, LinkedIn
+  usa solo sus `opciones`.
 - **Peticiones de LinkedIn** (`fuentes.linkedin`): LinkedIn bloquea con HTTP 429 si se le piden
   demasiadas búsquedas, así que se pide poco y bien aprovechado (~48 peticiones al día en lugar
   de ~144):
