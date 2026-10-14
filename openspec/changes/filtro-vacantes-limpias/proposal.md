@@ -56,7 +56,7 @@ Ninguna.
 ## Impact
 
 - **Código:**
-  - `buscador_vacantes/filtros.py`: ciudad base, modalidad, call center, lista negra, prácticas sin TI y guardarraíl.
+  - `buscador_vacantes/radar/filtros.py`: ciudad base, modalidad, call center, lista negra, prácticas sin TI y guardarraíl.
   - `clasificador.py`: datos que recibe la IA, versión del prompt y guardarraíl tras la IA.
   - `corrida.py`: nuevos descartes y el conteo de correcciones.
   - `config.py`: nuevos campos validados con pydantic.

@@ -216,31 +216,41 @@ JobScrapper_TG/
 │   ├── certs/                      # Certificado intermedio del SPE (TLS)
 │   ├── fuentes/                    # Tipografías oficiales para generación de PDF (Liberation Sans)
 │   └── selectores/                 # Selectores dinámicos JSON para Computrabajo y Magneto
-├── buscador_vacantes/              # Núcleo del sistema
-│   ├── corrida.py                  # Orquestador del flujo y CLI del buscador
-│   ├── filtros.py                  # Reglas deterministas de filtrado (seniority, áreas, nivel)
-│   ├── clasificador.py             # Clasificación de vacantes dudosas con DeepSeek
-│   ├── estado.py                   # Persistencia en SQLite (data/vacantes.db)
-│   ├── formato.py                  # Generación de mensajes HTML para Telegram
-│   ├── publicacion.py              # Envío al canal y control de encabezados
-│   ├── reportero.py                # Diagnóstico y reporte automático de incidentes
-│   ├── resumen.py                  # Generador de métricas y resumen diario
-│   ├── fuentes/                    # Conectores modulares por portal
-│   │   ├── base.py                 # Clase abstracta e interfaz de fuentes
-│   │   ├── computrabajo.py         # Conector Computrabajo
-│   │   ├── elempleo.py             # Conector El Empleo
-│   │   ├── getonboard.py           # Conector GetOnBoard
-│   │   ├── linkedin.py             # Conector LinkedIn
-│   │   ├── magneto.py              # Conector Magneto
-│   │   └── spe.py                  # Conector Servicio Público de Empleo
+├── buscador_vacantes/              # Núcleo del sistema (comun ← asistente ← radar)
+│   ├── comun/                      # Infraestructura compartida
+│   │   ├── config.py               # Carga y validación de config.yaml y .env
+│   │   ├── estado.py               # Persistencia en SQLite (data/vacantes.db)
+│   │   ├── modelo.py               # Modelo de vacante
+│   │   ├── normalizar.py           # Normalización de texto
+│   │   ├── fechas.py               # Fechas y zona horaria
+│   │   ├── registro.py             # Registro (logs)
+│   │   └── lock.py                 # Bloqueo de corridas simultáneas
+│   ├── radar/                      # Buscador de vacantes y su publicación
+│   │   ├── corrida.py              # Orquestador del flujo y CLI del buscador
+│   │   ├── filtros.py              # Reglas deterministas de filtrado (seniority, áreas, nivel)
+│   │   ├── clasificador.py         # Clasificación de vacantes dudosas con DeepSeek
+│   │   ├── ia_cliente.py           # Cliente de DeepSeek del radar
+│   │   ├── notificador_telegram.py # Envío por la Bot API de Telegram
+│   │   ├── formato.py              # Generación de mensajes HTML para Telegram
+│   │   ├── publicacion.py          # Envío al canal y control de encabezados
+│   │   ├── reportero.py            # Diagnóstico y reporte automático de incidentes
+│   │   ├── resumen.py              # Generador de métricas y resumen diario
+│   │   └── fuentes/                # Conectores modulares por portal
+│   │       ├── base.py             # Clase abstracta e interfaz de fuentes
+│   │       ├── computrabajo.py     # Conector Computrabajo
+│   │       ├── elempleo.py         # Conector El Empleo
+│   │       ├── getonboard.py       # Conector GetOnBoard
+│   │       ├── linkedin.py         # Conector LinkedIn
+│   │       ├── magneto.py          # Conector Magneto
+│   │       └── spe.py              # Conector Servicio Público de Empleo
 │   └── asistente/                  # Plataforma del Copiloto de Postulación
 │       ├── bot.py                  # Bot interactivo multiusuario de Telegram
 │       ├── api.py                  # API FastAPI para la extensión (Tailscale Funnel)
 │       ├── cv_pdf.py               # Renderizado del CV adaptado en PDF ATS (fpdf2)
 │       ├── cv_adaptado.py          # Lógica de alineación sin inventar datos
 │       ├── respuestas.py           # Cascada inteligente de resolución de preguntas
-│       ├── gemini.py               # Integración segura con Google Gemini
-│       ├── cifrado.py              # Cifrado AES-GCM para credenciales de usuario
+│       ├── ia/                     # Proveedores de IA del usuario (Gemini, OpenAI, Anthropic)
+│       ├── cifrado.py              # Cifrado de credenciales de usuario
 │       └── cola.py                 # Orquestación de la cola de postulaciones
 ├── extension/                      # Extensión de navegador Manifest V3
 │   ├── manifest.json               # Manifiesto de la extensión
@@ -250,7 +260,7 @@ JobScrapper_TG/
 │   └── adaptadores/                # Adaptadores por portal (Computrabajo, Magneto)
 ├── deploy/                         # Unidades systemd y guías de despliegue en servidor
 ├── docs/                           # Especificaciones técnicas de referencia
-└── tests/                          # Suite integral de pruebas (pytest + respx)
+└── tests/                          # Suite de pruebas (pytest + respx): comun/, radar/ y asistente/
 ```
 
 ---

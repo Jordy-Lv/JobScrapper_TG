@@ -36,10 +36,10 @@ Ninguna.
 ## Impact
 
 - **Código:**
-  - `buscador_vacantes/fuentes/linkedin.py`: `sortBy` y construcción de la consulta combinada.
-  - `buscador_vacantes/fuentes/base.py`: `Retry-After` y pausa propia de la fuente.
-  - `buscador_vacantes/rotacion.py` y `corrida.py`: lote por turnos de grupos de palabras y chequeo del ritmo.
-  - `buscador_vacantes/config.py`: campos nuevos con valores por defecto.
+  - `buscador_vacantes/radar/fuentes/linkedin.py`: `sortBy` y construcción de la consulta combinada.
+  - `buscador_vacantes/radar/fuentes/base.py`: `Retry-After` y pausa propia de la fuente.
+  - `buscador_vacantes/radar/rotacion.py` y `corrida.py`: lote por turnos de grupos de palabras y chequeo del ritmo.
+  - `buscador_vacantes/comun/config.py`: campos nuevos con valores por defecto.
   - El estado nuevo (sondeos, ritmo) usa la tabla `kv` que ya existe: sin cambios en `estado.py`.
 - **Configuración:** `config.yaml` (`fuentes.linkedin`: modo de consulta, tamaño de grupos, ritmo adaptativo, pausas propias; la cola larga ya está agrupada por área).
 - **Datos:** sin migración de esquema; solo claves nuevas en `kv` y `rotacion`.

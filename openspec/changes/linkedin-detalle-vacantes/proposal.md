@@ -38,7 +38,7 @@ Ninguna.
 ## Impact
 
 - **Código:**
-  - `buscador_vacantes/fuentes/base.py` y `fuentes/linkedin.py`: lectura del detalle.
+  - `buscador_vacantes/radar/fuentes/base.py` y `fuentes/linkedin.py`: lectura del detalle.
   - `filtros.py`: nuevo resultado «pendiente de detalle» y confirmación por IA.
   - `corrida.py`: cola de detalle y reevaluación.
   - `estado.py`: esquema 3.

@@ -51,7 +51,7 @@
   - «Trainee de Sistemas» en Cartagena → aceptar en prácticas;
   - «Junior SDET - Remote Work» → aceptar.
 
-  Escribir `tests/test_casos_reales.py`, que evalúa cada caso con `Filtros` y el guardarraíl. Verificar que pasa.
+  Escribir `tests/radar/test_casos_reales.py`, que evalúa cada caso con `Filtros` y el guardarraíl. Verificar que pasa.
 - [x] 6.2 Correr la suite completa (`.venv/Scripts/python -m pytest`) y `ruff check`. Verificar que todo pasa, salvo las 3 pruebas propias de Windows que ya fallaban.
 
 ## 7. Documentación (🟢)

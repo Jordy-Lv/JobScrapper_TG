@@ -2,7 +2,7 @@
 
 Ver `proposal.md` (Why). Estado actual del código en `main`, que es lo que corre producción en `~/buscador-vacantes`:
 
-- `Filtros.evaluar()` (`buscador_vacantes/filtros.py`) aplica, en orden: seniority, antigüedad, geografía (`_geografia`), aceptación (TI en el título + nivel) y rechazo «no TI». Las prácticas nunca se rechazan aquí: siempre pasan a la IA.
+- `Filtros.evaluar()` (`buscador_vacantes/radar/filtros.py`) aplica, en orden: seniority, antigüedad, geografía (`_geografia`), aceptación (TI en el título + nivel) y rechazo «no TI». Las prácticas nunca se rechazan aquí: siempre pasan a la IA.
 - `_geografia()` acepta cualquier lugar de Colombia. Solo mira la modalidad para saber si es remota.
 - El campo `modalidad` lo llenan Computrabajo, elempleo y GetOnBoard. Magneto y SPE lo llenan solo cuando es remoto. LinkedIn nunca lo llena.
 - La descripción la traen elempleo, Magneto, SPE y GetOnBoard. **LinkedIn y Computrabajo no la traen.**
