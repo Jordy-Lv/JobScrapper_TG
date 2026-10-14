@@ -36,6 +36,6 @@
 ## 7. Verificación y despliegue (👤 con apoyo)
 
 - [ ] 7.1 Ejecutar `uv run buscador.py --dry-run` en una copia aparte del Fedora, con una copia de `data/vacantes.db` y sin tocar `~/buscador-vacantes`. Verificar que lista las ofertas de LinkedIn que irían a detalle y no hace ninguna petición de detalle.
-- [ ] 7.2 👤 Con el visto bueno del dueño: respaldar `data/vacantes.db` en el Fedora, unir `linkedin-detalle-vacantes` a `main` y hacer `git pull --ff-only` en `~/buscador-vacantes`. Verificar en el log de la siguiente corrida que la base quedó en el esquema 3, que se pidieron detalles y que no hubo bloqueos.
+- [x] 7.2 👤 Con el visto bueno del dueño: respaldar `data/vacantes.db` en el Fedora, unir `linkedin-detalle-vacantes` a `main` y hacer `git pull --ff-only` en `~/buscador-vacantes`. Verificar en el log de la siguiente corrida que la base quedó en el esquema 3, que se pidieron detalles y que no hubo bloqueos.
 - [ ] 7.3 👤 Revisar el grupo y el resumen diario durante 2 o 3 días. Verificar que llegan ofertas remotas de LinkedIn, que ninguna presencial de otra ciudad se cuela, que la cola no crece sin tope y que el 429 no se repite; si se bloquea, bajar `max_por_corrida`.
 - [ ] 7.4 🟢 Archivar este change después de `filtro-vacantes-limpias` y `linkedin-peticiones-eficientes`. Sus deltas usan `ADDED` y complementan specs que solo existen al archivar esos changes. Verificar que `openspec archive linkedin-detalle-vacantes` termina sin rechazos.
