@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>APOLO TI</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="cabecera">
+    <div class="marca"><img src="iconos/128.png" alt=""></div>
+    <div class="titulo">
+      <h1>APOLO TI</h1>
+      <p class="lema">Asistente de postulación</p>
+    </div>
+    <button id="opciones" class="boton-icono" type="button" title="Opciones" aria-label="Opciones de la extensión">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M19.4 13.5a7.4 7.4 0 0 0 0-3l2-1.3-1.5-2.6-2.3.8a7.4 7.4 0 0 0-2.6-1.5l-.4-2.4h-3l-.4 2.4a7.4 7.4 0 0 0-2.6 1.5l-2.3-.8-1.5 2.6 2 1.3a7.4 7.4 0 0 0 0 3l-2 1.3 1.5 2.6 2.3-.8a7.4 7.4 0 0 0 2.6 1.5l.4 2.4h3l.4-2.4a7.4 7.4 0 0 0 2.6-1.5l2.3.8 1.5-2.6z"/></svg>
+    </button>
+    <button id="pausar" class="neon" type="button" hidden>
+      <svg class="icono-pausa" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="4" width="4" height="16" rx="2"/><rect x="14.5" y="4" width="4" height="16" rx="2"/></svg>
+      <svg class="icono-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.6v14.8a1 1 0 0 0 1.53.85l11.8-7.4a1 1 0 0 0 0-1.7L8.53 3.75A1 1 0 0 0 7 4.6z"/></svg>
+    </button>
+  </header>
+
+  <div id="conexion" class="conexion" hidden>
+    <span class="punto"></span>
+    <p id="linea" class="linea"><span id="linea-texto">Midiendo…</span><span id="ping" class="ping"></span></p>
+    <button id="recargar" class="recargar" type="button" title="Recargar la conexión" aria-label="Recargar la conexión">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+    </button>
+  </div>
+
+  <section id="sin-vincular" class="bloque" hidden>
+    <p>Vincula este navegador desde el bot con <b>/vincular</b>, o escribe aquí el código que te dio:</p>
+    <form id="form-codigo" class="codigo">
+      <input id="codigo" maxlength="9" placeholder="ABCD-2345" autocomplete="off" spellcheck="false" required>
+      <button type="submit">Vincular</button>
+    </form>
+    <p id="mensaje-codigo" class="mensaje"></p>
+  </section>
+
+  <p id="actual" class="aviso trabajando" hidden></p>
+  <p id="actualizar" class="aviso alerta" hidden>Hay una versión nueva de la extensión. Actualízala para seguir postulando.</p>
+
+  <div class="seccion"><span>Portales</span></div>
+  <ul id="portales" class="portales"></ul>
+  <p class="nota">Inicias sesión en la página de cada portal; la extensión nunca ve tu contraseña.</p>
+
+  <footer class="pie">
+    <p id="ultima" class="ultima"></p>
+    <button id="boton-chat" class="boton-chat" type="button" title="Telegram" aria-label="Abrir el bot o el grupo de Telegram" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.9 4.3 3.3 11.6c-1 .4-1 1.9.1 2.2l4.3 1.3 1.6 5.1c.3.9 1.4 1.1 2 .4l2.4-2.6 4.5 3.3c.8.6 2 .2 2.2-.8l3-14.2c.3-1.2-1-2.1-2.1-1.7z"/></svg>
+    </button>
+  </footer>
+  <div id="panel-chat" class="panel-chat" hidden>
+    <div class="fondo-chat"></div>
+    <div class="tarjeta-chat" role="dialog" aria-label="Comunidad de Telegram">
+      <div class="cab-chat">
+        <span class="ico-tg"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.9 4.3 3.3 11.6c-1 .4-1 1.9.1 2.2l4.3 1.3 1.6 5.1c.3.9 1.4 1.1 2 .4l2.4-2.6 4.5 3.3c.8.6 2 .2 2.2-.8l3-14.2c.3-1.2-1-2.1-2.1-1.7z"/></svg></span>
+        <span class="tit-chat">Comunidad de Telegram</span>
+        <button id="cerrar-chat" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <p class="sub-chat">Acceso oficial a Telegram:</p>
+      <button id="ir-bot" class="fila-chat" type="button">
+        <span class="ico-fila bot">🤖</span>
+        <span class="info-fila"><b>Bot del asistente</b><small>Vincular navegador y subir CV</small></span>
+        <span class="accion-fila">Abrir ↗</span>
+      </button>
+      <button id="ir-grupo" class="fila-chat" type="button">
+        <span class="ico-fila grupo">📣</span>
+        <span class="info-fila"><b>Grupo de vacantes</b><small>Canal oficial de vacantes TI y prácticas</small></span>
+        <span class="accion-fila">Unirse ↗</span>
+      </button>
+    </div>
+  </div>
+  <div id="vista-portal" class="vista-portal" hidden>
+    <div class="vp-cab">
+      <button id="vp-volver" class="vp-volver" type="button" aria-label="Volver">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+      <span id="vp-titulo" class="vp-titulo">Portal</span>
+    </div>
+    <div id="vp-banner" class="vp-banner">
+      <div class="vp-logo"><img id="vp-logo-img" src="" alt=""></div>
+      <div class="vp-info">
+        <h2 id="vp-nombre"></h2>
+        <div class="vp-tags">
+          <span class="pill info">Portal de empleo</span>
+          <span id="vp-sesion" class="pill"></span>
+        </div>
+      </div>
+    </div>
+    <div class="vp-acciones">
+      <button id="vp-pausar" class="vp-accion ambar" type="button">Pausar</button>
+      <button id="vp-olvidar" class="vp-accion rojo" type="button">Olvidar cuenta</button>
+      <button id="vp-abrir" class="vp-accion" type="button">Abrir web</button>
+    </div>
+    <details id="vp-detalle" class="vp-detalle">
+      <summary>Detalles de la cuenta</summary>
+      <p id="vp-detalle-cuerpo" class="nota"></p>
+    </details>
+    <h3 class="vp-sub">Configuración del portal</h3>
+    <label class="vp-fila">
+      <span class="vp-fila-texto"><b>Postular automáticamente</b><small>Aplica sola cuando la vacante coincide</small></span>
+      <span class="interruptor"><input id="vp-automatico" type="checkbox"><span class="pista"></span></span>
+    </label>
+    <label class="vp-fila">
+      <span class="vp-fila-texto"><b>Afinidad mínima</b><small>Filtro propio de este portal</small></span>
+      <select id="vp-umbral">
+        <option value="">La general</option>
+        <option value="50">Baja (50 %+)</option>
+        <option value="70">Media (70 %+)</option>
+        <option value="85">Alta (85 %+)</option>
+      </select>
+    </label>
+    <label class="vp-fila">
+      <span class="vp-fila-texto"><b>Avisar en Telegram</b><small>Ficha de confirmación de cada envío</small></span>
+      <span class="interruptor"><input id="vp-avisar" type="checkbox"><span class="pista"></span></span>
+    </label>
+    <p id="vp-mensaje" class="nota"></p>
+    <p class="nota">La extensión nunca ve ni guarda tu contraseña.</p>
+  </div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

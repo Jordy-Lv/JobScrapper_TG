@@ -1,0 +1,201 @@
+{
+  "version": "2026.10.06-2",
+  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (data-href-offer-apply), botón Postulado (already-applied-btn) y enlace de acceso (js_login). Las páginas con sesión (match, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Con sesión (2026-10-05): [data-info-user] muestra el nombre del candidato; el correo está en candidato.co.computrabajo.com/candidate/home dentro de .header_popup strong; el enlace Ingresar (span.js_login) queda oculto. Postulación real (2026-10-05, postulación 4): la página de 'Preguntas de selección' manda a un formulario en /candidate/kq (KillerQuestions[]) cuyo botón de envío es <input id=\"btnKiller\" type=\"submit\"> sin texto (motor.js no leía el value de los <input>, se corrigió); se agregó input#btnKiller como respaldo directo. Revisión 2026-10-05 (postulaciones 6 y 7): las preguntas de selección marcan lo obligatorio con data-rule-required/data-val-requiredif (no con required); la pregunta de los radios está en un <label class='fs16'> fuera del div.group. Con el correo de la cuenta marcado como incorrecto ('Email incorrecto') o sin verificar ('Tu cuenta está pendiente de verificar'), el enlace de Aplicar redirige a /candidate/home (?uvma=true) y no postula. La página de una postulación ya hecha (/match/) se titula 'Aplicación enviada …' y dice 'Ya aplicaste a esta oferta'. Enviar las preguntas recarga la página: el paso enviar navega. Piloto 2026-10-06 (postulaciones 12 a 14, con encuesta): tras pulsar 'Enviar mi HdV' el formulario /candidate/kq seguía en pantalla 25 s después; se reporta como no enviado.",
+  "verificado": {
+    "vacante": true,
+    "postulacion": false,
+    "cuenta": true,
+    "perfil": false
+  },
+  "url_registro": "https://candidato.co.computrabajo.com/acceso/",
+  "sesion": {
+    "url_sin_sesion": [
+      "candidato.co.computrabajo.com/acceso"
+    ],
+    "sin_sesion": [
+      "a.js_login[data-access-menu]",
+      "a[href*='candidato.co.computrabajo.com/acceso']"
+    ],
+    "iniciada": [
+      "[data-info-user]"
+    ],
+    "url": "https://co.computrabajo.com/"
+  },
+  "cuenta": {
+    "urls": [
+      "https://candidato.co.computrabajo.com/candidate/home"
+    ],
+    "correo": [
+      ".header_popup strong",
+      "[data-candidate-email]",
+      "input[type='email']"
+    ],
+    "nota": "si ninguna URL muestra el correo, la extensión sigue los enlaces 'Mi cuenta', 'Mi perfil'… del portal y reporta en qué ruta lo encontró (pagina_correo) para fijarla aquí"
+  },
+  "perfil": {
+    "url": "https://candidato.co.computrabajo.com/candidate/cv/",
+    "secciones": {},
+    "completar": []
+  },
+  "cv": {
+    "modo": "adjunto",
+    "nota": "modo real por verificar en 3.1 (perfil_unico o perfil_multiple); los pasos cv_subir y cv_verificar se agregan entonces"
+  },
+  "captcha": [
+    "iframe[src*='recaptcha/api2/bframe']",
+    "iframe[src*='hcaptcha.com'][title*='challenge' i]",
+    "iframe[src*='challenges.cloudflare.com']"
+  ],
+  "textos": {
+    "confirmacion": [
+      "te has postulado",
+      "postulacion realizada",
+      "has aplicado",
+      "tu hoja de vida fue enviada",
+      "tu hdv ha sido enviada",
+      "postulacion enviada",
+      "aplicacion enviada",
+      "ya diste el primer paso",
+      "puedes seguir el proceso en mis aplicaciones",
+      "aplicaste"
+    ],
+    "ya_postulado": [
+      "ya te postulaste",
+      "ya aplicaste a esta oferta",
+      "ya estas inscrito"
+    ],
+    "cerrada": [
+      "oferta ya no esta disponible",
+      "esta oferta ha finalizado",
+      "oferta caducada",
+      "la oferta no existe"
+    ],
+    "verificacion": [
+      "verifica que eres humano",
+      "no soy un robot"
+    ],
+    "confirmacion_titulo": [
+      "aplicacion enviada"
+    ],
+    "correo_incorrecto": [
+      "tenemos problemas para enviar emails",
+      "email incorrecto"
+    ],
+    "cuenta_sin_verificar": [
+      "tu cuenta esta pendiente de verificar",
+      "verifica tu cuenta"
+    ]
+  },
+  "postular": [
+    {
+      "nombre": "revisar_vacante",
+      "accion": "detectar",
+      "casos": [
+        {
+          "selector": [
+            "a[already-applied-btn]:not(.hide)"
+          ],
+          "resultado": "ya_postulada"
+        },
+        {
+          "texto": "cerrada",
+          "resultado": "vacante_cerrada"
+        }
+      ]
+    },
+    {
+      "nombre": "aplicar",
+      "accion": "ir",
+      "selector": [
+        "a[data-href-offer-apply]"
+      ],
+      "atributo": "data-href-offer-apply",
+      "envia": true
+    },
+    {
+      "nombre": "revisar_postulacion",
+      "accion": "detectar",
+      "ms": 4000,
+      "casos": [
+        {
+          "texto": "ya_postulado",
+          "resultado": "ya_postulada"
+        },
+        {
+          "texto": "confirmacion",
+          "resultado": "enviada"
+        },
+        {
+          "texto": "correo_incorrecto",
+          "resultado": "bloqueada",
+          "motivo": "portal_correo_incorrecto"
+        },
+        {
+          "texto": "cuenta_sin_verificar",
+          "resultado": "bloqueada",
+          "motivo": "portal_cuenta_sin_verificar"
+        },
+        {
+          "url": [
+            "/candidate/home"
+          ],
+          "resultado": "bloqueada",
+          "motivo": "portal_redirige_inicio"
+        }
+      ]
+    },
+    {
+      "nombre": "preguntas",
+      "accion": "formulario",
+      "contenedor": [
+        "form#kqForm",
+        "form[action*='/candidate/kq']"
+      ],
+      "opcional": true
+    },
+    {
+      "nombre": "enviar",
+      "accion": "enviar",
+      "selector": [
+        "input#btnKiller",
+        {
+          "css": "form#kqForm button[type='submit'], form[action*='/candidate/kq'] button[type='submit']",
+          "texto": "postularme"
+        }
+      ],
+      "navega": true,
+      "errores": [
+        ".field-validation-error",
+        "span.field-validation-error"
+      ]
+    },
+    {
+      "nombre": "confirmar",
+      "accion": "confirmar",
+      "ms": 25000,
+      "casos": [
+        {
+          "texto": "correo_incorrecto",
+          "resultado": "bloqueada",
+          "motivo": "portal_correo_incorrecto"
+        },
+        {
+          "texto": "cuenta_sin_verificar",
+          "resultado": "bloqueada",
+          "motivo": "portal_cuenta_sin_verificar"
+        },
+        {
+          "url": [
+            "/candidate/home"
+          ],
+          "resultado": "bloqueada",
+          "motivo": "portal_redirige_inicio"
+        }
+      ],
+      "no_enviado": [
+        "form#kqForm",
+        "form[action*='/candidate/kq']"
+      ]
+    }
+  ]
+}

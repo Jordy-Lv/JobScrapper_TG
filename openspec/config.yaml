@@ -27,6 +27,15 @@ context: |
   Claude Code" o cualquier atribución a Claude, Anthropic u otro asistente.
   Ver CLAUDE.md.
 
+# Guía al aplicar tareas: ver "Regla: clasificar la dificultad de cada tarea" en CLAUDE.md
+operations:
+  apply:
+    guidance:
+      - Antes de cada tarea, clasificarla como ligera, media, pesada o del dueño (ver CLAUDE.md).
+      - Si la tarea es pesada, recomendar limpiar el contexto (/clear) o seguir en una sesión nueva, antes de empezarla y al terminarla.
+      - Marcar [x] en tasks.md lo terminado antes de cortar la sesión, con las pruebas en verde.
+      - Al terminar cada tarea, recomendar por iniciativa propia si lo siguiente va en una sesión nueva o aquí, con el motivo y, si es sesión nueva, un mensaje listo para pegar (ver "Regla: recomendar siempre cuándo pasar a una sesión nueva" en CLAUDE.md).
+
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
 # Example:

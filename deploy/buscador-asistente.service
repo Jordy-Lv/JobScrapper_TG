@@ -1,0 +1,17 @@
+[Unit]
+Description=Asistente de postulación (bot de Telegram, API para la extensión y tareas)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/buscador-vacantes
+ExecStart=%h/.local/bin/uv run --frozen --group asistente buscador.py asistente servicio
+Restart=on-failure
+RestartSec=30
+Nice=5
+Environment=PYTHONUNBUFFERED=1
+SyslogIdentifier=buscador-asistente
+
+[Install]
+WantedBy=default.target

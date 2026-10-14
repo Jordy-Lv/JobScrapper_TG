@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -371,9 +372,10 @@ class Operacion(Modelo):
     timeout_corrida_min: float = Field(25, gt=0)
 
 
-TareaGemini = Literal[
+NombreTarea = Literal[
     "leer_cv", "requisitos", "adaptar_cv", "carta", "responder", "clasificar_pregunta"
 ]
+ProtocoloIA = Literal["gemini", "openai", "anthropic"]
 
 
 class AsistenteApi(Modelo):
@@ -445,6 +447,16 @@ class AsistenteDetalle(Modelo):
     cache_h: float = Field(24, gt=0)
 
 
+class AsistenteMensajesEfimeros(Modelo):
+    """Mensajes que el bot manda al tocar «Ver respuestas» o «De qué trata»: se borran solos
+    tras el tiempo que toma leerlos y no se pueden repetir mientras siguen en pantalla."""
+
+    lectura_min_s: float = Field(25, gt=0)
+    lectura_max_s: float = Field(120, gt=0)
+    caracteres_por_s: float = Field(14, gt=0)  # ≈ 170 palabras por minuto
+    max_por_min: int = Field(6, ge=1)  # envíos de estos botones por usuario y minuto
+
+
 class TareaIA(Modelo):
     modelo: str = Field(min_length=1)
     temperatura: float = Field(0.3, ge=0, le=2)
@@ -455,16 +467,38 @@ class TareaIA(Modelo):
     respaldo: list[str] = Field(default_factory=list)
 
 
-class AsistenteGemini(Modelo):
-    base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+class ProveedorIA(Modelo):
+    """Un proveedor del catálogo: el usuario elige uno y trae su propia clave."""
+
+    protocolo: ProtocoloIA
+    nombre: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    url_clave: str = Field(min_length=1)  # dónde obtener la clave
+    pasos_clave: str = Field(min_length=1)  # texto que el bot muestra al elegirlo
+    gratuito: bool = False  # tiene plan gratuito (el bot solo lo dice si es verdadero)
+    acepta_pdf: bool = False  # admite el PDF en línea (CV escaneado)
     timeout_s: float = Field(60, gt=0)
-    tareas: dict[TareaGemini, TareaIA]
+    tareas: dict[NombreTarea, TareaIA]
 
     @model_validator(mode="after")
-    def _todas_las_tareas(self) -> AsistenteGemini:
-        faltantes = sorted(set(TareaGemini.__args__) - set(self.tareas))
+    def _completo(self) -> ProveedorIA:
+        if not self.base_url.startswith("https://"):
+            raise ValueError("base_url debe empezar por https://")
+        faltantes = sorted(set(NombreTarea.__args__) - set(self.tareas))
         if faltantes:
-            raise ValueError(f"faltan tareas de Gemini: {', '.join(faltantes)}")
+            raise ValueError(f"faltan tareas de IA: {', '.join(faltantes)}")
+        return self
+
+
+class AsistenteIA(Modelo):
+    proveedores: dict[str, ProveedorIA] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _identificadores(self) -> AsistenteIA:
+        # El id viaja en datos de botones de Telegram (máx. 64 bytes) y en la base de datos
+        for id_ in self.proveedores:
+            if not re.fullmatch(r"[a-z0-9_]{1,24}", id_):
+                raise ValueError(f"id de proveedor inválido: {id_!r} (a-z, 0-9 y _; máx. 24)")
         return self
 
 
@@ -492,8 +526,9 @@ class Asistente(Modelo):
     retencion_dias: int = Field(90, ge=1)
     evidencia_dias: int = Field(30, ge=1)
     detalle: AsistenteDetalle = Field(default_factory=AsistenteDetalle)
+    mensajes_efimeros: AsistenteMensajesEfimeros = Field(default_factory=AsistenteMensajesEfimeros)
     preguntas_tipicas: dict[str, list[str]] = Field(default_factory=dict)
-    gemini: AsistenteGemini
+    ia: AsistenteIA
 
     @model_validator(mode="after")
     def _activo_completo(self) -> Asistente:
@@ -535,6 +570,7 @@ class Secretos(BaseModel):
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     telegram_chat_prueba: str | None = None
+    telegram_chat_admin: str | None = None  # grupo de resúmenes y avisos; vacío: el de ofertas
     deepseek_api_key: str | None = None
     healthcheck_url: str | None = None
     asistente_bot_token: str | None = None
@@ -630,6 +666,7 @@ def cargar_secretos(
         telegram_bot_token=leer("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=leer("TELEGRAM_CHAT_ID"),
         telegram_chat_prueba=leer("TELEGRAM_CHAT_PRUEBA"),
+        telegram_chat_admin=leer("TELEGRAM_CHAT_ADMIN"),
         deepseek_api_key=leer("DEEPSEEK_API_KEY"),
         healthcheck_url=leer("HEALTHCHECK_URL"),
         asistente_bot_token=leer("ASISTENTE_BOT_TOKEN"),
