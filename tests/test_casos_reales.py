@@ -21,8 +21,13 @@ CASOS = yaml.safe_load(FIXTURE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
-def filtros():
-    return Filtros(cargar_configuracion().filtros)
+def config():
+    return cargar_configuracion()
+
+
+@pytest.fixture(scope="module")
+def filtros(config):
+    return Filtros(config.filtros)
 
 
 def crear_vacante(caso: dict) -> Vacante:
@@ -41,15 +46,17 @@ def crear_vacante(caso: dict) -> Vacante:
 
 
 def test_el_fixture_trae_unos_treinta_casos():
-    assert 25 <= len(CASOS) <= 45
+    assert 25 <= len(CASOS) <= 50
     assert len({c["caso"] for c in CASOS}) == len(CASOS)
 
 
 @pytest.mark.parametrize("caso", CASOS, ids=[c["caso"] for c in CASOS])
-def test_caso_real(filtros, caso):
+def test_caso_real(config, filtros, caso):
     vacante = crear_vacante(caso)
     esperado = caso["esperado"]
-    evaluacion = filtros.evaluar(vacante, AHORA)
+    detalle = config.fuentes[caso["fuente"]].detalle
+    permite_detalle = bool(detalle and detalle.activo)  # LinkedIn pide el detalle de la oferta
+    evaluacion = filtros.evaluar(vacante, AHORA, permite_detalle=permite_detalle)
     assert evaluacion.veredicto == Veredicto(esperado["veredicto"]), evaluacion
     if "motivo" in esperado:
         assert evaluacion.motivo == esperado["motivo"], evaluacion
@@ -74,3 +81,27 @@ def test_caso_real(filtros, caso):
     else:
         publicada = "rechazar" if correccion.rechaza else correccion.nueva.value
     assert publicada == final, correccion
+
+
+CON_DETALLE = [c for c in CASOS if "con_detalle" in c]
+
+
+def test_hay_casos_con_detalle():
+    assert {c["titulo"] for c in CON_DETALLE} >= {
+        "Analista Desarrollo Web Proyecto 6 Meses",
+        "Software Engineer Intern",
+        "Programador Junior- Data Engineering",
+    }
+
+
+@pytest.mark.parametrize("caso", CON_DETALLE, ids=[c["caso"] for c in CON_DETALLE])
+def test_caso_real_tras_leer_el_detalle(filtros, caso):
+    """La oferta pendiente se evalúa de nuevo con la descripción que trae su detalle."""
+    vacante = crear_vacante(caso)
+    detalle = caso["con_detalle"]
+    vacante.descripcion = detalle["descripcion"].strip()
+    esperado = detalle["esperado"]
+    evaluacion = filtros.evaluar(vacante, AHORA, permite_detalle=True)
+    assert evaluacion.veredicto == Veredicto(esperado["veredicto"]), evaluacion
+    assert evaluacion.motivo == esperado["motivo"], evaluacion
+    assert evaluacion.exige_modalidad == esperado.get("exige_modalidad"), evaluacion

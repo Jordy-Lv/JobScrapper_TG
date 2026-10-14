@@ -445,3 +445,132 @@ def test_guardarrail_ignora_las_demas_categorias(filtros):
     vacante = con_categoria("Programador Staff CELLS", categoria=Categoria.DESARROLLO)
     assert filtros.guardarrail_practicas(vacante) is None
     assert filtros.guardarrail_practicas(con_categoria("Programador", categoria=None)) is None
+
+
+# --- Ofertas pendientes de detalle ---
+
+
+def vac_linkedin(titulo, ubicacion="Colombia", descripcion=None):
+    vacante = vac(titulo, ubicacion, None, descripcion)
+    vacante.fuente = "linkedin"
+    return vacante
+
+
+def evaluar_con_detalle(filtros, vacante):
+    return filtros.evaluar(vacante, AHORA, permite_detalle=True)
+
+
+def test_remota_de_otra_ciudad_queda_pendiente_de_detalle(filtros):
+    vacante = vac_linkedin("Software Engineer Intern", "Colombia")
+    evaluacion = evaluar_con_detalle(filtros, vacante)
+    assert (evaluacion.veredicto, evaluacion.motivo) == (D, Motivo.PENDIENTE_DETALLE)
+    assert evaluacion.exige_modalidad == "remoto_o_hibrido"
+    # Sin detalle, todo sigue como hoy
+    hoy = filtros.evaluar(vacante, AHORA, permite_detalle=False)
+    assert (hoy.veredicto, hoy.motivo) == (R, Motivo.PRESENCIAL_FUERA)
+
+
+def test_titulo_sin_ti_se_rechaza_sin_pedir_detalle(filtros):
+    evaluacion = evaluar_con_detalle(filtros, vac_linkedin("Cajera Sur de Bogotá", "Bogotá"))
+    assert (evaluacion.veredicto, evaluacion.motivo) == (R, Motivo.NO_TI)
+
+
+def test_seniority_del_titulo_se_rechaza_sin_pedir_detalle(filtros):
+    evaluacion = evaluar_con_detalle(filtros, vac_linkedin("Desarrollador Java Senior", "Bogotá"))
+    assert (evaluacion.veredicto, evaluacion.motivo) == (R, Motivo.SENIORITY)
+
+
+def test_oferta_antigua_o_de_lista_negra_no_pide_detalle(filtros):
+    antigua = vac_linkedin("Practicante de Sistemas", "Bogotá")
+    antigua.publicada = AHORA - timedelta(days=30)
+    assert evaluar_con_detalle(filtros, antigua).motivo == Motivo.ANTIGUEDAD
+
+
+def test_call_center_sin_modalidad_queda_pendiente(filtros):
+    vacante = vac_linkedin("Agente de soporte técnico", "Cartagena, Bolívar")
+    evaluacion = evaluar_con_detalle(filtros, vacante)
+    assert (evaluacion.veredicto, evaluacion.motivo) == (D, Motivo.PENDIENTE_DETALLE)
+    assert evaluacion.exige_modalidad == "remoto"
+    hoy = filtros.evaluar(vacante, AHORA)
+    assert (hoy.veredicto, hoy.motivo) == (R, Motivo.CALL_CENTER)
+
+
+@pytest.mark.parametrize("ubicacion", ["Bogotá (Presencial)", "Medellín, Antioquia, en sitio"])
+def test_lo_declarado_presencial_se_rechaza_sin_detalle(filtros, ubicacion):
+    evaluacion = evaluar_con_detalle(filtros, vac_linkedin("Practicante de Sistemas", ubicacion))
+    assert (evaluacion.veredicto, evaluacion.motivo) == (R, Motivo.PRESENCIAL_FUERA)
+
+
+def test_remoto_en_el_titulo_o_ciudad_base_no_pide_detalle(filtros):
+    remoto = evaluar_con_detalle(filtros, vac_linkedin("Practicante de Sistemas (Remoto)"))
+    assert (remoto.veredicto, remoto.motivo) == (A, Motivo.ACEPTADA)
+    base = evaluar_con_detalle(filtros, vac_linkedin("Practicante de Sistemas", "Cartagena"))
+    assert (base.veredicto, base.motivo) == (A, Motivo.ACEPTADA)
+
+
+def test_fuera_de_colombia_se_rechaza_sin_detalle(filtros):
+    vacante = vac_linkedin("Practicante de Sistemas", "Lima, Perú")
+    assert evaluar_con_detalle(filtros, vacante).motivo == Motivo.UBICACION
+
+
+def test_con_descripcion_ya_no_queda_pendiente(filtros):
+    vacante = vac_linkedin("Practicante de Sistemas", "Medellín", "Analizarás datos de ventas.")
+    evaluacion = evaluar_con_detalle(filtros, vacante)
+    assert (evaluacion.veredicto, evaluacion.motivo) == (D, Motivo.DUDOSA)
+    assert evaluacion.exige_modalidad == "remoto_o_hibrido"
+
+
+def test_detalle_que_dice_presencial_no_acepta_por_reglas(filtros):
+    vacante = vac_linkedin(
+        "Analista Desarrollo Web Proyecto 6 Meses", "Bogotá", "El trabajo es presencial en oficina."
+    )
+    evaluacion = evaluar_con_detalle(filtros, vacante)
+    # La descripción nunca prueba lo presencial: va a la IA con la condición, que la rechaza
+    assert (evaluacion.veredicto, evaluacion.exige_modalidad) == (D, "remoto_o_hibrido")
+
+
+# --- La modalidad que solo sale del detalle la confirma la IA ---
+
+
+@pytest.mark.parametrize(
+    ("ubicacion", "descripcion"),
+    [
+        ("Bogotá", "Esta posición es 100% remota para toda Colombia."),
+        ("Medellín", "Trabajo híbrido, dos días en oficina."),
+    ],
+)
+def test_remoto_o_hibrido_solo_en_la_descripcion_va_a_la_ia(filtros, ubicacion, descripcion):
+    vacante = vac_linkedin("Practicante de Sistemas", ubicacion, descripcion)
+    evaluacion = evaluar_con_detalle(filtros, vacante)
+    assert (evaluacion.veredicto, evaluacion.motivo) == (D, Motivo.DUDOSA)
+    assert evaluacion.exige_modalidad == "remoto_o_hibrido"
+    # Sin detalle (otras fuentes), las reglas lo siguen aceptando
+    assert filtros.evaluar(vacante, AHORA).veredicto == A
+
+
+def test_call_center_remoto_solo_en_la_descripcion_exige_remoto(filtros):
+    vacante = vac_linkedin(
+        "Agente de soporte técnico Junior", "Cartagena, Bolívar", "Trabajo desde casa."
+    )
+    evaluacion = evaluar_con_detalle(filtros, vacante)
+    assert (evaluacion.veredicto, evaluacion.exige_modalidad) == (D, "remoto")
+    assert filtros.evaluar(vacante, AHORA).veredicto == A
+
+
+def test_remoto_sin_pais_solo_en_la_descripcion_tambien_va_a_la_ia(filtros):
+    vacante = vac_linkedin("Practicante de Sistemas", "Medellín", "Modalidad remota.")
+    assert evaluar_con_detalle(filtros, vacante).exige_modalidad == "remoto_o_hibrido"
+
+
+def test_remoto_en_la_ubicacion_o_el_portal_no_cambia(filtros):
+    vacante = vac("Desarrollador Junior", "Bogotá", "Remoto")
+    vacante.fuente = "linkedin"
+    evaluacion = evaluar_con_detalle(filtros, vacante)
+    assert (evaluacion.veredicto, evaluacion.motivo) == (A, Motivo.ACEPTADA)
+    assert evaluacion.exige_modalidad is None
+
+
+def test_las_otras_fuentes_no_cambian(filtros):
+    # Computrabajo, elempleo y Magneto no piden detalle: permite_detalle queda en False
+    vacante = vac("Practicante de Sistemas", "Bogotá", None, "Trabajo remoto desde casa.")
+    assert filtros.evaluar(vacante, AHORA).veredicto == A

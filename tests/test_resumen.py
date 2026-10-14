@@ -214,3 +214,75 @@ def test_guardarrail_sin_correcciones_se_muestra_en_cero(config, estado):
     assert (
         "🛡️ Guardarraíl de prácticas: 0 recategorizadas · 0 rechazadas" in notificador.mensajes[0][1]
     )
+
+
+def test_metricas_de_detalle(estado):
+    with estado.transaccion() as cx:
+        # Las dos corridas normales de las últimas 24 h; el dry-run no cuenta
+        normales = cx.execute("SELECT id FROM corridas WHERE modo = 'normal' ORDER BY id")
+        ids = [f[0] for f in normales]
+        cx.execute(
+            "UPDATE corridas SET detalles_pedidos = 40, detalles_fallidos = 3, "
+            "detalles_recuperadas = 6, detalles_cerradas = 2, detalles_vencidas = 1 WHERE id = ?",
+            (ids[0],),
+        )
+        cx.execute(
+            "UPDATE corridas SET detalles_pedidos = 20, detalles_fallidos = 1, "
+            "detalles_recuperadas = 3, detalles_cerradas = 0, detalles_vencidas = 0 WHERE id = ?",
+            (ids[1],),
+        )
+        cx.execute("UPDATE corridas SET detalles_pedidos = 99 WHERE modo = 'dry-run'")
+        for n in range(3):
+            cx.execute(
+                "INSERT INTO pendientes_detalle(clave, huella, vacante_json, desde) "
+                "VALUES (?, ?, '{}', ?)",
+                (f"linkedin:{n}", f"h{n}", a_texto(AHORA)),
+            )
+    m = calcular_metricas(estado, AHORA)
+    assert (m.detalles_pedidos, m.detalles_fallidos, m.detalles_recuperadas) == (60, 4, 9)
+    assert (m.detalles_cerradas, m.detalles_vencidas, m.detalles_en_cola) == (2, 1, 3)
+    assert m.para_ia()["detalle_de_ofertas"] == {
+        "pedidos": 60, "fallidos": 4, "recuperadas": 9, "cerradas": 2, "vencidas": 1, "en_cola": 3,
+    }  # fmt: skip
+
+
+def test_el_resumen_muestra_la_linea_de_detalle_de_linkedin(config, estado):
+    with estado.transaccion() as cx:
+        cx.execute(
+            "UPDATE corridas SET detalles_pedidos = 30, detalles_fallidos = 2, "
+            "detalles_recuperadas = 4, detalles_vencidas = 1, detalles_cerradas = 1 "
+            "WHERE modo = 'normal'"
+        )
+        cx.execute(
+            "INSERT INTO pendientes_detalle(clave, huella, vacante_json, desde) "
+            "VALUES ('linkedin:1', 'h', '{}', ?)",
+            (a_texto(AHORA),),
+        )
+    notificador, ia = NotificadorFalso(), IAFalsa(RECOMENDACIONES)
+    crear(config, estado, ia, notificador).enviar()
+    texto = notificador.mensajes[0][1]
+    assert (
+        "Detalle de LinkedIn: 60 pedidos · 4 fallidos · 8 recuperadas · 1 en cola · 2 vencidas"
+        in texto
+    )
+    assert ia.llamadas[0][1]["metricas"]["detalle_de_ofertas"]["en_cola"] == 1
+
+
+def test_el_detalle_sin_actividad_se_muestra_en_cero(config, estado):
+    notificador = NotificadorFalso()
+    crear(config, estado, IAFalsa(RECOMENDACIONES), notificador).enviar()
+    assert (
+        "Detalle de LinkedIn: 0 pedidos · 0 fallidos · 0 recuperadas · 0 en cola · 0 vencidas"
+        in notificador.mensajes[0][1]
+    )
+
+
+def test_las_peticiones_de_detalle_no_cuentan_como_palabras_sin_resultados(estado):
+    with estado.transaccion() as cx:
+        for horas in (1, 2, 3):
+            cx.execute(
+                "INSERT INTO intentos(ts, corrida_id, fuente, keyword, url, status, items) "
+                "VALUES (?, 1, 'linkedin', 'detalle 123', 'https://x', 200, 0)",
+                (a_texto(AHORA - timedelta(hours=horas)),),
+            )
+    assert calcular_metricas(estado, AHORA).keywords_sin_resultados_7d == ["semillero"]

@@ -194,6 +194,8 @@ systemctl --user start buscador.timer
 | Resumen manual | `~/.local/bin/uv run buscador.py --dry-run resumen` |
 | Cooldowns vigentes | `sqlite3 data/vacantes.db "select * from fuentes_estado"` |
 | Peticiones de LinkedIn hoy y bloqueos | `sqlite3 data/vacantes.db "select count(*), sum(status=429) from intentos where fuente='linkedin' and ts >= date('now')"` |
+| Cola de detalle de LinkedIn (ofertas, intentos, último error) | `sqlite3 data/vacantes.db "select clave, desde, intentos, ultimo_error from pendientes_detalle order by desde"` |
+| Detalles pedidos por corrida | `sqlite3 data/vacantes.db "select id, detalles_pedidos, detalles_fallidos, detalles_recuperadas, detalles_cerradas, detalles_vencidas from corridas order by id desc limit 10"` |
 | Ritmo de LinkedIn (nivel, limpias, última petición) | `sqlite3 data/vacantes.db "select clave, valor from kv where clave like 'ritmo:%'"` |
 | Incidentes abiertos | `sqlite3 data/vacantes.db "select fuente, tipo, abierto_desde from incidentes where cerrado_en is null"` |
 | Últimas corridas (métricas) | `sqlite3 data/vacantes.db "select id, inicio, modo, crudas, enviadas, error from corridas order by id desc limit 10"` |
@@ -210,6 +212,26 @@ Detalles en la sección «Peticiones de LinkedIn» del `README.md`.
 - Si LinkedIn deja de aceptar el `OR` (respuestas vacías o 400): `opciones.consulta.modo: simple`
   y `presupuesto: 2`.
 - Para ver qué pidió: `grep linkedin logs/$(date +%F).log` (las consultas largas se recortan).
+
+### Detalle de LinkedIn
+
+Las tarjetas de LinkedIn no dicen la modalidad: una oferta de otra ciudad sin «remoto» (o un call
+center sin modalidad) espera en la cola `pendientes_detalle` y cada corrida pide el detalle de hasta
+`fuentes.linkedin.detalle.max_por_corrida` (6) con una pausa de 6 a 12 s. Con 48 corridas al día el
+tope es de 288 peticiones diarias. Solo sale de la cola al resolverse, al cerrarse (404 o 410) o a
+las 48 h (`horas_vencimiento`), siempre con una línea en el log. Detalles en la sección «Detalle de
+LinkedIn» del `README.md`.
+
+- Si aparecen 429 en el detalle (`keyword like 'detalle %'` en `intentos`): bajar `max_por_corrida`.
+- Si la cola crece sin tope (el resumen diario avisa si pasa de 30): subir `max_por_corrida` o
+  revisar los bloqueos.
+- Apagarlo sin tocar el código: `fuentes.linkedin.detalle.activo: false`; las ofertas sin modalidad
+  vuelven a rechazarse como antes.
+- Volver atrás: `git checkout <commit anterior>` y
+  `sqlite3 data/vacantes.db "update esquema_version set version = 2"` (los datos se conservan;
+  el código anterior ignora las tablas y columnas nuevas).
+- Al actualizar, la base migra sola al esquema 3 en la siguiente corrida. Respaldar antes
+  `data/vacantes.db`.
 
 ### Actualizar
 

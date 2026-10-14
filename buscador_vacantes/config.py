@@ -123,6 +123,24 @@ class ConsultaOpciones(Modelo):
     ventana_min_h: float = Field(2, gt=0, le=24)  # 24 vuelve a pedir siempre las últimas 24 h
 
 
+class Detalle(Modelo):
+    """Lectura de la página de detalle de una oferta (fuentes que no traen la descripción)."""
+
+    activo: bool = True
+    max_por_corrida: int = Field(6, ge=0)  # peticiones de detalle por corrida
+    pausa_min_s: float = Field(6, ge=0)
+    pausa_max_s: float = Field(12, ge=0)
+    max_caracteres: int = Field(3000, ge=200)  # recorte de la descripción guardada
+    horas_vencimiento: float = Field(48, gt=0)  # espera máxima en la cola
+    espera_reintento_min: float = Field(30, gt=0)  # tras un fallo: espera × intentos minutos
+
+    @model_validator(mode="after")
+    def _pausas(self) -> Detalle:
+        if self.pausa_max_s < self.pausa_min_s:
+            raise ValueError("pausa_max_s debe ser mayor o igual que pausa_min_s")
+        return self
+
+
 class Fuente(Modelo):
     activa: bool = True
     presupuesto: int = Field(ge=0)
@@ -134,6 +152,8 @@ class Fuente(Modelo):
     pausa_min_s: float | None = Field(None, ge=0)
     pausa_max_s: float | None = Field(None, ge=0)
     ritmo: Ritmo | None = None
+    # Sin él, la fuente no pide detalle
+    detalle: Detalle | None = None
     opciones: dict[str, Any] = Field(default_factory=dict)
 
     @property
@@ -232,6 +252,11 @@ class Ubicacion(Modelo):
         default_factory=lambda: ["presencial", "en sitio", "on-site", "onsite"]
     )
 
+    @property
+    def terminos_modalidad(self) -> list[str]:
+        """Términos de remoto, híbrido y presencial: lo que decide la modalidad de una oferta."""
+        return [*self.remoto, *self.hibrido, *self.presencial]
+
 
 class ListaNegra(Modelo):
     empresas: list[str] = Field(default_factory=list)
@@ -305,6 +330,7 @@ class Clasificador(Modelo):
     max_vacantes_por_llamada: int = Field(30, ge=1)
     politica_sin_ia: Literal["descartar", "aceptar"] = "descartar"
     horas_vencimiento_pendiente: float = Field(24, gt=0)
+    max_caracteres_descripcion: int = Field(1500, ge=200)
     temperatura: float = Field(0, ge=0, le=2)
     prompt_sistema: str
 

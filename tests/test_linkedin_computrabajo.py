@@ -8,9 +8,10 @@ import respx
 from buscador_vacantes.config import cargar_configuracion
 from buscador_vacantes.estado import Estado, a_texto, de_texto
 from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.fuentes.base import CambioHTML
+from buscador_vacantes.fuentes.base import CambioHTML, ResultadoDetalle
 from buscador_vacantes.fuentes.computrabajo import Computrabajo, slug
 from buscador_vacantes.fuentes.linkedin import URL_BUSQUEDA, LinkedIn
+from buscador_vacantes.modelo import Vacante
 from buscador_vacantes.rotacion import Consulta
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -409,3 +410,154 @@ def test_computrabajo_html_distinto(entorno):
                           request=httpx.Request("GET", "https://x"))  # fmt: skip
     with pytest.raises(CambioHTML):
         crear(Computrabajo, entorno).parsear(otra, "kw", AHORA)
+
+
+# --- LinkedIn: detalle de la oferta --------------------------------------------------------------
+
+URL_DETALLE = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/4473845599"
+
+
+def oferta_linkedin(id_fuente="4473845599"):
+    return Vacante(
+        fuente="linkedin", id_fuente=id_fuente, titulo="Asistente de TI", empresa="Robot.com",
+        url=f"https://co.linkedin.com/jobs/view/{id_fuente}", keyword="kw",
+        ubicacion="Colombia",
+    )  # fmt: skip
+
+
+def intentos_de(fuente):
+    return [dict(f) for f in fuente.estado.cx.execute("SELECT * FROM intentos ORDER BY id")]
+
+
+@respx.mock
+def test_detalle_200_con_descripcion(entorno):
+    fuente = linkedin(entorno)
+    html = (FIXTURES / "linkedin_detalle.html").read_text(encoding="utf-8")
+    ruta = respx.get(URL_DETALLE).mock(return_value=httpx.Response(200, text=html))
+    respuesta_detalle = fuente.obtener_detalle(oferta_linkedin())
+    assert respuesta_detalle.resultado == ResultadoDetalle.OK
+    assert respuesta_detalle.texto.startswith("En Robot.com, automatizamos")
+    assert "Presencial: Colombia" in respuesta_detalle.texto
+    assert ruta.call_count == 1
+    [intento] = intentos_de(fuente)
+    assert (intento["status"], intento["keyword"], intento["tipo_error"]) == (
+        200, "detalle 4473845599", None,
+    )  # fmt: skip
+    assert intento["url"] == URL_DETALLE and intento["items"] == 0 and intento["corrida_id"] == 1
+    assert fuente.cooldown_vigente(AHORA) is None
+
+
+@pytest.mark.parametrize("status", [404, 410])
+@respx.mock
+def test_detalle_de_oferta_cerrada(entorno, status):
+    fuente = linkedin(entorno)
+    respx.get(URL_DETALLE).mock(return_value=httpx.Response(status))
+    assert fuente.obtener_detalle(oferta_linkedin()).resultado == ResultadoDetalle.CERRADA
+    [intento] = intentos_de(fuente)
+    assert intento["status"] == status and intento["tipo_error"] is None
+    assert fuente.cooldown_vigente(AHORA) is None
+
+
+@respx.mock
+def test_detalle_429_es_un_bloqueo_con_retry_after(entorno):
+    fuente = linkedin(entorno)
+    respx.get(URL_DETALLE).mock(return_value=httpx.Response(429, headers={"Retry-After": "14400"}))
+    respuesta_detalle = fuente.obtener_detalle(oferta_linkedin())
+    assert respuesta_detalle.resultado == ResultadoDetalle.BLOQUEADA
+    assert respuesta_detalle.texto is None and respuesta_detalle.error == "bloqueo"
+    [intento] = intentos_de(fuente)
+    assert intento["tipo_error"] == "bloqueo"
+    # El Retry-After (4 h) alarga el cooldown del primer escalón (2 h)
+    assert respuesta_detalle.cooldown_hasta == AHORA + timedelta(hours=4)
+
+
+@pytest.mark.parametrize("status", [403, 999])
+@respx.mock
+def test_detalle_403_y_999_tambien_bloquean(entorno, status):
+    fuente = linkedin(entorno)
+    respx.get(URL_DETALLE).mock(return_value=httpx.Response(status))
+    assert fuente.obtener_detalle(oferta_linkedin()).resultado == ResultadoDetalle.BLOQUEADA
+
+
+@respx.mock
+def test_detalle_error_de_servidor_es_fallo_temporal(entorno):
+    fuente = linkedin(entorno)
+    respx.get(URL_DETALLE).mock(return_value=httpx.Response(503))
+    respuesta_detalle = fuente.obtener_detalle(oferta_linkedin())
+    assert (respuesta_detalle.resultado, respuesta_detalle.error) == (
+        ResultadoDetalle.FALLO, "servidor",
+    )  # fmt: skip
+    assert fuente.cooldown_vigente(AHORA) is None
+
+
+@respx.mock
+def test_detalle_con_tiempo_agotado_es_fallo(entorno):
+    fuente = linkedin(entorno)
+    respx.get(URL_DETALLE).mock(side_effect=httpx.ReadTimeout("lento"))
+    respuesta_detalle = fuente.obtener_detalle(oferta_linkedin())
+    assert (respuesta_detalle.resultado, respuesta_detalle.error) == (
+        ResultadoDetalle.FALLO, "timeout",
+    )  # fmt: skip
+    [intento] = intentos_de(fuente)
+    assert intento["status"] is None and intento["tipo_error"] == "timeout"
+
+
+@respx.mock
+def test_detalle_200_sin_bloque_es_cambio_html_y_fallo(entorno):
+    fuente = linkedin(entorno)
+    html = (FIXTURES / "linkedin_detalle_sin_descripcion.html").read_text(encoding="utf-8")
+    respx.get(URL_DETALLE).mock(return_value=httpx.Response(200, text=html))
+    respuesta_detalle = fuente.obtener_detalle(oferta_linkedin())
+    assert (respuesta_detalle.resultado, respuesta_detalle.error) == (
+        ResultadoDetalle.FALLO, "cambio_html",
+    )  # fmt: skip
+    [intento] = intentos_de(fuente)
+    assert intento["tipo_error"] == "cambio_html"
+    assert fuente.cooldown_vigente(AHORA) is None
+
+
+@respx.mock
+def test_detalle_200_con_desafio_bloquea(entorno):
+    fuente = linkedin(entorno)
+    respx.get(URL_DETALLE).mock(
+        return_value=httpx.Response(200, text="<html>Please solve this CAPTCHA</html>")
+    )
+    assert fuente.obtener_detalle(oferta_linkedin()).resultado == ResultadoDetalle.BLOQUEADA
+    assert intentos_de(fuente)[0]["desafio"] == 1
+
+
+def test_las_demas_fuentes_no_obtienen_detalle(entorno):
+    fuente = crear(Computrabajo, entorno)
+    assert fuente.soporta_detalle is False
+    with pytest.raises(NotImplementedError):
+        fuente.obtener_detalle(oferta_linkedin())
+
+
+@respx.mock
+def test_detalle_bloqueado_aplica_cooldown_y_omite_la_busqueda(entorno):
+    fuente = linkedin(entorno)
+    respx.get(URL_DETALLE).mock(return_value=httpx.Response(429))
+    fuente.obtener_detalle(oferta_linkedin())
+    assert fuente.cooldown_vigente(AHORA) == AHORA + timedelta(hours=2)
+    # La siguiente búsqueda (otra instancia, otra corrida) ve el cooldown
+    assert linkedin(entorno).cooldown_vigente(AHORA + timedelta(minutes=30)) is not None
+    # y el ritmo adaptado pasó al segundo nivel (intervalo de 60 min)
+    otra = linkedin(entorno)
+    assert otra._nivel_ritmo() == 1
+    assert otra.ritmo_espera(AHORA + timedelta(minutes=10)) == 60
+
+
+@respx.mock
+def test_detalle_bloqueado_repetido_escala_el_cooldown(entorno):
+    fuente = linkedin(entorno)
+    respx.get(URL_DETALLE).mock(return_value=httpx.Response(429))
+    fuente.obtener_detalle(oferta_linkedin())
+    fuente.obtener_detalle(oferta_linkedin())
+    assert fuente.cooldown_vigente(AHORA) == AHORA + timedelta(hours=6)
+
+
+def test_pausa_del_detalle_usa_su_propio_rango(entorno):
+    pausas = []
+    fuente = linkedin(entorno, pausas=pausas)
+    fuente.pausar_detalle()
+    assert pausas == [9.0]  # rango del detalle (6 a 12 s), con el sorteo en el punto medio

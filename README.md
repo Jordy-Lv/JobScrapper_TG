@@ -96,9 +96,34 @@ de `telegram:fallo_envio` y `red:sin_conexion`. Sin `--dry-run` envía al chat d
     a la IA. Sin descripción no se rechaza: la decide la IA.
 - **Variantes de LinkedIn** (`fuentes.linkedin.opciones.variantes`): cada corrida usa una variante,
   en orden circular y sin gastar más peticiones: toda Colombia y solo Cartagena. LinkedIn no
-  filtra por modalidad (ignora `f_WT`) ni la dice en sus tarjetas, así que en otra ciudad solo
-  pasan las ofertas que dicen «remoto» en el título o la ubicación. Sin `variantes`, LinkedIn
-  usa solo sus `opciones`.
+  filtra por modalidad (ignora `f_WT`) ni la dice en sus tarjetas: la modalidad sale de la
+  página de detalle de cada oferta (ver «Detalle de LinkedIn»). Sin `variantes`, LinkedIn usa
+  solo sus `opciones`.
+- **Detalle de LinkedIn** (`fuentes.linkedin.detalle`): una oferta de otra ciudad sin «remoto» en
+  el título o la ubicación, o un puesto de call center sin modalidad, no se rechaza si por lo
+  demás pasa los filtros del título: queda pendiente de detalle.
+  - **Cola persistente** (`pendientes_detalle`): cada corrida pide el detalle de hasta
+    `max_por_corrida` ofertas (de la más antigua a la más reciente, con una pausa de
+    `pausa_min_s` a `pausa_max_s` entre peticiones) a
+    `jobs-guest/jobs/api/jobPosting/{id}`, y evalúa de nuevo la oferta con su descripción
+    (recortada a `max_caracteres`, conservando las frases de modalidad del final). Si queda en
+    duda, decide la IA con la condición de modalidad.
+  - **Nada se pierde**: un fallo (error de servidor, tiempo agotado, página sin descripción) o
+    el fin del presupuesto dejan la oferta en la cola; se reintenta tras
+    `espera_reintento_min × intentos` minutos. Solo sale de la cola al resolverse, al cerrarse la
+    oferta (404 o 410) o al vencer `horas_vencimiento` (48 h), y esas salidas quedan en el log y
+    en el resumen diario.
+  - **Cuidado con LinkedIn**: un 429 o desafío en el detalle aplica el cooldown de la fuente, sube
+    su ritmo adaptativo y corta los detalles de la corrida; mientras haya cooldown o ritmo
+    adaptado no se piden detalles. Si LinkedIn bloquea, bajar `max_por_corrida`.
+  - **Menos falsos remotos**: un remoto o híbrido que solo aparece en la descripción nunca se
+    acepta por reglas: lo confirma la IA, cuyo prompt exige que sea la modalidad del puesto y no
+    la de la empresa o el equipo. La descripción obtenida se guarda (`detalles`) para no pedirla
+    dos veces.
+  - **Volver atrás**: `fuentes.linkedin.detalle.activo: false` devuelve el rechazo anterior sin
+    tocar el código; las ofertas ya en la cola quedan detenidas hasta que `limpiar` las borre.
+    Para volver al código anterior, `UPDATE esquema_version SET version = 2` (los datos se
+    conservan).
 - **Peticiones de LinkedIn** (`fuentes.linkedin`): LinkedIn bloquea con HTTP 429 si se le piden
   demasiadas búsquedas, así que se pide poco y bien aprovechado (~48 peticiones al día en lugar
   de ~144):

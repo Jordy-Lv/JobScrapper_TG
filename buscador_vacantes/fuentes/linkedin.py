@@ -10,6 +10,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from buscador_vacantes.config import ConsultaOpciones
+from buscador_vacantes.detalle import extraer_descripcion
 from buscador_vacantes.estado import a_texto, de_texto
 from buscador_vacantes.fechas import interpretar_fecha
 from buscador_vacantes.fuentes.base import (
@@ -22,6 +23,7 @@ from buscador_vacantes.fuentes.base import (
 from buscador_vacantes.modelo import Vacante
 
 URL_BUSQUEDA = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+URL_DETALLE = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{id}"
 URL_OFERTA = "https://co.linkedin.com/jobs/view/{id}"
 TAMANO_PAGINA = 10  # tarjetas por página de la API pública
 VENTANA_MAX_S = 86_400  # tope de la ventana de publicación: 24 h
@@ -45,6 +47,7 @@ class LinkedIn(Fuente):
 
     soporta_paginas = True
     tamano_pagina = TAMANO_PAGINA
+    soporta_detalle = True
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -86,6 +89,13 @@ class LinkedIn(Fuente):
         # La variante cambia parámetros de la búsqueda (p. ej. location)
         params.update(self.variante or {})
         return Peticion(URL_BUSQUEDA, params=params)
+
+    def peticion_detalle(self, vacante: Vacante) -> Peticion:
+        """Endpoint de invitados del detalle: responde con el HTML de la descripción (40-60 KB)."""
+        return Peticion(URL_DETALLE.format(id=vacante.id_fuente))
+
+    def extraer_detalle(self, respuesta: httpx.Response) -> str | None:
+        return extraer_descripcion(respuesta.text)
 
     def al_terminar(self, resultado: ResultadoFuente) -> None:
         """Registra el sondeo de cada consulta cuyas páginas pedidas respondieron todas bien.

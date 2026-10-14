@@ -38,6 +38,13 @@ class TipoError(StrEnum):
     HTTP = "http"
 
 
+class ResultadoDetalle(StrEnum):
+    OK = "ok"  # hay descripción
+    CERRADA = "cerrada"  # la oferta ya no existe (404 o 410)
+    BLOQUEADA = "bloqueada"  # 403, 429, 999 o desafío: aplica el cooldown de la fuente
+    FALLO = "fallo"  # temporal: la oferta se reintenta más tarde
+
+
 class CambioHTML(Exception):
     """El parser no encuentra la estructura esperada en una respuesta normal."""
 
@@ -69,6 +76,15 @@ class Intento:
     @property
     def con_respuesta(self) -> bool:
         return self.status is not None
+
+
+@dataclass
+class RespuestaDetalle:
+    resultado: ResultadoDetalle
+    texto: str | None = None
+    error: str | None = None  # motivo del fallo, para la cola
+    cooldown_hasta: datetime | None = None
+    intento: Intento | None = None
 
 
 @dataclass
@@ -132,6 +148,8 @@ class Fuente(ABC):
     variante_id: int = 0
     # False en un dry-run: la fuente no escribe estado (sondeos, ritmo) que mueva corridas reales
     persistir_estado: bool = True
+    # La fuente sabe leer la página de detalle de una oferta (``obtener_detalle``)
+    soporta_detalle: bool = False
 
     def __init__(
         self,
@@ -183,6 +201,13 @@ class Fuente(ABC):
     @abstractmethod
     def parsear(self, respuesta: httpx.Response, keyword: str, ahora: datetime) -> list[Vacante]:
         """Devuelve las vacantes; lanza CambioHTML si falta la estructura esperada."""
+
+    def peticion_detalle(self, vacante: Vacante) -> Peticion:
+        raise NotImplementedError(f"{self.nombre} no obtiene el detalle de las ofertas")
+
+    def extraer_detalle(self, respuesta: httpx.Response) -> str | None:
+        """Descripción de la página de detalle; ``None`` si no se reconoce."""
+        raise NotImplementedError(f"{self.nombre} no obtiene el detalle de las ofertas")
 
     # --- estado de la fuente ------------------------------------------------------------
 
@@ -278,6 +303,10 @@ class Fuente(ABC):
         intervalo = self.config.ritmo.intervalos_min[self._nivel_ritmo()]
         transcurrido = (ahora - ultima).total_seconds() / 60
         return intervalo if transcurrido < intervalo - self.config.ritmo.tolerancia_min else None
+
+    def ritmo_adaptado(self) -> bool:
+        """Si un bloqueo reciente subió el intervalo mínimo entre peticiones de la fuente."""
+        return self.config.ritmo is not None and self._nivel_ritmo() > 0
 
     def _actualizar_ritmo(self, intento: Intento, bloqueo: bool, exito: bool) -> None:
         """Anota la petición; sube de nivel con un bloqueo y baja tras varias exitosas seguidas."""
@@ -377,6 +406,85 @@ class Fuente(ABC):
             f" [{intento.tipo_error}]" if intento.tipo_error else "",
         )
         return intento, vacantes
+
+    def pausar_detalle(self) -> None:
+        """Pausa propia del detalle entre dos peticiones (más lenta que la de la búsqueda)."""
+        detalle = self.config.detalle
+        if detalle is not None:
+            self.dormir(self.aleatorio(detalle.pausa_min_s, detalle.pausa_max_s))
+
+    def obtener_detalle(self, vacante: Vacante) -> RespuestaDetalle:
+        """Pide la página de detalle de una oferta. Nunca lanza excepciones de red.
+
+        Cada petición queda registrada como un intento de la fuente (``keyword = "detalle <id>"``).
+        Un bloqueo aplica el cooldown de la fuente y sube su ritmo adaptativo, igual que en la
+        búsqueda; la corrida debe dejar de pedir detalles.
+        """
+        if not self.soporta_detalle:
+            raise NotImplementedError(f"{self.nombre} no obtiene el detalle de las ofertas")
+        ahora = self.reloj()
+        peticion = self.peticion_detalle(vacante)
+        intento = Intento(
+            ts=ahora, fuente=self.nombre, keyword=f"detalle {vacante.id_fuente}", url=peticion.url
+        )
+        respuesta_detalle = RespuestaDetalle(ResultadoDetalle.FALLO, intento=intento)
+        inicio = time.monotonic()
+        try:
+            respuesta = self._hacer_request(peticion)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            intento.tipo_error, intento.detalle = TipoError.CONEXION, repr(exc)
+        except httpx.TimeoutException as exc:
+            intento.tipo_error, intento.detalle = TipoError.TIMEOUT, repr(exc)
+        except httpx.HTTPError as exc:
+            intento.tipo_error, intento.detalle = TipoError.TRANSPORTE, repr(exc)
+        else:
+            intento.url = str(respuesta.url)
+            intento.status = respuesta.status_code
+            intento.cabeceras = filtrar_cabeceras(respuesta.headers)
+            intento.cuerpo = respuesta.text[:MAX_CUERPO_GUARDADO]
+            self._clasificar_detalle(respuesta, intento, respuesta_detalle)
+        intento.ms = int((time.monotonic() - inicio) * 1000)
+        if intento.tipo_error:
+            respuesta_detalle.error = str(intento.tipo_error)
+        self._registrar_intento(intento)
+        self.log.info(
+            "%s detalle %s → %s %s ms, %s%s",
+            self.nombre,
+            vacante.id_fuente,
+            intento.status or "-",
+            intento.ms,
+            respuesta_detalle.resultado.value,
+            f" [{intento.tipo_error}]" if intento.tipo_error else "",
+        )
+        if respuesta_detalle.resultado == ResultadoDetalle.BLOQUEADA:
+            espera = segundos_retry_after(intento.cabeceras.get("retry-after"), intento.ts)
+            respuesta_detalle.cooldown_hasta = self.aplicar_cooldown(intento.ts, espera)
+            self._actualizar_ritmo(intento, bloqueo=True, exito=False)
+        return respuesta_detalle
+
+    def _clasificar_detalle(
+        self, respuesta: httpx.Response, intento: Intento, resultado: RespuestaDetalle
+    ) -> None:
+        status = respuesta.status_code
+        if status in (404, 410):
+            resultado.resultado = ResultadoDetalle.CERRADA
+        elif status in STATUS_BLOQUEO:
+            intento.tipo_error = TipoError.BLOQUEO
+            resultado.resultado = ResultadoDetalle.BLOQUEADA
+        elif status >= 500:
+            intento.tipo_error = TipoError.SERVIDOR
+        elif status >= 400 or status < 200:
+            intento.tipo_error = TipoError.HTTP
+        else:
+            texto = self.extraer_detalle(respuesta)
+            if texto:
+                resultado.resultado, resultado.texto = ResultadoDetalle.OK, texto
+            elif self._marcadores.search(respuesta.text.lower()):
+                intento.tipo_error, intento.desafio = TipoError.CAPTCHA, True
+                resultado.resultado = ResultadoDetalle.BLOQUEADA
+            else:
+                intento.tipo_error = TipoError.CAMBIO_HTML
+                intento.detalle = "la página de detalle no trae un bloque de descripción"
 
     def _clasificar_respuesta(
         self, respuesta: httpx.Response, intento: Intento, keyword: str, ahora: datetime

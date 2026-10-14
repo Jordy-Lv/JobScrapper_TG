@@ -29,11 +29,18 @@ from buscador_vacantes import registro, rotacion
 from buscador_vacantes.asistente import cli as asistente_cli
 from buscador_vacantes.asistente.enlaces import bot_para_enlaces
 from buscador_vacantes.clasificador import Clasificador, Dudosa
+from buscador_vacantes.detalle import recortar_descripcion
 from buscador_vacantes.estado import Estado, EstadoNoInicializado, a_texto, ahora_utc
 from buscador_vacantes.fechas import ZONA
-from buscador_vacantes.filtros import Filtros, Motivo
+from buscador_vacantes.filtros import Evaluacion, Filtros, Motivo
 from buscador_vacantes.formato import componer
-from buscador_vacantes.fuentes.base import Fuente, Intento, ResultadoFuente, TipoError
+from buscador_vacantes.fuentes.base import (
+    Fuente,
+    Intento,
+    ResultadoDetalle,
+    ResultadoFuente,
+    TipoError,
+)
 from buscador_vacantes.fuentes.computrabajo import Computrabajo
 from buscador_vacantes.fuentes.elempleo import Elempleo
 from buscador_vacantes.fuentes.getonboard import GetOnBoard
@@ -117,6 +124,19 @@ class ResumenCorrida:
     practicas_rechazadas: int = 0
     pendientes: int = 0
     vencidas: int = 0
+    # Detalle de las ofertas (LinkedIn): pedidos, fallidos, recuperadas (siguen como aceptadas
+    # o dudosas), cerradas (404 o 410) y vencidas en la cola, más las que esperan en ella
+    detalles_pedidos: int = 0
+    detalles_fallidos: int = 0
+    detalles_recuperadas: int = 0
+    detalles_cerradas: int = 0
+    detalles_vencidas: int = 0
+    detalles_en_cola: int = 0
+    intentos_detalle: list[Intento] = field(default_factory=list)
+    # Ofertas nuevas que esperan detalle: en dry-run y seed no se encolan, solo se listan
+    por_detalle: list[Vacante] = field(default_factory=list)
+    # Claves recuperadas del detalle que salen de la cola al terminar de publicarse
+    cola_resuelta: list[str] = field(default_factory=list)
     a_publicar: list[Vacante] = field(default_factory=list)
     publicacion: ResultadoPublicacion | None = None
     sembradas: int = 0
@@ -126,16 +146,17 @@ class ResumenCorrida:
 
     @property
     def intentos(self) -> list[Intento]:
-        return [i for r in self.resultados for i in r.intentos]
+        return [i for r in self.resultados for i in r.intentos] + self.intentos_detalle
 
     @property
     def enviadas(self) -> int:
         return len(self.publicacion.enviadas) if self.publicacion else 0
 
     def linea_log(self) -> str:
-        requests = {
-            r.fuente: [i.status or str(i.tipo_error) for i in r.intentos] for r in self.resultados
-        }
+        requests: dict[str, list] = {}
+        for r in self.resultados:
+            estados = (i.status or str(i.tipo_error) for i in r.intentos)
+            requests.setdefault(r.fuente, []).extend(estados)
         descartes = {m.value: self.descartes.get(m, 0) for m in DESCARTES}
         return (
             f"Corrida {self.corrida_id} ({self.modo}): requests={requests} crudas={self.crudas} "
@@ -145,7 +166,13 @@ class ResumenCorrida:
             f"ia_cache={self.ia_desde_cache} pendientes={self.pendientes} "
             f"vencidas={self.vencidas} ia_llamadas={self.ia_llamadas} "
             f"practicas_recategorizadas={self.practicas_recategorizadas} "
-            f"practicas_rechazadas={self.practicas_rechazadas} enviadas={self.enviadas} "
+            f"practicas_rechazadas={self.practicas_rechazadas} "
+            f"detalles_pedidos={self.detalles_pedidos} "
+            f"detalles_fallidos={self.detalles_fallidos} "
+            f"detalles_recuperadas={self.detalles_recuperadas} "
+            f"detalles_cerradas={self.detalles_cerradas} "
+            f"detalles_vencidas={self.detalles_vencidas} "
+            f"detalles_en_cola={self.detalles_en_cola} enviadas={self.enviadas} "
             f"sembradas={self.sembradas} sin_red={self.sin_red} "
             f"incidentes={self._resumen_incidentes()} duracion={self.duracion_s:.1f}s"
         )
@@ -318,31 +345,177 @@ class Corrida:
                 fuente.cerrar()
         return vacantes
 
-    def _evaluar(self, vacantes: list[Vacante], resumen: ResumenCorrida) -> None:
+    def _permite_detalle(self, vacante: Vacante) -> bool:
+        """La fuente de la vacante pide el detalle de sus ofertas (y está activo en la config)."""
+        conf = self.config.fuentes.get(vacante.fuente)
+        clase = self.fuentes.get(vacante.fuente)
+        return bool(
+            conf and conf.detalle and conf.detalle.activo and clase and clase.soporta_detalle
+        )
+
+    def _evaluar(self, vacantes: list[Vacante], resumen: ResumenCorrida) -> set[str]:
+        """Evalúa las vacantes crudas. Devuelve las claves ya vistas en esta corrida."""
         ahora = self.reloj()
-        prueba = self.modo.chat_prueba
         vistas_corrida: set[str] = set()
         for vacante in vacantes:
             resumen.crudas += 1
             h = huella(vacante.titulo, vacante.empresa, vacante.clave)
-            evaluacion = self.filtros.evaluar(vacante, ahora)
-            if evaluacion.veredicto == Veredicto.RECHAZAR:
-                resumen.descartes[evaluacion.motivo] += 1
-                continue
-            if (
-                vacante.clave in vistas_corrida
-                or h in vistas_corrida
-                or self.estado.ya_vista(vacante.clave, h, prueba=prueba)
+            permite = self._permite_detalle(vacante)
+            if permite and not vacante.descripcion:
+                # La descripción ya obtenida de una aparición anterior evita pedirla otra vez
+                vacante.descripcion = self.estado.leer_detalle(vacante.clave)
+            evaluacion = self.filtros.evaluar(vacante, ahora, permite_detalle=permite)
+            self._aplicar(vacante, h, evaluacion, resumen, vistas_corrida)
+        return vistas_corrida
+
+    def _aplicar(
+        self,
+        vacante: Vacante,
+        h: str,
+        evaluacion: Evaluacion,
+        resumen: ResumenCorrida,
+        vistas_corrida: set[str],
+    ) -> str:
+        """Lleva la evaluación al resumen: descarte, duplicada, cola de detalle, aceptada o dudosa.
+
+        Devuelve cómo terminó (``"descartada"``, ``"duplicada"``, ``"en_cola"``, ``"aceptada"`` o
+        ``"dudosa"``).
+        """
+        if evaluacion.veredicto == Veredicto.RECHAZAR:
+            resumen.descartes[evaluacion.motivo] += 1
+            return "descartada"
+        if (
+            vacante.clave in vistas_corrida
+            or h in vistas_corrida
+            or self.estado.ya_vista(vacante.clave, h, prueba=self.modo.chat_prueba)
+        ):
+            resumen.duplicadas += 1
+            return "duplicada"
+        if evaluacion.motivo == Motivo.PENDIENTE_DETALLE:
+            # Una oferta pendiente no se anota en vistas_corrida: al llegar su detalle se evalúa
+            # de nuevo en esta misma corrida. La cola (o la lista, en dry-run y seed) la deduplica
+            if self.estado.en_cola_detalle(vacante.clave) or any(
+                v.clave == vacante.clave for v in resumen.por_detalle
             ):
                 resumen.duplicadas += 1
-                continue
-            vistas_corrida.update((vacante.clave, h))
-            if evaluacion.veredicto == Veredicto.ACEPTAR:
-                vacante.categoria = evaluacion.categoria
-                resumen.aceptadas_reglas.append(vacante)
+                return "duplicada"
+            vacante.exige_modalidad = evaluacion.exige_modalidad
+            if self.modo.dry_run or self.modo.seed:
+                resumen.por_detalle.append(vacante)  # no se toca la cola
             else:
-                vacante.exige_modalidad = evaluacion.exige_modalidad
-                resumen.dudosas.append(vacante)
+                self.estado.encolar_detalle(vacante, h, self.reloj())
+            return "en_cola"
+        vistas_corrida.update((vacante.clave, h))
+        if evaluacion.veredicto == Veredicto.ACEPTAR:
+            vacante.categoria = evaluacion.categoria
+            resumen.aceptadas_reglas.append(vacante)
+            return "aceptada"
+        vacante.exige_modalidad = evaluacion.exige_modalidad
+        resumen.dudosas.append(vacante)
+        return "dudosa"
+
+    # --- detalle de las ofertas ---------------------------------------------------------
+
+    def _resolver_detalles(self, resumen: ResumenCorrida, vistas_corrida: set[str]) -> None:
+        """Pide el detalle de las ofertas en cola y las evalúa de nuevo con su descripción.
+
+        Una oferta solo sale de la cola al resolverse, al cerrarse (404 o 410) o al vencer. Un
+        fallo, un bloqueo o el fin del presupuesto la dejan en ella para la corrida siguiente.
+        """
+        for nombre in self._fuentes_a_consultar():
+            conf = self.config.fuentes[nombre]
+            if conf.detalle is None or not conf.detalle.activo:
+                continue
+            if not self.fuentes[nombre].soporta_detalle:
+                continue
+            try:
+                self._resolver_detalles_de(nombre, conf, resumen, vistas_corrida)
+            except Exception:  # noqa: BLE001 - un fallo del detalle no detiene la corrida
+                log.exception("Error inesperado en el detalle de %s", nombre)
+
+    def _resolver_detalles_de(
+        self, nombre: str, conf: cfg.Fuente, resumen: ResumenCorrida, vistas_corrida: set[str]
+    ) -> None:
+        detalle = conf.detalle
+        ahora = self.reloj()
+        for vencida in self.estado.vencer_cola_detalle(ahora, detalle.horas_vencimiento, nombre):
+            resumen.detalles_vencidas += 1
+            log.warning(
+                "Oferta vencida tras %g h en la cola de detalle de %s: %s (%s)",
+                detalle.horas_vencimiento, nombre, vencida.titulo, vencida.clave,
+            )  # fmt: skip
+        pendientes = self.estado.cola_detalle_lista(ahora, nombre)
+        if not pendientes:
+            return
+        terminos = self.config.filtros.ubicacion.terminos_modalidad
+        fuente = self.fuentes[nombre](
+            conf, self.config.red, self.estado, resumen.corrida_id, dormir=self.dormir,
+            reloj=self.reloj,
+        )  # fmt: skip
+        try:
+            # La descripción ya guardada se usa sin pedirla otra vez
+            por_pedir = []
+            for vacante, h, _ in pendientes:
+                texto = self.estado.leer_detalle(vacante.clave)
+                if texto:
+                    self._reevaluar(vacante, h, texto, resumen, vistas_corrida)
+                else:
+                    por_pedir.append((vacante, h))
+            if not por_pedir:
+                return
+            hasta = fuente.cooldown_vigente(ahora)
+            if hasta or nombre in resumen.omitidas or resumen.sin_red or fuente.ritmo_adaptado():
+                log.info("Detalle de %s en espera: %s ofertas en cola", nombre, len(por_pedir))
+                return
+            for i, (vacante, h) in enumerate(por_pedir[: detalle.max_por_corrida]):
+                if i:
+                    fuente.pausar_detalle()
+                respuesta = fuente.obtener_detalle(vacante)
+                resumen.detalles_pedidos += 1
+                resumen.intentos_detalle.append(respuesta.intento)
+                if respuesta.resultado == ResultadoDetalle.OK:
+                    texto = recortar_descripcion(respuesta.texto, detalle.max_caracteres, terminos)
+                    self.estado.guardar_detalle(vacante.clave, texto, self.reloj())
+                    self._reevaluar(vacante, h, texto, resumen, vistas_corrida)
+                elif respuesta.resultado == ResultadoDetalle.CERRADA:
+                    self.estado.quitar_cola_detalle(vacante.clave)
+                    resumen.detalles_cerradas += 1
+                    log.info("Oferta cerrada, sale de la cola de detalle: %s (%s)",
+                             vacante.titulo, vacante.clave)  # fmt: skip
+                elif respuesta.resultado == ResultadoDetalle.FALLO:
+                    resumen.detalles_fallidos += 1
+                    self.estado.fallo_detalle(
+                        vacante.clave, self.reloj(), respuesta.error or "fallo",
+                        detalle.espera_reintento_min,
+                    )  # fmt: skip
+                else:  # BLOQUEADA: el cooldown ya se aplicó; la oferta queda como estaba
+                    resumen.detalles_fallidos += 1
+                    log.warning("Detalle bloqueado en %s: se cortan los detalles de la corrida",
+                                nombre)  # fmt: skip
+                    break
+        finally:
+            fuente.cerrar()
+
+    def _reevaluar(
+        self, vacante: Vacante, h: str, texto: str, resumen: ResumenCorrida,
+        vistas_corrida: set[str],
+    ) -> None:  # fmt: skip
+        """Evalúa de nuevo una oferta con su descripción. Lo aceptado o dudoso sigue el flujo
+        normal y la oferta sale de la cola al terminar de publicarse; lo demás sale ahora."""
+        vacante.descripcion = texto
+        evaluacion = self.filtros.evaluar(vacante, self.reloj(), permite_detalle=True)
+        destino = self._aplicar(vacante, h, evaluacion, resumen, vistas_corrida)
+        if destino in ("aceptada", "dudosa"):
+            resumen.detalles_recuperadas += 1
+            resumen.cola_resuelta.append(vacante.clave)
+        else:
+            self.estado.quitar_cola_detalle(vacante.clave)
+
+    def _cerrar_cola_detalle(self, resumen: ResumenCorrida) -> None:
+        """Quita de la cola las ofertas recuperadas, ya publicadas o en manos de la IA."""
+        for clave in resumen.cola_resuelta:
+            self.estado.quitar_cola_detalle(clave)
+        resumen.cola_resuelta.clear()
 
     def _cola_de_envio(self, ya_incluidas: set[str]) -> list[Vacante]:
         """Vacantes aceptadas cuyo envío falló antes; vencen a las 24 h."""
@@ -361,7 +534,7 @@ class Corrida:
 
     def _sembrar(self, resumen: ResumenCorrida) -> None:
         ahora = self.reloj()
-        for vacante in resumen.aceptadas_reglas + resumen.dudosas:
+        for vacante in resumen.aceptadas_reglas + resumen.dudosas + resumen.por_detalle:
             h = huella(vacante.titulo, vacante.empresa, vacante.clave)
             self.estado.registrar_vista(vacante, h, momento=ahora)
             resumen.sembradas += 1
@@ -473,6 +646,13 @@ class Corrida:
         escribir(f"Dudosas ({len(resumen.dudosas)}), irían a la IA:")
         for v in resumen.dudosas:
             escribir(f"  ? {v.titulo} — {v.empresa} — {v.ubicacion or '-'}")
+        en_cola = self.estado.cola_detalle_lista(self.reloj())
+        escribir(f"\nIrían a detalle ({len(resumen.por_detalle)} nuevas, "
+                 f"{len(en_cola)} ya en cola), sin pedirlas:")  # fmt: skip
+        for v in resumen.por_detalle:
+            escribir(f"  ~ {v.titulo} — {v.empresa} — {v.ubicacion or '-'} ({v.fuente})")
+        for v, _, _ in en_cola:
+            escribir(f"  ~ {v.titulo} — {v.empresa} — {v.ubicacion or '-'} ({v.fuente}, en cola)")
         escribir(f"\nAceptadas por reglas ({len(resumen.aceptadas_reglas)}):\n")
         for mensaje in componer(resumen.aceptadas_reglas, self.reloj()):
             escribir(html_a_consola(mensaje.texto))
@@ -486,7 +666,8 @@ class Corrida:
                 UPDATE corridas SET fin = ?, crudas = ?, descartes_json = ?, duplicadas = ?,
                     dudosas = ?, ia_aceptadas = ?, ia_rechazadas = ?, pendientes = ?,
                     enviadas = ?, sin_red = ?, error = ?, practicas_recategorizadas = ?,
-                    practicas_rechazadas = ?
+                    practicas_rechazadas = ?, detalles_pedidos = ?, detalles_fallidos = ?,
+                    detalles_recuperadas = ?, detalles_cerradas = ?, detalles_vencidas = ?
                 WHERE id = ?
                 """,
                 (
@@ -494,7 +675,9 @@ class Corrida:
                     resumen.duplicadas, len(resumen.dudosas), resumen.ia_aceptadas,
                     resumen.ia_rechazadas, resumen.pendientes, resumen.enviadas,
                     int(resumen.sin_red), error, resumen.practicas_recategorizadas,
-                    resumen.practicas_rechazadas, resumen.corrida_id,
+                    resumen.practicas_rechazadas, resumen.detalles_pedidos,
+                    resumen.detalles_fallidos, resumen.detalles_recuperadas,
+                    resumen.detalles_cerradas, resumen.detalles_vencidas, resumen.corrida_id,
                 ),
             )  # fmt: skip
 
@@ -508,7 +691,10 @@ class Corrida:
         resumen = ResumenCorrida(modo=modo.nombre)
         if not modo.dry_run:
             borrados = self.estado.limpiar(
-                self.reloj(), self.config.estado.dias_vistas, self.config.estado.dias_intentos
+                self.reloj(),
+                self.config.estado.dias_vistas,
+                self.config.estado.dias_intentos,
+                self.config.filtros.max_dias_publicada,
             )
             if any(borrados.values()):
                 log.info("Limpieza: %s", borrados)
@@ -524,7 +710,9 @@ class Corrida:
             resumen.sin_red = es_sin_red(resumen.intentos)
             if resumen.sin_red:
                 log.warning("Sin conexión a internet: todas las fuentes fallaron por red")
-            self._evaluar(vacantes, resumen)
+            vistas_corrida = self._evaluar(vacantes, resumen)
+            if modo.envia:
+                self._resolver_detalles(resumen, vistas_corrida)
             if modo.dry_run:
                 resumen.aceptadas_reglas = self._aplicar_guardarrail(
                     resumen.aceptadas_reglas, resumen
@@ -544,6 +732,7 @@ class Corrida:
                 aceptadas += self._cola_de_envio({v.clave for v in aceptadas})
                 resumen.a_publicar = deduplicar(aceptadas)
                 self._publicar(resumen)
+                self._cerrar_cola_detalle(resumen)
                 # El reportero va aislado: sus errores nunca afectan a las vacantes ya enviadas
                 try:
                     self._incidentes(resumen)
@@ -554,6 +743,7 @@ class Corrida:
             raise
         finally:
             resumen.duracion_s = time.monotonic() - inicio
+            resumen.detalles_en_cola = self.estado.contar_cola_detalle()
             self._guardar_corrida(resumen, error)
             log.info(resumen.linea_log())
         return resumen

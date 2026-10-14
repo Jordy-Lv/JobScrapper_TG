@@ -34,6 +34,7 @@ class Motivo(StrEnum):
     ACEPTADA = "aceptada"
     DUDOSA = "dudosa"
     REMOTO_SIN_PAIS = "remoto_sin_pais"
+    PENDIENTE_DETALLE = "pendiente_detalle"
 
 
 # Condición de modalidad que la IA debe confirmar (Vacante.exige_modalidad)
@@ -70,6 +71,15 @@ class _Geo(StrEnum):
     PRESENCIAL_FUERA = "presencial_fuera"
     CALL_CENTER = "call_center"
     CONFIRMAR_MODALIDAD = "confirmar_modalidad"
+    PENDIENTE_DETALLE = "pendiente_detalle"
+
+
+class _Origen(StrEnum):
+    """De dónde salió la señal de modalidad."""
+
+    PORTAL = "portal"
+    TITULO = "titulo"
+    DESCRIPCION = "descripcion"
 
 
 class _Modalidad(StrEnum):
@@ -187,38 +197,59 @@ class Filtros:
             return _Modalidad.PRESENCIAL
         return None
 
-    def _modalidad(self, vacante: Vacante, titulo: str, descripcion: str) -> _Modalidad:
+    def _modalidad(
+        self, vacante: Vacante, titulo: str, descripcion: str
+    ) -> tuple[_Modalidad, _Origen | None]:
         """Modalidad según el portal; si falta, el título y la ubicación; y si falta, la
-        descripción, solo para remoto o híbrido (un anuncio híbrido puede decir «presencial»)."""
+        descripción, solo para remoto o híbrido (un anuncio híbrido puede decir «presencial»).
+
+        Devuelve también de dónde salió la señal (``None`` si la modalidad es desconocida).
+        """
         fuentes = (
-            (self._limpiar(vacante.modalidad), True),
-            (f"{titulo} {self._limpiar(vacante.ubicacion)}", True),
-            (descripcion, False),
+            (self._limpiar(vacante.modalidad), True, _Origen.PORTAL),
+            (f"{titulo} {self._limpiar(vacante.ubicacion)}", True, _Origen.TITULO),
+            (descripcion, False, _Origen.DESCRIPCION),
         )
-        for texto, con_presencial in fuentes:
+        for texto, con_presencial, origen in fuentes:
             modalidad = self._detectar_modalidad(texto, con_presencial=con_presencial)
             if modalidad is not None:
-                return modalidad
-        return _Modalidad.DESCONOCIDA
+                return modalidad, origen
+        return _Modalidad.DESCONOCIDA, None
 
     def _geografia(
-        self, vacante: Vacante, titulo: str, descripcion: str
+        self, vacante: Vacante, titulo: str, descripcion: str, permite_detalle: bool = False
     ) -> tuple[_Geo, str, str | None]:
-        """Alcance geográfico: (resultado, detalle, condición de modalidad que debe confirmar)."""
+        """Alcance geográfico: (resultado, detalle, condición de modalidad que debe confirmar).
+
+        ``permite_detalle``: la fuente puede pedir el detalle de la oferta. Sin descripción, no
+        saber la modalidad no rechaza (queda pendiente de detalle) y, con ella, un remoto o
+        híbrido que solo aparece en la descripción lo confirma la IA en lugar de aceptarse.
+        """
         ubicacion = self._limpiar(vacante.ubicacion)
         lugar = self._limpiar(f"{vacante.ubicacion or ''} {vacante.modalidad or ''}")
         cercano = f"{lugar} {titulo}"
         completo = f"{cercano} {descripcion}"
-        modalidad = self._modalidad(vacante, titulo, descripcion)
+        modalidad, origen = self._modalidad(vacante, titulo, descripcion)
         exterior = coincidencias(self._exterior, cercano)
+        es_call_center = bool(coincidencias(self._call_center, titulo))
+        solo_descripcion = permite_detalle and origen == _Origen.DESCRIPCION
+
+        def aceptable(resultado: _Geo = _Geo.OK, detalle: str = "") -> tuple[_Geo, str, str | None]:
+            """Un remoto o híbrido que solo vimos en el detalle lo confirma la IA."""
+            if solo_descripcion:
+                exige = SOLO_REMOTO if es_call_center else REMOTO_O_HIBRIDO
+                return _Geo.CONFIRMAR_MODALIDAD, "modalidad solo en la descripción", exige
+            return resultado, detalle, None
 
         # Call center: solo remoto, también en la ciudad base
-        if coincidencias(self._call_center, titulo):
+        if es_call_center:
             if modalidad in (_Modalidad.PRESENCIAL, _Modalidad.HIBRIDO):
                 return _Geo.CALL_CENTER, modalidad.value, None
             if modalidad == _Modalidad.DESCONOCIDA:
                 if descripcion:
                     return _Geo.CONFIRMAR_MODALIDAD, "call center sin modalidad", SOLO_REMOTO
+                if permite_detalle:
+                    return _Geo.PENDIENTE_DETALLE, "call center sin modalidad", SOLO_REMOTO
                 return _Geo.CALL_CENTER, "sin modalidad ni descripción", None
         elif coincidencias(self._ciudad_base, f"{ubicacion} {titulo}") and not exterior:
             return _Geo.OK, "", None
@@ -236,29 +267,31 @@ class Filtros:
                     if coincidencias(self._colombia, destino) or coincidencias(
                         self._latam, destino
                     ):
-                        return _Geo.OK, "", None
+                        return aceptable()
                     if coincidencias(self._exterior, destino):
                         return _Geo.FUERA, f"remoto restringido a {destino.strip()}", None
             if en_colombia or coincidencias(self._latam, completo):
-                return _Geo.OK, "", None
+                return aceptable()
             if exterior:
                 return _Geo.FUERA, f"remoto en {exterior[0]}", None
-            return _Geo.REMOTO_SIN_PAIS, "remoto sin país", None
+            return aceptable(_Geo.REMOTO_SIN_PAIS, "remoto sin país")
 
         en_lugar_colombiano = bool(coincidencias(self._colombia, lugar))
         if modalidad == _Modalidad.HIBRIDO:
             if not en_lugar_colombiano and exterior:
                 return _Geo.FUERA, f"híbrido en {exterior[0]}", None
-            return _Geo.OK, "", None
+            return aceptable()
 
         # Presencial o sin modalidad, fuera de la ciudad base
         if not en_lugar_colombiano and exterior:
             return _Geo.FUERA, f"presencial en {exterior[0]}", None
         if modalidad == _Modalidad.DESCONOCIDA and descripcion:
             return _Geo.CONFIRMAR_MODALIDAD, "modalidad sin confirmar", REMOTO_O_HIBRIDO
-        origen = "presencial" if modalidad == _Modalidad.PRESENCIAL else "sin modalidad"
+        if modalidad == _Modalidad.DESCONOCIDA and permite_detalle:
+            return _Geo.PENDIENTE_DETALLE, "modalidad sin confirmar", REMOTO_O_HIBRIDO
+        origen_texto = "presencial" if modalidad == _Modalidad.PRESENCIAL else "sin modalidad"
         lugar_texto = vacante.ubicacion or "ubicación desconocida"
-        return _Geo.PRESENCIAL_FUERA, f"{origen} en {lugar_texto}", None
+        return _Geo.PRESENCIAL_FUERA, f"{origen_texto} en {lugar_texto}", None
 
     # --- lista negra --------------------------------------------------------------------------
 
@@ -298,7 +331,15 @@ class Filtros:
 
     # --- veredicto --------------------------------------------------------------------------
 
-    def evaluar(self, vacante: Vacante, ahora: datetime) -> Evaluacion:
+    def evaluar(
+        self, vacante: Vacante, ahora: datetime, *, permite_detalle: bool = False
+    ) -> Evaluacion:
+        """Veredicto de una vacante.
+
+        ``permite_detalle``: la fuente puede pedir el detalle de la oferta. Una oferta sin
+        modalidad ni descripción que solo se rechazaría por eso no se rechaza: si por lo demás
+        pasa los filtros del título, devuelve ``DUDOSA`` con ``Motivo.PENDIENTE_DETALLE``.
+        """
         titulo = self._limpiar(vacante.titulo)
         descripcion = self._limpiar(vacante.descripcion)
         texto = f"{titulo} {descripcion}".strip()
@@ -324,7 +365,7 @@ class Filtros:
                 )
 
         # 3. Ubicación (ciudad base, modalidad y call center)
-        geo, detalle_geo, exige = self._geografia(vacante, titulo, descripcion)
+        geo, detalle_geo, exige = self._geografia(vacante, titulo, descripcion, permite_detalle)
         if geo == _Geo.FUERA:
             return Evaluacion(Veredicto.RECHAZAR, Motivo.UBICACION, detalle=detalle_geo)
         if geo == _Geo.PRESENCIAL_FUERA:
@@ -332,6 +373,26 @@ class Filtros:
         if geo == _Geo.CALL_CENTER:
             return Evaluacion(Veredicto.RECHAZAR, Motivo.CALL_CENTER, detalle=detalle_geo)
 
+        resultado = self._por_titulo(vacante, titulo, descripcion, texto, geo, detalle_geo, exige)
+        if geo == _Geo.PENDIENTE_DETALLE and resultado.veredicto != Veredicto.RECHAZAR:
+            # Solo falta la modalidad: se pide el detalle y se evalúa de nuevo con la descripción
+            return Evaluacion(
+                Veredicto.DUDOSA, Motivo.PENDIENTE_DETALLE, detalle=detalle_geo,
+                exige_modalidad=exige,
+            )  # fmt: skip
+        return resultado
+
+    def _por_titulo(
+        self,
+        vacante: Vacante,
+        titulo: str,
+        descripcion: str,
+        texto: str,
+        geo: _Geo,
+        detalle_geo: str,
+        exige: str | None,
+    ) -> Evaluacion:
+        """Reglas de TI, nivel y áreas no TI del título y la descripción, tras la geografía."""
         areas_titulo = [c for c, p in self._areas if coincidencias(p, titulo)]
         ti_titulo = bool(areas_titulo or coincidencias(self._ti_generico, titulo))
         ti = ti_titulo or bool(

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from buscador_vacantes.modelo import Categoria, Vacante
 
-ESQUEMA_VERSION = 2
+ESQUEMA_VERSION = 3
 
 # Columnas que el esquema 2 agrega al 1 (tabla, columna, definición). Una base nueva ya nace con
 # ellas en ESQUEMA; una del esquema 1 las recibe con ALTER TABLE en _migrar_esquema
@@ -22,6 +22,18 @@ COLUMNAS_ESQUEMA_2 = (
     ("clasificaciones", "version_prompt", "TEXT"),
     ("corridas", "practicas_recategorizadas", "INTEGER NOT NULL DEFAULT 0"),
     ("corridas", "practicas_rechazadas", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+# Columnas que el esquema 3 agrega al 2: las cifras del detalle de cada corrida
+COLUMNAS_ESQUEMA_3 = tuple(
+    ("corridas", columna, "INTEGER NOT NULL DEFAULT 0")
+    for columna in (
+        "detalles_pedidos",
+        "detalles_fallidos",
+        "detalles_recuperadas",
+        "detalles_cerradas",
+        "detalles_vencidas",
+    )
 )
 
 ESQUEMA = """
@@ -96,7 +108,12 @@ CREATE TABLE IF NOT EXISTS corridas (
     sin_red INTEGER NOT NULL DEFAULT 0,
     error TEXT,
     practicas_recategorizadas INTEGER NOT NULL DEFAULT 0,
-    practicas_rechazadas INTEGER NOT NULL DEFAULT 0
+    practicas_rechazadas INTEGER NOT NULL DEFAULT 0,
+    detalles_pedidos INTEGER NOT NULL DEFAULT 0,
+    detalles_fallidos INTEGER NOT NULL DEFAULT 0,
+    detalles_recuperadas INTEGER NOT NULL DEFAULT 0,
+    detalles_cerradas INTEGER NOT NULL DEFAULT 0,
+    detalles_vencidas INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS clasificaciones (
@@ -112,6 +129,22 @@ CREATE TABLE IF NOT EXISTS pendientes (
     huella TEXT PRIMARY KEY,
     vacante_json TEXT NOT NULL,
     desde TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pendientes_detalle (
+    clave TEXT PRIMARY KEY,
+    huella TEXT NOT NULL,
+    vacante_json TEXT NOT NULL,
+    desde TEXT NOT NULL,
+    intentos INTEGER NOT NULL DEFAULT 0,
+    proximo_intento TEXT,
+    ultimo_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS detalles (
+    clave TEXT PRIMARY KEY,
+    texto TEXT NOT NULL,
+    ts TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS incidentes (
@@ -206,21 +239,25 @@ class Estado:
                 raise RuntimeError(
                     f"La base tiene esquema {version} y el código soporta hasta {ESQUEMA_VERSION}"
                 )
+            if version < ESQUEMA_VERSION:
+                self.cx.execute("BEGIN")  # todas las migraciones pendientes en una transacción
             if version < 2:
-                self._migrar_a_2()
+                self._migrar(COLUMNAS_ESQUEMA_2, 2)
+            if version < 3:
+                self._migrar(COLUMNAS_ESQUEMA_3, 3)
 
-    def _migrar_a_2(self) -> None:
-        """Esquema 1 → 2 en una transacción: solo agrega columnas, sin tocar filas.
+    def _migrar(self, columnas: tuple[tuple[str, str, str], ...], version: int) -> None:
+        """Un paso de migración: solo agrega columnas, sin tocar filas.
 
-        Ignora las columnas que ya existen: tras volver atrás con ``UPDATE esquema_version``
-        (el código anterior las ignora) la base las conserva.
+        Las tablas nuevas ya las creó ``ESQUEMA`` (``IF NOT EXISTS``). Ignora las columnas que
+        ya existen: tras volver atrás con ``UPDATE esquema_version`` (el código anterior las
+        ignora) la base las conserva.
         """
-        self.cx.execute("BEGIN")
-        for tabla, columna, definicion in COLUMNAS_ESQUEMA_2:
+        for tabla, columna, definicion in columnas:
             existentes = {f["name"] for f in self.cx.execute(f"PRAGMA table_info({tabla})")}
             if columna not in existentes:
                 self.cx.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}")
-        self.cx.execute("UPDATE esquema_version SET version = 2")
+        self.cx.execute("UPDATE esquema_version SET version = ?", (version,))
 
     @contextmanager
     def transaccion(self) -> Iterator[sqlite3.Connection]:
@@ -358,20 +395,128 @@ class Estado:
             (vacante_de_json(f["vacante_json"]), f["huella"], de_texto(f["desde"])) for f in filas
         ]
 
+    # --- cola de ofertas pendientes de detalle ------------------------------------------------
+
+    def encolar_detalle(self, vacante: Vacante, huella: str, momento: datetime) -> bool:
+        """Agrega la oferta a la cola sin duplicarla. Devuelve si era nueva."""
+        with self.cx:
+            return (
+                self.cx.execute(
+                    "INSERT OR IGNORE INTO pendientes_detalle(clave, huella, vacante_json, desde) "
+                    "VALUES (?, ?, ?, ?)",
+                    (vacante.clave, huella, vacante_a_json(vacante), a_texto(momento)),
+                ).rowcount
+                > 0
+            )
+
+    def en_cola_detalle(self, clave: str) -> bool:
+        fila = self.cx.execute(
+            "SELECT 1 FROM pendientes_detalle WHERE clave = ?", (clave,)
+        ).fetchone()
+        return fila is not None
+
+    def contar_cola_detalle(self) -> int:
+        return self.cx.execute("SELECT COUNT(*) FROM pendientes_detalle").fetchone()[0]
+
+    def cola_detalle_lista(
+        self, momento: datetime, fuente: str | None = None
+    ) -> list[tuple[Vacante, str, datetime]]:
+        """Ofertas cuyo próximo intento ya llegó, de la más antigua a la más reciente.
+
+        Con ``fuente``, solo las de esa fuente.
+        """
+        filas = self.cx.execute(
+            "SELECT clave, huella, vacante_json, desde FROM pendientes_detalle "
+            "WHERE proximo_intento IS NULL OR proximo_intento <= ? ORDER BY desde, clave",
+            (a_texto(momento),),
+        ).fetchall()
+        return [
+            (vacante_de_json(f["vacante_json"]), f["huella"], de_texto(f["desde"]))
+            for f in filas
+            if fuente is None or f["clave"].startswith(f"{fuente}:")
+        ]
+
+    def fallo_detalle(self, clave: str, momento: datetime, error: str, espera_min: float) -> int:
+        """Registra un fallo: sube ``intentos`` y espera ``espera_min × intentos`` minutos."""
+        with self.cx:
+            self.cx.execute(
+                "UPDATE pendientes_detalle SET intentos = intentos + 1, ultimo_error = ? "
+                "WHERE clave = ?",
+                (error, clave),
+            )
+            fila = self.cx.execute(
+                "SELECT intentos FROM pendientes_detalle WHERE clave = ?", (clave,)
+            ).fetchone()
+            if fila is None:
+                return 0
+            proximo = momento + timedelta(minutes=espera_min * fila["intentos"])
+            self.cx.execute(
+                "UPDATE pendientes_detalle SET proximo_intento = ? WHERE clave = ?",
+                (a_texto(proximo), clave),
+            )
+            return fila["intentos"]
+
+    def quitar_cola_detalle(self, clave: str) -> None:
+        with self.cx:
+            self.cx.execute("DELETE FROM pendientes_detalle WHERE clave = ?", (clave,))
+
+    def vencer_cola_detalle(
+        self, momento: datetime, horas: float, fuente: str | None = None
+    ) -> list[Vacante]:
+        """Saca de la cola las ofertas que esperan más de ``horas`` y las devuelve.
+
+        Con ``fuente``, solo las de esa fuente.
+        """
+        limite = a_texto(momento - timedelta(hours=horas))
+        with self.cx:
+            filas = self.cx.execute(
+                "SELECT clave, vacante_json FROM pendientes_detalle WHERE desde < ? ORDER BY desde",
+                (limite,),
+            ).fetchall()
+            filas = [f for f in filas if fuente is None or f["clave"].startswith(f"{fuente}:")]
+            for fila in filas:
+                self.cx.execute("DELETE FROM pendientes_detalle WHERE clave = ?", (fila["clave"],))
+        return [vacante_de_json(f["vacante_json"]) for f in filas]
+
+    # --- descripciones ya obtenidas --------------------------------------------------------
+
+    def guardar_detalle(self, clave: str, texto: str, momento: datetime) -> None:
+        with self.cx:
+            self.cx.execute(
+                "INSERT INTO detalles(clave, texto, ts) VALUES (?, ?, ?) "
+                "ON CONFLICT(clave) DO UPDATE SET texto = excluded.texto, ts = excluded.ts",
+                (clave, texto, a_texto(momento)),
+            )
+
+    def leer_detalle(self, clave: str) -> str | None:
+        fila = self.cx.execute("SELECT texto FROM detalles WHERE clave = ?", (clave,)).fetchone()
+        return fila["texto"] if fila else None
+
     # --- limpieza ---------------------------------------------------------------------------
 
     def limpiar(
-        self, momento: datetime, dias_vistas: int = 90, dias_intentos: int = 30
+        self,
+        momento: datetime,
+        dias_vistas: int = 90,
+        dias_intentos: int = 30,
+        dias_detalles: int = 15,
     ) -> dict[str, int]:
         """Borra registros antiguos. Los incidentes abiertos nunca se borran."""
         limite_vistas = a_texto(momento - timedelta(days=dias_vistas))
         limite_corto = a_texto(momento - timedelta(days=dias_intentos))
+        limite_detalles = a_texto(momento - timedelta(days=dias_detalles))
         sentencias = {
             "vistas": ("DELETE FROM vistas WHERE primera_vez < ?", limite_vistas),
             "clasificaciones": ("DELETE FROM clasificaciones WHERE ts < ?", limite_vistas),
             "intentos": ("DELETE FROM intentos WHERE ts < ?", limite_corto),
             "corridas": ("DELETE FROM corridas WHERE inicio < ?", limite_corto),
             "ia_uso": ("DELETE FROM ia_uso WHERE ts < ?", limite_corto),
+            "detalles": ("DELETE FROM detalles WHERE ts < ?", limite_detalles),
+            # Red de seguridad: la cola se vacía sola por vencimiento mucho antes
+            "pendientes_detalle": (
+                "DELETE FROM pendientes_detalle WHERE desde < ?",
+                limite_corto,
+            ),
             "incidentes": (
                 "DELETE FROM incidentes WHERE cerrado_en IS NOT NULL AND cerrado_en < ?",
                 limite_corto,

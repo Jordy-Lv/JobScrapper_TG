@@ -99,6 +99,37 @@ def test_nucleo_ocupa_al_menos_la_mitad_del_presupuesto(config):
         assert reservados * 2 >= fuente.presupuesto, nombre
 
 
+def test_detalle_de_linkedin(config):
+    detalle = config.fuentes["linkedin"].detalle
+    assert detalle is not None and detalle.activo
+    assert (detalle.max_por_corrida, detalle.pausa_min_s, detalle.pausa_max_s) == (6, 6, 12)
+    assert (detalle.max_caracteres, detalle.horas_vencimiento) == (3000, 48)
+    assert detalle.espera_reintento_min == 30
+    # Las demás fuentes no piden detalle
+    assert config.fuentes["computrabajo"].detalle is None
+
+
+def test_fuente_sin_detalle_carga(tmp_path):
+    ruta = escribir_config(tmp_path, lambda d: d["fuentes"]["linkedin"].pop("detalle"))
+    assert cargar_configuracion(ruta).fuentes["linkedin"].detalle is None
+
+
+def test_detalle_invalido_indica_el_campo(tmp_path):
+    def cambio(datos):
+        datos["fuentes"]["linkedin"]["detalle"]["max_por_corrida"] = -1
+
+    with pytest.raises(ErrorConfiguracion, match="fuentes.linkedin.detalle.max_por_corrida"):
+        cargar_configuracion(escribir_config(tmp_path, cambio))
+
+
+def test_detalle_con_pausas_invertidas(tmp_path):
+    def cambio(datos):
+        datos["fuentes"]["linkedin"]["detalle"].update(pausa_min_s=10, pausa_max_s=2)
+
+    with pytest.raises(ErrorConfiguracion, match="pausa_max_s"):
+        cargar_configuracion(escribir_config(tmp_path, cambio))
+
+
 def test_fuente_spe(config):
     spe = config.fuentes["spe"]
     assert spe.activa and spe.filtra_nivel

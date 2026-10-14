@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, ValidationError
 
 from buscador_vacantes import config as cfg
+from buscador_vacantes.detalle import recortar_descripcion
 from buscador_vacantes.estado import Estado, a_texto, de_texto, vacante_a_json, vacante_de_json
 from buscador_vacantes.filtros import REMOTO_O_HIBRIDO, SOLO_REMOTO, Filtros
 from buscador_vacantes.ia_cliente import ClienteIA
@@ -183,6 +184,8 @@ class Clasificador:
         self, lote: list[Dudosa], ahora: datetime, resultado: ResultadoClasificacion
     ) -> None:
         ciudad_base = self.filtros.ciudad_base_texto()
+        terminos = self.filtros.config.ubicacion.terminos_modalidad
+        maximo = self.config.max_caracteres_descripcion
         payload = {
             "vacantes": [
                 {
@@ -195,7 +198,11 @@ class Clasificador:
                     "palabra_clave": d.vacante.keyword,
                     "ciudad_base": ciudad_base,
                     "exige_modalidad": CONDICIONES_MODALIDAD.get(d.vacante.exige_modalidad),
-                    "descripcion": d.vacante.descripcion,
+                    "descripcion": (
+                        recortar_descripcion(d.vacante.descripcion, maximo, terminos)
+                        if d.vacante.descripcion
+                        else None
+                    ),
                 }
                 for indice, d in enumerate(lote)
             ]

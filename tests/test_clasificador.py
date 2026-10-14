@@ -271,3 +271,26 @@ def test_real_20_dudosas_contra_deepseek(config, estado):
         print(f"  {d.vacante.titulo}")
     assert resultado.llamadas == 1
     assert len(resultado.aceptadas) + len(resultado.rechazadas) == 20
+
+
+def test_payload_trae_la_descripcion_recortada_con_la_frase_de_modalidad(config, estado):
+    ia = IAFalsa(aceptar_todas())
+    relleno = "Responsabilidades: documentar, probar y desplegar servicios internos. " * 80
+    d = dudosa("Analista de datos Jr")
+    d.vacante.descripcion = relleno + "Esta posición es 100% remota. Beneficios de ley."
+    d.vacante.exige_modalidad = "remoto_o_hibrido"
+    corta = dudosa("Tester Jr", id_fuente="2")
+    corta.vacante.descripcion = "Pruebas manuales."
+    sin = dudosa("Soporte Jr", id_fuente="3")
+    crear(config, estado, ia).clasificar([d, corta, sin], AHORA)
+    largo, breve, vacio = (v["descripcion"] for v in ia.lotes[0])
+    maximo = config.clasificador.max_caracteres_descripcion
+    assert len(largo) <= maximo + 1000 + 3
+    assert "100% remota" in largo and "Beneficios de ley" not in largo
+    assert (breve, vacio) == ("Pruebas manuales.", None)
+
+
+def test_el_prompt_distingue_la_modalidad_del_puesto_de_la_de_la_empresa(config):
+    prompt = " ".join(config.clasificador.prompt_sistema.split())
+    assert "modalidad de ESTE puesto" in prompt
+    assert "equipos remotos" in prompt and "oficinas remotas" in prompt

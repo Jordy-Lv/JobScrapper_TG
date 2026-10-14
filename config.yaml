@@ -151,6 +151,22 @@ fuentes:
       intervalos_min: [30, 60, 120]
       limpias_para_bajar: 12
       tolerancia_min: 5
+    # Detalle de la oferta (GET jobs-guest/jobs/api/jobPosting/{id}). Las tarjetas no dicen la
+    # modalidad: una oferta que solo se rechazaría por eso (otra ciudad sin "remoto", call
+    # center) queda en una cola y se pide su detalle una vez; luego se evalúa de nuevo y, si
+    # hay duda, decide la IA. Nada se pierde: ante un fallo o sin presupuesto sigue en la cola
+    # y solo sale al resolverse, cerrarse la oferta (404/410) o vencer horas_vencimiento.
+    # Un 429 aplica el cooldown de la fuente y corta los detalles de la corrida. Con 48
+    # corridas al día, 6 por corrida son hasta 288 peticiones diarias: si LinkedIn bloquea,
+    # baja max_por_corrida. activo: false vuelve al rechazo anterior sin tocar el código
+    detalle:
+      activo: true
+      max_por_corrida: 6        # peticiones de detalle por corrida
+      pausa_min_s: 6            # pausa propia del detalle, más lenta que la de la búsqueda
+      pausa_max_s: 12
+      max_caracteres: 3000      # recorte de la descripción guardada
+      horas_vencimiento: 48     # espera máxima en la cola
+      espera_reintento_min: 30  # tras un fallo, espera de 30 × intentos minutos
     opciones:
       location: Colombia
       f_E: "1,2"        # Prácticas y nivel de entrada
@@ -171,8 +187,8 @@ fuentes:
       # Variantes de búsqueda: cada corrida usa una, en orden circular, sin gastar más
       # peticiones. Sus claves reemplazan a las de arriba. Todo el país y solo la ciudad base.
       # No sirve filtrar por modalidad (f_WT): la API pública de LinkedIn lo ignora y las
-      # tarjetas no dicen la modalidad, así que en otra ciudad solo pasa lo que dice "remoto"
-      # en el título o la ubicación. Sin variantes, se usan solo las opciones de arriba
+      # tarjetas no dicen la modalidad: se lee del detalle de la oferta (ver "detalle" arriba).
+      # Sin variantes, se usan solo las opciones de arriba
       variantes:
         - {location: Colombia}
         - {location: "Cartagena, Bolívar, Colombia"}
@@ -871,6 +887,9 @@ clasificador:
   max_vacantes_por_llamada: 30
   politica_sin_ia: descartar   # descartar | aceptar
   horas_vencimiento_pendiente: 24
+  # Caracteres de la descripción que se envían por vacante (se añaden, hasta 1000 más, las
+  # frases posteriores que hablan de la modalidad), para acotar los tokens de un lote
+  max_caracteres_descripcion: 1500
   temperatura: 0
   prompt_sistema: |
     Eres el clasificador de un canal de Telegram de vacantes de prácticas, aprendizaje y
@@ -915,6 +934,11 @@ clasificador:
       indica trabajo remoto, teletrabajo o desde casa.
     Rechaza si el texto indica trabajo presencial o en sitio ("en sitio", "técnico de campo",
     "con moto", "visitas a clientes", "en nuestra sede") o si no dice nada de la modalidad.
+    El indicio de remoto vale solo si describe la modalidad de ESTE puesto ("esta posición es
+    100% remota", "trabajo desde casa"). No vale si habla de la empresa o del equipo ("somos
+    una empresa con equipos remotos", "oficinas remotas", "cultura remote-first") ni de algo
+    ocasional ("alguna vez remoto"), ni si el mismo texto pide asistir a una sede, oficina o
+    sitio. Ante textos que se contradicen, manda lo que diga del puesto.
     Si "exige_modalidad" es null, no apliques esta regla.
 
     Aprendiz SENA o de contrato de aprendizaje sin área: un título que es solo "Aprendiz SENA"
@@ -974,6 +998,10 @@ resumen:
      "recomendaciones": ["entre 1 y 3 recomendaciones concretas"]}
     Cada recomendación debe citar el dato que la justifica (por ejemplo, una palabra clave
     sin resultados en 7 días o un filtro que descarta una proporción inusual).
+    "detalle_de_ofertas" cuenta las páginas de detalle pedidas a LinkedIn: si "en_cola" pasa de
+    30 o crece, recomienda subir el presupuesto de detalle (fuentes.linkedin.detalle.max_por_corrida)
+    o revisar los bloqueos; si "fallidos" es una parte grande de "pedidos", recomienda revisar
+    los bloqueos; las "vencidas" son ofertas que no se pudieron resolver a tiempo.
     No inventes datos que no estén en las métricas. Escribe en español.
 
 incidentes:

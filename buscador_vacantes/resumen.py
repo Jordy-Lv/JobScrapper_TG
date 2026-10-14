@@ -66,6 +66,12 @@ class Metricas:
     pendientes: int = 0
     practicas_recategorizadas: int = 0
     practicas_rechazadas: int = 0
+    detalles_pedidos: int = 0
+    detalles_fallidos: int = 0
+    detalles_recuperadas: int = 0
+    detalles_cerradas: int = 0
+    detalles_vencidas: int = 0
+    detalles_en_cola: int = 0  # la cola de ahora, no una suma de corridas
     requests_por_fuente: Counter = field(default_factory=Counter)
     errores_por_fuente: dict[str, Counter] = field(default_factory=dict)
     crudas_por_fuente: Counter = field(default_factory=Counter)
@@ -101,6 +107,14 @@ class Metricas:
             "guardarrail_practicas": {
                 "recategorizadas": self.practicas_recategorizadas,
                 "rechazadas": self.practicas_rechazadas,
+            },
+            "detalle_de_ofertas": {
+                "pedidos": self.detalles_pedidos,
+                "fallidos": self.detalles_fallidos,
+                "recuperadas": self.detalles_recuperadas,
+                "cerradas": self.detalles_cerradas,
+                "vencidas": self.detalles_vencidas,
+                "en_cola": self.detalles_en_cola,
             },
             "requests_por_fuente": dict(self.requests_por_fuente),
             "errores_por_fuente": {f: dict(c) for f, c in self.errores_por_fuente.items()},
@@ -148,6 +162,11 @@ def calcular_metricas(estado: Estado, ahora: datetime, *, prueba: bool = False) 
         m.pendientes = f["pendientes"]  # las pendientes son un estado, no se suman
         m.practicas_recategorizadas += f["practicas_recategorizadas"]
         m.practicas_rechazadas += f["practicas_rechazadas"]
+        m.detalles_pedidos += f["detalles_pedidos"]
+        m.detalles_fallidos += f["detalles_fallidos"]
+        m.detalles_recuperadas += f["detalles_recuperadas"]
+        m.detalles_cerradas += f["detalles_cerradas"]
+        m.detalles_vencidas += f["detalles_vencidas"]
         m.descartes.update(json.loads(f["descartes_json"] or "{}"))
 
     for f in estado.cx.execute(
@@ -160,6 +179,8 @@ def calcular_metricas(estado: Estado, ahora: datetime, *, prueba: bool = False) 
         m.crudas_por_fuente[f["fuente"]] += f["items"] or 0
         if f["tipo_error"]:
             m.errores_por_fuente.setdefault(f["fuente"], Counter())[f["tipo_error"]] += 1
+
+    m.detalles_en_cola = estado.contar_cola_detalle()
 
     for f in estado.cx.execute("SELECT fuente, tipo FROM incidentes WHERE cerrado_en IS NULL"):
         m.incidentes_abiertos.append(f"{f['fuente']}:{f['tipo']}")
@@ -183,6 +204,7 @@ def calcular_metricas(estado: Estado, ahora: datetime, *, prueba: bool = False) 
         for f in estado.cx.execute(
             "SELECT i.keyword FROM intentos i JOIN corridas c ON c.id = i.corrida_id "
             "WHERE i.ts >= ? AND i.keyword IS NOT NULL AND i.status IS NOT NULL "
+            "AND i.keyword NOT LIKE 'detalle %' "
             "AND c.modo IN ('normal', 'prueba') GROUP BY i.keyword "
             "HAVING SUM(i.items) = 0 AND COUNT(*) >= ? ORDER BY i.keyword",
             (a_texto(ahora - timedelta(days=7)), MIN_INTENTOS_KEYWORD),
@@ -237,6 +259,11 @@ def componer_resumen(
     recategorizadas = _cantidad(m.practicas_recategorizadas, "recategorizada", "recategorizadas")
     rechazadas = _cantidad(m.practicas_rechazadas, "rechazada", "rechazadas")
     lineas.append(f"🛡️ Guardarraíl de prácticas: {recategorizadas} · {rechazadas}")
+    lineas.append(
+        f"🔗 Detalle de LinkedIn: {m.detalles_pedidos} pedidos · {m.detalles_fallidos} fallidos"
+        f" · {m.detalles_recuperadas} recuperadas · {m.detalles_en_cola} en cola"
+        f" · {m.detalles_vencidas} vencidas · {m.detalles_cerradas} cerradas"
+    )
     lineas.append(
         f"🤖 Dudosas: {m.dudosas} → {m.ia_aceptadas} aceptadas · {m.ia_rechazadas} rechazadas"
         f" · {m.pendientes} pendientes"

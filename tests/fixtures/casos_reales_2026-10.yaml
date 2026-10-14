@@ -69,7 +69,7 @@
   titulo: Aprendiz Sena
   empresa: Almacenes La 13 S.A.S
   ubicacion: Cali, Valle del Cauca
-  esperado: {veredicto: rechazar}
+  esperado: {veredicto: dudosa, motivo: pendiente_detalle, exige_modalidad: remoto_o_hibrido}
 
 - caso: Aprendiz de etapa productiva en Bogotá
   fuente: computrabajo
@@ -84,7 +84,7 @@
   titulo: Aprendiz Universitario (a) de Planeación de Importados - Cali
   empresa: Cargill
   ubicacion: Cali, Valle del Cauca
-  esperado: {veredicto: rechazar}
+  esperado: {veredicto: dudosa, motivo: pendiente_detalle, exige_modalidad: remoto_o_hibrido}
 
 - caso: Auxiliar de farmacia con manejo de base de datos
   fuente: elempleo
@@ -268,21 +268,48 @@
   final: practicas
 
 # LinkedIn no dice la modalidad en sus tarjetas ni respeta el filtro f_WT: una oferta de otra
-# ciudad sin descripción se rechaza. Este caso salió publicado como «Remoto o híbrido» y en
-# LinkedIn es «Presencial»
+# ciudad sin descripción queda pendiente de detalle y se evalúa de nuevo con la descripción que
+# trae su página. Este caso salió publicado como «Remoto o híbrido» y en LinkedIn es «Presencial»
 - caso: Analista de desarrollo web presencial en Bogotá, visto en LinkedIn
   fuente: linkedin
   titulo: Analista Desarrollo Web Proyecto 6 Meses
   empresa: "Los Olivos Bogotá: Un Homenaje al Amor"
   ubicacion: Bogotá, Distrito Capital, Colombia
-  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+  esperado: {veredicto: dudosa, motivo: pendiente_detalle, exige_modalidad: remoto_o_hibrido}
+  # Con el detalle de la oferta (la descripción es supuesta): dice presencial. Las reglas no
+  # aceptan lo presencial por una mención: pasa a la IA con la condición, y su prompt rechaza
+  # el texto que indica trabajo presencial
+  con_detalle:
+    descripcion: >-
+      Buscamos un analista para desarrollar sitios web. El trabajo es presencial en nuestras
+      oficinas de Bogotá, de lunes a viernes.
+    esperado: {veredicto: dudosa, motivo: dudosa, exige_modalidad: remoto_o_hibrido}
 
 - caso: Programador junior de LinkedIn en otra ciudad, sin modalidad
   fuente: linkedin
   titulo: Programador Junior- Data Engineering
   empresa: Inetum
   ubicacion: Bogotá, Distrito Capital, Colombia
-  esperado: {veredicto: rechazar, motivo: presencial_fuera}
+  esperado: {veredicto: dudosa, motivo: pendiente_detalle, exige_modalidad: remoto_o_hibrido}
+  con_detalle:
+    descripcion: >-
+      Programador junior para proyectos de datos. Modalidad híbrida: tres días en oficina en
+      Bogotá y dos desde casa.
+    esperado: {veredicto: dudosa, motivo: dudosa, exige_modalidad: remoto_o_hibrido}
+
+# La remota de LinkedIn que se perdía: el detalle confirma que el puesto es remoto y pasa a la
+# IA con la condición de modalidad, en lugar de aceptarse solo por una mención
+- caso: Practicante de ingeniería de software remoto en LinkedIn, sin modalidad en la tarjeta
+  fuente: linkedin
+  titulo: Software Engineer Intern
+  empresa: Sezzle
+  ubicacion: Colombia
+  esperado: {veredicto: dudosa, motivo: pendiente_detalle, exige_modalidad: remoto_o_hibrido}
+  con_detalle:
+    descripcion: >-
+      Únete a nuestro equipo de ingeniería de software como practicante. Esta posición es 100%
+      remota para residentes en Colombia.
+    esperado: {veredicto: dudosa, motivo: dudosa, exige_modalidad: remoto_o_hibrido}
 
 - caso: DevOps junior híbrido en Medellín
   fuente: computrabajo
