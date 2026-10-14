@@ -36,10 +36,10 @@
 
 - [ ] 6.1 Actualizar `config.yaml` (`fuentes.linkedin`): `presupuesto: 2`, `reservado_nucleo: 1`, `paginas_nucleo: 2`, `pausa_min_s: 20`, `pausa_max_s: 45`, `ritmo: {intervalos_min: [30, 60, 120], limpias_para_bajar: 12, tolerancia_min: 5}` y `opciones.consulta` con los valores fijados en la tarea 1.2; `red.retry_after_max_h: 24`. Verificar con `test_config.py` y con `uv run buscador.py --dry-run --fuente linkedin` desde el servidor tras el cooldown (una petición).
 - [x] 6.2 Documentar en `README.md` y `deploy/INSTALAR.md` el nuevo ritmo de LinkedIn (peticiones por día, ritmo adaptativo, modos `or` y `simple`) y cómo volver atrás. Verificar releyendo que no queden referencias al presupuesto de 3 ni a la rotación de 2 palabras por corrida.
-- [ ] 6.3 Correr `ruff check .` y toda la suite (`.venv/Scripts/python -m pytest`), y verificar que solo fallan las 3 pruebas conocidas de Windows.
+- [x] 6.3 Correr `ruff check .` y toda la suite (`.venv/Scripts/python -m pytest`), y verificar que solo fallan las 3 pruebas conocidas de Windows.
 
 ## 7. Despliegue y verificación en producción (🔴)
 
-- [ ] 7.1 Desplegar en `~/buscador-vacantes` (`git pull --ff-only`), confirmar que el timer sigue activo (`systemctl --user list-timers buscador.timer`) y que la siguiente corrida arranca sin errores (`journalctl --user -u buscador -n 50`).
+- [x] 7.1 Desplegar en `~/buscador-vacantes` (`git pull --ff-only`), confirmar que el timer sigue activo (`systemctl --user list-timers buscador.timer`) y que la siguiente corrida arranca sin errores (`journalctl --user -u buscador -n 50`).
 - [ ] 7.2 Verificar a las 24 h con la base del servidor: LinkedIn con ≤ 60 requests en el día y 0 con 429 (`SELECT COUNT(*), SUM(status=429) FROM intentos WHERE fuente='linkedin'`), sin incidente de bloqueo abierto y con más de 40 vacantes de LinkedIn publicadas. A las 48 h: ~70 vacantes al día y la proporción de corridas con página 2. Si hay un 429, comprobar que el ritmo subió un nivel (`kv`: `ritmo:linkedin:nivel`) y que la siguiente petición lleva una ventana que cubre el hueco.
 - [ ] 7.3 Marcar la resolución del incidente «LinkedIn · bloqueo» (se cierra solo con la primera respuesta exitosa) y dejar el resultado medido en este archivo. Verificar que `incidentes` no tiene filas abiertas de `linkedin`.
