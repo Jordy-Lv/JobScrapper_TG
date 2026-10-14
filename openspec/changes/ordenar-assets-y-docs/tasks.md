@@ -34,6 +34,6 @@
 
 ## 6. Cierre (👤)
 
-- [ ] 6.1 Pedir confirmación al dueño para integrar en `main` y desplegar
-- [ ] 6.2 `git pull` en el Fedora, reiniciar `buscador-asistente`, comprobar la próxima corrida del radar y que el asistente carga selectores y fuentes
-- [ ] 6.3 Actualizar la memoria del plan (fase 2 hecha)
+- [x] 6.1 Pedir confirmación al dueño para integrar en `main` y desplegar (confirmado por el dueño; `main` en `a55e436`, subido a `origin`, con `01e0f52` de otra sesión fusionado sin conflictos)
+- [x] 6.2 `git pull` en el Fedora, reiniciar `buscador-asistente`, comprobar la próxima corrida del radar y que el asistente carga selectores y fuentes (desplegado por el dueño a las 11:45; corrida 516 de las 12:01 sin errores; asistente activo)
+- [x] 6.3 Actualizar la memoria del plan (fase 2 hecha)
