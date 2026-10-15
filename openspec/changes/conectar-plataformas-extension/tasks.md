@@ -21,6 +21,7 @@ Mismo método que la tarea 3.1 de `asistente-postulacion-telegram`; conviene hac
   - páginas que el motor no debe tocar.
 
   Verificar con la sección de elempleo en `docs/asistente/portales.md` y los HTML guardados.
+  Avance (2026-10-15): recorridas 2 vacantes (una con pasos extra de video y nota) y registrados los indicadores en `portales.md`. Falta el correo de la cuenta, una vacante cerrada, una con preguntas del empleador y guardar los HTML de cada paso.
 - [x] 2.2 (OMITIDA: GetOnBoard queda en respaldo) 👤 GetOnBoard: lo mismo que 2.1, y además anotar cuántas ofertas se aplican dentro del portal y cuántas redirigen a un sitio externo. Verificar con la sección de GetOnBoard en `docs/asistente/portales.md`.
 - [x] 2.3 (OMITIDA: el SPE queda en respaldo) 👤 Solo si 1.3 lo pide: reconocimiento del SPE (`buscadordeempleo.gov.co`) con los mismos puntos. Verificar con su sección en `docs/asistente/portales.md`.
 - [ ] 2.4 🟡 Recortar los HTML guardados a fixtures sin datos personales en `tests/fixtures/asistente/<plataforma>/`. Verificar con `grep -ri` del nombre, correo, teléfono y documento del dueño sin coincidencias en esas carpetas.
@@ -45,6 +46,7 @@ Se omite el grupo completo si 1.1 o 1.2 lo descartan.
 - [ ] 4.2 🟡 Solo si los datos no alcanzan: `extension/adaptadores/elempleo.js` y su entrada en `ADAPTADORES` de `portales.js`. Verificar con la prueba `navegador` del comportamiento concreto que lo exigió. Si no hace falta, dejar anotado en `design.md` que no se creó adaptador.
 - [ ] 4.3 🟡 Lectura del correo de la cuenta y detección `sin_sesion`, `incompleto` y `listo`, con la cuenta asociada. Verificar con pruebas `navegador`: la primera detección pide confirmar, una sesión con otro correo no postula y avisa enmascarado, y sin correo legible da `formulario_desconocido`.
 - [ ] 4.4 🟡 Pasos `cv_subir` y `cv_verificar` según el modo real del CV de elempleo. Verificar con fixtures del modo detectado en 2.1: sin autorización no se toca el CV, y si la verificación falla se postula con el existente y se registra.
+- [ ] 4.4b 🔴 Pasos extra de elempleo (decisión 7): leer y resolver el aviso de datos, el video opcional (omitir), la nota de presentación y las preguntas del empleador, reutilizando las preguntas pendientes de la card. Verificar con fixtures de cada paso: el video se omite, la nota y las preguntas piden respuesta por la card antes de enviar y un paso obligatorio desconocido da `formulario_desconocido`.
 - [ ] 4.5 👤 Piloto del dueño: cargar los selectores en el Fedora, activar el permiso en el popup y tocar ⚡ en 3 vacantes reales de elempleo. Verificar con las 3 en `enviada`, visibles en el portal, con el CV enviado correcto y sin datos inventados.
 
 ## 5. GetOnBoard

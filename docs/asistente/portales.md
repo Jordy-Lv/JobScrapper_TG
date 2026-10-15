@@ -55,4 +55,34 @@ si su volumen de vacantes crece. Se omiten los grupos 5 y 6 del change.
 
 ### elempleo
 
-Pendiente (tareas 2.1 y 2.5).
+Reconocimiento parcial del 2026-10-15, hecho con la sesión del dueño (Chrome) y sin guardar datos personales
+en el repositorio. Los HTML guardados quedan fuera del repo hasta recortarlos (tarea 2.4).
+
+**Vacantes recorridas:** «Analista de soporte it - cartagena» (1886757326) y «Auxiliar de surtido 636565»
+(JOBANDTALENT, hecha por el dueño). Las dos quedaron en «Mis procesos» como postulaciones reales.
+
+| Punto | Hallazgo |
+|---|---|
+| Sesión iniciada | La barra muestra «Cuenta» y «Cerrar sesión»; sin sesión muestra «Iniciar sesión». |
+| Perfil incompleto | Banner «Hoja de vida incompleta… para postularte» y el clic en postular no hace nada. En `/co/hoja-de-vida` aparece «Incompleta», un porcentaje y un botón «Completar» (`js-anchor-laboral-experience`) por sección. |
+| Ya postulado | Banner `div.alert.js-alert-already-applied` («Postulación realizada · Ya te postulaste a esta oferta») y el botón pasa a «Postulado». |
+| Lista de postulaciones | `/co/estadisticas/mis-procesos/`. Una postulación nueva **tarda en aparecer** (minutos): no sirve como confirmación inmediata. |
+| Botón de postular | `button.js-apply-quick-offer`, «Postularme a oferta» (hay uno oculto para móvil). |
+| Paso 1 | Modal `#habeasModal`: autorización de datos al empleador, botón «Entendido». Es obligatorio para seguir. |
+| Paso 2 | Modal `#QuickApplicationApplyOffer` con «La hoja de vida que recibirá la empresa es: [PDF]», adjuntar archivo opcional (PDF/DOC, máx. 3 MB) y «Postularme a oferta». Formulario `SaveQuickApplication`. |
+| Pasos extra por vacante | `#jobOfferApplicationVprez`: video opcional (V-Prez), con «Omitir» y «Continuar proceso»; `#ApplicationNoteLightBox`: nota de presentación de hasta 2.000 caracteres, con «Enviar» y «Omitir este paso». Dependen de lo que pida el empleador. |
+| Modo del CV | `perfil_unico`: el CV sale del perfil y se puede elegir un adjunto ya cargado. |
+| Correo de la cuenta | No se muestra en la vacante ni en «Mis procesos»; falta buscarlo en «Cuenta». |
+| Captcha | No se vio ninguno en este recorrido (la página carga reCAPTCHA, pero no lo exigió). |
+
+**Pendiente de 2.1:** correo de la cuenta, vacante cerrada, vacante con preguntas del empleador y el HTML
+completo de cada paso.
+
+**Regla para los pasos extra (decisión del dueño, 2026-10-15):** el bot debe poder leer todo lo que le salga
+y lograr una postulación exitosa.
+- Paso opcional que no exige contenido del candidato (por ejemplo el video) → se omite.
+- Paso que pide contenido (nota de presentación, preguntas del empleador, encuesta) → el motor lee el texto,
+  la IA redacta con los datos reales del perfil y, si hay duda o el paso es obligatorio, se le pregunta al
+  usuario por Telegram con botones antes de enviar.
+- Lo que implica la imagen o la voz del usuario (video) nunca se hace sin su respuesta expresa.
+- Paso desconocido → `formulario_desconocido` y paquete de respaldo, sin enviar.

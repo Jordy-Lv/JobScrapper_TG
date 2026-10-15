@@ -61,6 +61,16 @@ Los nombres y enlaces de inicio de `textos.py` se completan para las plataformas
 
 *Alternativa descartada:* dejar que el piloto detecte el desfase; aparecería como un mensaje con el nombre vacío.
 
+### 7. Pasos extra del portal: omitir lo opcional, preguntar lo que pide contenido
+Reconocimiento de elempleo (2026-10-15): tras pulsar postular salen un aviso de datos y, según el empleador, un video opcional (V-Prez), una nota de presentación u otras preguntas. El motor MUST leer cada paso y resolverlo así:
+- **Opcional y sin contenido del usuario** (video, nota con «Omitir este paso»): se omite.
+- **Pide contenido** (nota, preguntas del empleador, encuesta): se reutiliza el mecanismo de preguntas pendientes de la card de Telegram (`preguntas-encuesta-con-botones-y-redaccion-ia`): la IA sugiere o redacta con el perfil y el usuario elige con botones, o decide la IA.
+- **Implica su imagen o voz** (grabar video): nunca sin su respuesta expresa.
+- **Obligatorio y no reconocido**: `formulario_desconocido` y paquete de respaldo, sin enviar.
+El objetivo es que la postulación termine exitosa sin que el usuario tenga que entrar al portal.
+
+*Alternativa descartada:* tratar todo paso desconocido como fallo; dejaría sin postular a las vacantes con una nota o un video opcionales, que son una parte importante.
+
 ## Risks / Trade-offs
 
 - **Portal con captcha o verificación frecuente** → la plataforma queda en respaldo; no se evaden captchas (regla del proyecto).

@@ -45,3 +45,18 @@ Cada plataforma habilitada MUST tener un reconocimiento documentado en `docs/asi
 #### Scenario: Plataforma sin reconocimiento
 - **WHEN** una plataforma no tiene su documentación de reconocimiento
 - **THEN** no se carga su archivo de selectores en el servidor
+
+### Requirement: Pasos extra del formulario de postulación
+Para cada plataforma habilitada, la extensión SHALL leer los pasos adicionales que muestre el portal tras postular (avisos de datos, video, nota de presentación, preguntas del empleador, encuestas) y resolverlos: un paso opcional que no exige contenido del candidato MUST omitirse; un paso que pide contenido SHALL pasar por las preguntas pendientes de la card de Telegram (sugerencia de la IA o respuesta del usuario) antes de enviar; un paso que implica la imagen o la voz del usuario MUST NOT completarse sin su respuesta expresa; un paso obligatorio no reconocido MUST terminar en `formulario_desconocido` sin enviar.
+
+#### Scenario: Video opcional
+- **WHEN** el portal ofrece grabar un video con una opción «Omitir»
+- **THEN** la extensión lo omite y la postulación sigue hasta quedar enviada
+
+#### Scenario: Pregunta del empleador
+- **WHEN** el formulario trae una pregunta que el perfil no responde
+- **THEN** el bot la pregunta en la card con sugerencias de la IA y solo envía cuando hay respuesta
+
+#### Scenario: Paso obligatorio desconocido
+- **WHEN** aparece un paso obligatorio que la extensión no reconoce
+- **THEN** no se envía nada y la vacante va al paquete de respaldo con `formulario_desconocido`
