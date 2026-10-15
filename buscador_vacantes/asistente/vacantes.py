@@ -17,8 +17,13 @@ from buscador_vacantes.comun.estado import a_texto, de_texto
 
 CLAVE_MARCA = "indice_enviada_hasta"
 
-# Dominio → plataforma con postulación automática
-PLATAFORMAS = {"computrabajo.com": "computrabajo", "magneto365.com": "magneto"}
+# Dominio del enlace → plataforma que la extensión sabe operar. Si postula sola o va a respaldo
+# lo decide config.yaml (asistente.plataformas.<x>.automatica)
+PLATAFORMAS = {
+    "computrabajo.com": "computrabajo",
+    "magneto365.com": "magneto",
+    "elempleo.com": "elempleo",
+}
 
 
 def plataforma_de_url(url: str) -> str | None:

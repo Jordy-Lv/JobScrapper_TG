@@ -117,6 +117,46 @@ def test_id_desconocido(mundo):
     assert mundo.nucleo.tocar(mundo.usuario, "inexistente1").camino == Camino.NO_DISPONIBLE
 
 
+def publicar(mundo, fuente, id_fuente, url):
+    """Publica una vacante en el canal (vacantes.db) y devuelve su id corto."""
+    v = Vacante(fuente=fuente, id_fuente=id_fuente, titulo="Practicante de sistemas",
+                empresa="ACME", url=url, keyword="k")  # fmt: skip
+    mundo.estado.registrar_vista(v, f"h{fuente}{id_fuente}", momento=T0, enviada=True)
+    return id_corto(f"{fuente}:{id_fuente}")
+
+
+# Plataformas reconocidas por dominio que aún no postulan solas (automatica: false)
+NUEVAS = {"elempleo": "https://www.elempleo.com/co/ofertas-trabajo/practicante-1886774213"}
+
+
+@pytest.mark.parametrize("plataforma", list(NUEVAS))
+def test_plataforma_nueva_sin_automatica_va_a_respaldo_sin_tarea(mundo, plataforma):
+    mundo.vincular()
+    id_ = publicar(mundo, plataforma, "1", NUEVAS[plataforma])
+    toque = mundo.nucleo.tocar(mundo.usuario, id_)
+    assert toque.vacante.plataforma == plataforma
+    assert toque.camino == Camino.RESPALDO and toque.motivo == "plataforma_no_automatica"
+    assert toque.postulacion.estado == E.RESPALDO
+    listos = {"computrabajo", "magneto", plataforma}
+    assert mundo.nucleo.cola.siguiente(mundo.usuario.id, listos, T0) is None
+
+
+@pytest.mark.parametrize(
+    ("url", "plataforma", "motivo"),
+    [
+        ("https://co.computrabajo.com/ofertas-de-trabajo/oferta-2", "computrabajo", None),
+        ("https://www.magneto365.com/co/empleos/practicante-1-5-2", "magneto", None),
+        (NUEVAS["elempleo"], "elempleo", "plataforma_no_automatica"),
+        ("https://empleos.cajadecompensacion.example/oferta/2", None, "plataforma_no_soportada"),
+    ],
+)
+def test_plaza_del_spe_toma_la_plataforma_del_enlace(mundo, url, plataforma, motivo):
+    mundo.vincular()
+    vacante = mundo.nucleo.indice.resolver(publicar(mundo, "spe", "2", url), T0)
+    assert vacante.fuente == "spe" and vacante.plataforma == plataforma
+    assert mundo.nucleo.camino_automatico(mundo.usuario.id, vacante) == motivo
+
+
 @respx.mock
 def test_formulario_con_dato_faltante_pregunta_y_reanuda(mundo):
     respx.get(URL_CT).mock(

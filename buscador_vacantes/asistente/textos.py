@@ -139,11 +139,12 @@ ESTADOS = {
     "completado": "✅ Perfil completado",
 }
 
-NOMBRES_PLATAFORMA = {"computrabajo": "Computrabajo", "magneto": "Magneto"}
+NOMBRES_PLATAFORMA = {"computrabajo": "Computrabajo", "magneto": "Magneto", "elempleo": "elempleo"}
 # Página de inicio de cada portal (el registro exacto se confirma en el reconocimiento)
 URL_REGISTRO = {
     "computrabajo": "https://co.computrabajo.com/",
     "magneto": "https://www.magneto365.com/co",
+    "elempleo": "https://www.elempleo.com/co/",
 }
 
 

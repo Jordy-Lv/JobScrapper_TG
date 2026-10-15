@@ -28,10 +28,10 @@ Mismo método que la tarea 3.1 de `asistente-postulacion-telegram`; conviene hac
 
 ## 3. Reconocimiento del dominio y textos en el servidor
 
-- [ ] 3.1 🟡 Ampliar `PLATAFORMAS` en `buscador_vacantes/asistente/vacantes.py` con `elempleo.com` (GetOnBoard y el SPE quedan fuera por 1.2), actualizar el comentario de `datos.py` y completar `NOMBRES_PLATAFORMA` y los enlaces de inicio de `textos.py`. Verificar con pruebas en `tests/asistente/` de `plataforma_de_url` para cada dominio, subdominios incluidos, y un dominio ajeno (por ejemplo `getonbrd.com`) que sigue devolviendo `None`.
-- [ ] 3.2 🟡 Agregar en `config.yaml` las plataformas nuevas con `automatica: false` y una prueba de coherencia: una plataforma con `automatica: true` MUST tener nombre, dominio y selectores cargados. Verificar con la prueba que falla al quitar un nombre y pasa con todo completo.
-- [ ] 3.3 🟢 Verificar que, con los dominios reconocidos y `automatica: false`, el toque va al paquete de respaldo con `plataforma_no_automatica` y no hay tarea en la cola. Verificar con una prueba de `nucleo.tocar` para cada plataforma nueva.
-- [ ] 3.4 🟡 Comprobar el caso del SPE: una vacante con fuente `spe` y enlace de Magneto o elempleo toma la plataforma del enlace, y una con enlace de bolsa externa va a `plataforma_no_soportada`. Verificar con pruebas de `vacantes.resolver` y `camino_automatico`.
+- [x] 3.1 🟡 Ampliar `PLATAFORMAS` en `buscador_vacantes/asistente/vacantes.py` con `elempleo.com` (GetOnBoard y el SPE quedan fuera por 1.2), actualizar el comentario de `datos.py` y completar `NOMBRES_PLATAFORMA` y los enlaces de inicio de `textos.py`. Verificar con pruebas en `tests/asistente/` de `plataforma_de_url` para cada dominio, subdominios incluidos, y un dominio ajeno (por ejemplo `getonbrd.com`) que sigue devolviendo `None`.
+- [x] 3.2 🟡 Agregar en `config.yaml` las plataformas nuevas con `automatica: false` y una prueba de coherencia: una plataforma con `automatica: true` MUST tener nombre, dominio y selectores cargados. Verificar con la prueba que falla al quitar un nombre y pasa con todo completo.
+- [x] 3.3 🟢 Verificar que, con los dominios reconocidos y `automatica: false`, el toque va al paquete de respaldo con `plataforma_no_automatica` y no hay tarea en la cola. Verificar con una prueba de `nucleo.tocar` para cada plataforma nueva.
+- [x] 3.4 🟡 Comprobar el caso del SPE: una vacante con fuente `spe` y enlace de Magneto o elempleo toma la plataforma del enlace, y una con enlace de bolsa externa va a `plataforma_no_soportada`. Verificar con pruebas de `vacantes.resolver` y `camino_automatico`.
 
 ## 4. elempleo
 

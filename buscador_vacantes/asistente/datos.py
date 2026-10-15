@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS vacantes (
     id_corto TEXT PRIMARY KEY,
     clave TEXT NOT NULL UNIQUE,
     fuente TEXT NOT NULL,
-    plataforma TEXT,                           -- computrabajo | magneto | NULL
+    plataforma TEXT,                           -- clave de vacantes.PLATAFORMAS o NULL
     url TEXT NOT NULL,
     titulo TEXT,
     empresa TEXT,

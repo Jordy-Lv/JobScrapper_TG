@@ -54,8 +54,16 @@ def test_texto_de_oferta_finalizada_es_cerrada():
     [
         (URLS["computrabajo"], "computrabajo"),
         (URLS["magneto"], "magneto"),
+        (URLS["elempleo"], "elempleo"),
+        ("https://elempleo.com/co/ofertas-trabajo/x-1", "elempleo"),
+        ("https://empresas.elempleo.com/x", "elempleo"),
+        ("https://magneto365.com/co/empleos/x", "magneto"),
+        (URLS["getonboard"], None),
         (URLS["linkedin"], None),
+        ("https://www.buscadordeempleo.gov.co/x", None),
         ("https://computrabajo.com.evil.example/x", None),
+        ("https://elempleo.com.evil.example/x", None),
+        ("https://noelempleo.com/x", None),
     ],
 )
 def test_plataforma_de_url(url, plataforma):

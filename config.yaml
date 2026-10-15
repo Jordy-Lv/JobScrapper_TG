@@ -1109,6 +1109,8 @@ asistente:
   plataformas:
     computrabajo: {automatica: true}
     magneto: {automatica: true}
+    # Reconocida por dominio; va a paquete de respaldo hasta pasar su piloto
+    elempleo: {automatica: false}
   automatico_usuario:
     umbral_defecto: 70
   carta_max_caracteres: 1000
