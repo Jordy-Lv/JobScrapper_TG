@@ -118,9 +118,17 @@ exigen una versión nueva de la extensión: `motor.js` y los adaptadores no camb
 6. **Al terminar**, `/plataformas elempleo off` si algo falló, y anotar aquí el resultado.
 
 **7.1, si las tres salen bien:** poner `elempleo: {automatica: true}` en `config.yaml`, cambiar
-`verificado.postulacion` a `true` en `elempleo.json` (subir `version`), commit, `git pull --ff-only` en el
-Fedora, reinicio del servicio y un ⚡ de prueba que termine en `enviada`. Si alguna falla, se deja en
-`false` y se anota el motivo aquí con el HTML de la evidencia.
+`verificado.postulacion` a `true` en `elempleo.json` (subir `version`) y actualizar la autorización de datos
+(ver abajo), commit, `git pull --ff-only` en el Fedora, reinicio del servicio y un ⚡ de prueba que termine
+en `enviada`. Si alguna falla, se deja en `false` y se anota el motivo aquí con el HTML de la evidencia,
+y la autorización no se toca.
+
+**Autorización de datos (cierra la tarea 7.3).** En el mismo commit de la 7.1, en `config.yaml` →
+`asistente.politica.texto`, punto 1, cambiar «el correo de tus cuentas de Computrabajo y Magneto» por
+«el correo de tus cuentas de Computrabajo, Magneto y elempleo», y subir `asistente.politica.version`
+de `1` a `2`. Al reiniciar, cada usuario debe aceptar la autorización de nuevo antes de seguir usando
+el bot; conviene avisar a los invitados. Se hace solo cuando elempleo queda activa, para pedir esa
+aceptación nueva una sola vez.
 
 **Qué mirar si algo falla:**
 - `incierta` con «no apareció la confirmación»: el portal respondió con una redirección (respuestas 1 o 5)

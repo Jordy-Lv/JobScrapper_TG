@@ -29,7 +29,7 @@ Postula desde tu navegador, con tu propia sesión, a las vacantes del canal JOBS
 Asistente privado para los miembros del canal de Telegram «JOBS - PRÁCTICAS/APRENDIZ».
 
 Cuando tocas «Postularme» en una vacante del canal, esta extensión hace la postulación por ti
-desde tu propio navegador, con tu sesión de Computrabajo o Magneto:
+desde tu propio navegador, con tu sesión de Computrabajo, Magneto o elempleo:
 
 • Abre la vacante en una pestaña en segundo plano.
 • Lee las preguntas del formulario y las responde con los datos de tu perfil, que confirmaste en
@@ -39,7 +39,8 @@ desde tu propio navegador, con tu sesión de Computrabajo o Magneto:
 
 Seguridad y privacidad:
 • Nunca pide, lee ni guarda contraseñas ni cookies de los portales.
-• Solo funciona en Computrabajo, Magneto y el servidor del asistente.
+• Solo funciona en Computrabajo, Magneto y el servidor del asistente; en elempleo, solo si
+  activas su permiso desde el popup.
 • Antes de postular comprueba que la sesión abierta sea tu cuenta.
 • Si el portal pide un captcha o una verificación, te muestra la pestaña para que la resuelvas tú.
 • No ejecuta código descargado: solo recibe datos del servidor.
@@ -59,7 +60,8 @@ private job-offers channel in Colombia. It only works after the user links it fr
 "not linked" screen with a code field.
 
 What it does: when the user taps "Apply" on a job in the Telegram channel, the extension opens
-that job page on computrabajo.com or magneto365.com in a background tab, reads the form
+that job page on computrabajo.com or magneto365.com (or elempleo.com, once the user grants that
+optional permission) in a background tab, reads the form
 questions, sends them to the bot's server (postulador.tailf6cdf1.ts.net) to get the user's own
 answers, fills the form, attaches the user's CV (PDF) and submits it.
 
@@ -72,6 +74,8 @@ Permissions:
 - optional host permissions: elempleo.com, getonbrd.com, linkedin.com and
   buscadordeempleo.gov.co (other Colombian job boards the bot publishes). They are requested
   only when the server enables that job board and the user taps "Activar" in the popup.
+  Today only elempleo.com can be enabled; the other three are declared for later and are
+  never requested.
   Optional *.ts.net only if the administrator moves the server (asked in Options).
 
 No remote code: the server only sends data (CSS selectors and texts as JSON), interpreted by

@@ -86,12 +86,12 @@ flowchart TD
   2. Banco de preguntas compartidas del sistema.
   3. Respuestas aprendidas de postulaciones anteriores.
   4. Inferencia con la clave de Gemini del propio usuario (plan gratuito).
-- **Paquete de Respaldo:** Si la oferta es de un portal externo o manual (p. ej., LinkedIn o GetOnBoard), entrega un paquete listo para copiar y pegar (respuestas, carta de presentación y PDF adaptado).
+- **Paquete de Respaldo:** Si la oferta es de un portal sin postulación automática (LinkedIn, GetOnBoard, el SPE o un sitio externo), entrega un paquete listo para copiar y pegar (respuestas, carta de presentación y PDF adaptado).
 
 ### 🛡️ 3. Extensión de Navegador Zero-Trust
 - **Ejecución Local:** La extensión corre en Microsoft Edge, Google Chrome o Brave. La postulación se emite desde la máquina, la IP y la sesión abierta del candidato.
 - **Zero Credenciales:** El servidor **nunca** conoce ni solicita contraseñas o tokens de sesión de los portales de empleo.
-- **Selectores Dinámicos:** Si Computrabajo o Magneto modifican su HTML, los selectores se actualizan en el servidor sin requerir una nueva versión de la extensión en la tienda.
+- **Selectores Dinámicos:** Si Computrabajo, Magneto o elempleo modifican su HTML, los selectores se actualizan en el servidor sin requerir una nueva versión de la extensión en la tienda.
 - **Manejo Ético de Verificaciones:** Si surge un CAPTCHA, la extensión se detiene y notifica al usuario para resolverlo manualmente.
 - **Privacidad y Legalidad:** Autorización explícita de tratamiento de datos personales bajo la **Ley 1581 de Colombia (Habeas Data)**. Borrado integral con comando `/borrarme`.
 
@@ -257,7 +257,7 @@ JobScrapper_TG/
 │   ├── servicio.js                 # Service worker de fondo (ejecuta la cola)
 │   ├── motor.js                    # Motor de inyección y llenado de formularios
 │   ├── popup.html / popup.js       # Interfaz visual de vinculación y estado
-│   └── adaptadores/                # Adaptadores por portal (Computrabajo, Magneto)
+│   └── adaptadores/                # Adaptadores por portal (Computrabajo, Magneto; elempleo usa solo datos)
 ├── deploy/                         # Unidades systemd y guías de despliegue en servidor
 ├── docs/                           # Documentación por tema
 │   ├── radar/                      # Especificación del buscador y análisis

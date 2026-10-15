@@ -377,8 +377,8 @@ def test_preferencias_con_cuenta_confirmada_muestra_el_detalle(entorno):
 def test_preferencias_plataforma_no_soportada_404(entorno):
     nucleo, cliente = entorno
     cab = vincular(nucleo, cliente)
-    assert cliente.get("/api/v1/preferencias/elempleo", headers=cab).status_code == 404
-    assert cliente.post("/api/v1/preferencias/elempleo", headers=cab, json={}).status_code == 404
+    assert cliente.get("/api/v1/preferencias/linkedin", headers=cab).status_code == 404
+    assert cliente.post("/api/v1/preferencias/linkedin", headers=cab, json={}).status_code == 404
 
 
 def test_preferencias_umbral_fuera_de_rango_422(entorno):

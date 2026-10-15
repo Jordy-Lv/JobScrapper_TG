@@ -277,7 +277,8 @@ def test_asistente_por_defecto_desactivado(config):
     assert asistente is not None
     assert asistente.activo is False
     assert asistente.enlace_canal is False
-    assert set(asistente.plataformas) == {"computrabajo", "magneto"}
+    assert set(asistente.plataformas) == {"computrabajo", "magneto", "elempleo"}
+    assert asistente.plataformas["elempleo"].automatica is False
     assert {"gemini", "groq", "openrouter", "openai", "anthropic", "deepseek"} <= set(
         asistente.ia.proveedores
     )

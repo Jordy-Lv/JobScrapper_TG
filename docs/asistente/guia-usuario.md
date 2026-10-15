@@ -15,7 +15,7 @@ gratuito. La versión con diagramas está en `docs/asistente/guia-asistente-post
 | Un computador (Windows, macOS o Linux) | Allí funciona la extensión que postula |
 | Microsoft Edge (recomendado), Chrome o Brave | Navegador de la extensión |
 | Cuenta de Google | Sacar tu clave gratuita de Gemini (la IA) |
-| Cuenta en Computrabajo y/o Magneto | Las plataformas donde se postula sola |
+| Cuenta en Computrabajo, Magneto y/o elempleo | Las plataformas donde se postula sola |
 | Tu hoja de vida en PDF | El bot la lee para armar tu perfil |
 
 ## Instalación paso a paso (una sola vez, unos 10 minutos)
@@ -44,8 +44,8 @@ gratuito. La versión con diagramas está en `docs/asistente/guia-asistente-post
 6. **Vincula tu navegador.** En el bot toca *Vincular mi navegador*: se abre una página que la
    extensión reconoce sola. El bot abre una **tarjeta de conexión** con «✓ Navegador vinculado».
    Esa misma tarjeta se va actualizando sola: no llegan mensajes sueltos por cada paso.
-7. **Inicia sesión en Computrabajo y Magneto** en ese mismo navegador, como siempre. La extensión
-   lo detecta y, en la misma tarjeta, el bot te muestra el correo de cada cuenta con los botones
+7. **Inicia sesión en Computrabajo y Magneto** en ese mismo navegador, como siempre (y en
+   elempleo, cuando esté activa: ver «Plataformas»). La extensión lo detecta y, en la misma tarjeta, el bot te muestra el correo de cada cuenta con los botones
    *Confirmar* y *Cancelar* para que confirmes que es la tuya. Si ya tocaste una vacante, la
    tarjeta sigue con las etapas de esa postulación hasta el resultado.
    - *Si no tienes cuenta:* el bot te da el enlace de registro. La cuenta la creas tú, porque
@@ -54,6 +54,18 @@ gratuito. La versión con diagramas está en `docs/asistente/guia-asistente-post
      Nunca borra lo que ya tienes ni toca tu contraseña o tu correo de acceso.
    - *Tu cuenta queda asociada:* antes de cada postulación se comprueba que la sesión abierta sea
      la de tu correo. Si es otra, no se postula y el bot te avisa.
+
+## Plataformas
+
+| Plataforma | Cómo se postula |
+|---|---|
+| Computrabajo y Magneto | Sola, con tu sesión |
+| elempleo | Sola, cuando el administrador la activa y tú le das permiso: en el popup de la extensión pulsa *Activar* en elempleo y acepta el permiso para elempleo.com. Mientras tanto, recibes el paquete para copiar |
+| LinkedIn, GetOnBoard, Servicio Público de Empleo y otras | No se postula sola: recibes un paquete listo para copiar (CV adaptado, carta, respuestas y enlace) |
+
+En elempleo, el video de presentación (V-Prez) que piden algunas ofertas se omite; si la oferta
+pide una nota de presentación y no se puede redactar con tu perfil, el bot te la pregunta antes de
+enviar.
 
 ## Uso diario
 
@@ -86,7 +98,7 @@ ver la versión más reciente.
 
 | Situación | Qué pasa |
 |---|---|
-| Vacante de LinkedIn, elempleo, GetOnBoard u otra plataforma | No se postula sola: recibes un paquete listo para copiar (CV adaptado, carta, respuestas y enlace) |
+| Vacante de una plataforma que no se postula sola (ver «Plataformas») | Recibes un paquete listo para copiar (CV adaptado, carta, respuestas y enlace) |
 | Aparece un captcha o verificación | La extensión se detiene y te muestra la pestaña; al completarla, sigue sola. Nunca se evaden captchas |
 | Se cerró tu sesión en el portal | El bot te avisa «Inicia sesión en…» y lo pendiente se retoma solo |
 | La vacante está cerrada o ya te habías postulado | Se te informa y no se envía nada |
@@ -121,7 +133,8 @@ En cada postulación hay botones para marcar entrevista, rechazo u oferta y llev
 - Las postulaciones salen de tu propia conexión, como si las hicieras tú.
 - Tu clave de Gemini se guarda cifrada. Tu documento, correo y teléfono nunca se envían a la IA
   (en el plan gratuito, Google puede usar lo enviado para mejorar sus modelos).
-- La extensión solo tiene permiso sobre Computrabajo, Magneto y el servidor del asistente.
+- La extensión solo tiene permiso sobre Computrabajo, Magneto y el servidor del asistente, más
+  elempleo si lo activas desde el popup.
 - Los portales pueden restringir el uso automatizado de las cuentas. Por eso se postula con
   pausas, con tope diario y deteniéndose ante cualquier verificación.
 - Con `/borrarme` se elimina todo: perfil, CV, clave, historial y vínculos. La conversación de
