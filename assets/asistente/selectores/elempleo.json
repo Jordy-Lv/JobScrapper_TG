@@ -1,0 +1,237 @@
+{
+  "version": "2026.10.15-1",
+  "notas": "Reconocimiento con la sesión del dueño el 2026-10-15 (docs/asistente/portales.md, sección elempleo): marcado de 5 vacantes y de 20 ofertas del listado, y el JavaScript del portal (JobOfferDetail.min.js). Dos variantes: la normal envía con un solo clic en button.js-apply-offer (POST por AJAX a JobOfferDetail/Save); la rápida abre #QuickApplicationApplyOffer con button.js-apply-modal-quick-offer y envía con button.js-apply-quick-offer. Las dos muestran #habeasModal (se cierra solo a los 6 s) y, al aceptar, div.js-alert-offer 'Postulación exitosa' sin recargar. Después del envío puede salir el video opcional de V-Prez (#jobOfferApplicationVprez): se pulsa 'Omitir' y nunca 'Continuar proceso'. Las ofertas VIP piden antes una nota de presentación (#ApplicationNoteLightBox, textarea ApplicationNote): campos_obligatorios la manda a la card si la IA no la redacta. El banner 'ya postulado' (div.js-alert-already-applied) es fiable pero tarda unos minutos en reflejar una postulación nueva; si se repite el envío, el portal responde 4 (ya postulado). CV perfil_multiple: los documentos de la hoja de vida (máx. 5) se eligen en select.js-select-file y un archivo nuevo se guarda en la hoja de vida; no hay cv_liberar (la lista es un select con un solo botón de borrar) y con el máximo alcanzado el campo del archivo se desactiva, el portal no lo envía y cv_verificar puede darlo por subido. Respuestas 1 y 5 del portal redirigen a una página que no se vio: termina como incierta con el HTML.",
+  "verificado": {
+    "vacante": true,
+    "postulacion": false,
+    "cuenta": true,
+    "perfil": false
+  },
+  "url_registro": "https://www.elempleo.com/co/registro-hoja-de-vida",
+  "sesion": {
+    "url_sin_sesion": [
+      "elempleo.com/co/iniciar-sesion"
+    ],
+    "sin_sesion": [
+      {
+        "css": "a[href*='/co/iniciar-sesion']",
+        "texto": "iniciar sesion"
+      },
+      "button.js-login-extra-params"
+    ],
+    "iniciada": [
+      "a[href*='/Account/LogOff']"
+    ],
+    "url": "https://www.elempleo.com/co/"
+  },
+  "cuenta": {
+    "urls": [
+      "https://www.elempleo.com/co/hoja-de-vida/mi-cuenta"
+    ],
+    "correo": [
+      "span.ee-account-email strong",
+      "input#EmailAddress"
+    ],
+    "nota": "el correo está en 'Mi cuenta' (Ajustes de la hoja de vida); el pie de todas las páginas trae un correo @elempleo.com que el motor descarta por ser del portal"
+  },
+  "perfil": {
+    "url": "https://www.elempleo.com/co/hoja-de-vida",
+    "secciones": {
+      "hoja_de_vida": {
+        "completo": [
+          "span.js-status-indicator.full"
+        ]
+      }
+    },
+    "completar": []
+  },
+  "cv": {
+    "modo": "perfil_multiple",
+    "limite": 5,
+    "nota": "solo la variante rápida deja elegir o subir el documento; en la normal el empleador recibe la hoja de vida del perfil"
+  },
+  "captcha": [
+    "iframe[src*='recaptcha/api2/bframe']",
+    "iframe[src*='hcaptcha.com'][title*='challenge' i]",
+    "iframe[src*='challenges.cloudflare.com']"
+  ],
+  "campos_obligatorios": [
+    "ApplicationNote"
+  ],
+  "textos": {
+    "confirmacion": [
+      "postulacion exitosa",
+      "gracias por haberte postulado"
+    ],
+    "ya_postulado": [
+      "ya te postulaste a esta oferta",
+      "postulacion realizada"
+    ],
+    "cerrada": [
+      "esta oferta de empleo ya no esta disponible",
+      "oferta no disponible"
+    ],
+    "perfil_incompleto": [
+      "hoja de vida incompleta"
+    ],
+    "verificacion": [
+      "verifica que eres humano",
+      "no soy un robot"
+    ]
+  },
+  "postular": [
+    {
+      "nombre": "revisar_vacante",
+      "accion": "detectar",
+      "ms": 2000,
+      "casos": [
+        {
+          "selector": [
+            "div.js-alert-already-applied"
+          ],
+          "resultado": "ya_postulada"
+        },
+        {
+          "texto": "ya_postulado",
+          "resultado": "ya_postulada"
+        },
+        {
+          "texto": "cerrada",
+          "resultado": "vacante_cerrada"
+        },
+        {
+          "texto": "perfil_incompleto",
+          "resultado": "bloqueada",
+          "motivo": "portal_perfil_incompleto"
+        }
+      ]
+    },
+    {
+      "nombre": "aplicar",
+      "accion": "clic",
+      "selector": [
+        "button.js-apply-offer-vip",
+        "button.js-apply-modal-quick-offer",
+        "button.js-apply-offer"
+      ],
+      "envia": true
+    },
+    {
+      "nombre": "nota",
+      "accion": "formulario",
+      "contenedor": [
+        "#ApplicationNoteLightBox form.js-offer-apply"
+      ],
+      "ms": 1500,
+      "opcional": true
+    },
+    {
+      "nombre": "nota_enviar",
+      "accion": "clic",
+      "selector": [
+        "#ApplicationNoteLightBox button.js-apply-with-note"
+      ],
+      "ms": 500,
+      "opcional": true
+    },
+    {
+      "nombre": "omitir_video",
+      "accion": "clic",
+      "selector": [
+        "#jobOfferApplicationVprez #btnSkipVprez"
+      ],
+      "ms": 2500,
+      "opcional": true
+    },
+    {
+      "nombre": "revisar_postulacion",
+      "accion": "detectar",
+      "ms": 3000,
+      "casos": [
+        {
+          "selector": [
+            "div.js-alert-offer"
+          ],
+          "resultado": "enviada"
+        },
+        {
+          "texto": "ya_postulado",
+          "resultado": "ya_postulada"
+        },
+        {
+          "selector": [
+            ".js-alert-offer-cv-incomplete"
+          ],
+          "resultado": "bloqueada",
+          "motivo": "portal_perfil_incompleto"
+        }
+      ]
+    },
+    {
+      "nombre": "aviso_datos",
+      "accion": "clic",
+      "selector": [
+        "#habeasModal a.close-habeas"
+      ],
+      "ms": 1000,
+      "opcional": true
+    },
+    {
+      "nombre": "cv_subir",
+      "accion": "cv_subir",
+      "selector": [
+        "#QuickApplicationApplyOffer input.js-attachment-file"
+      ]
+    },
+    {
+      "nombre": "cv_verificar",
+      "accion": "cv_verificar",
+      "ms": 3000
+    },
+    {
+      "nombre": "enviar",
+      "accion": "enviar",
+      "selector": [
+        "#QuickApplicationApplyOffer button.js-apply-quick-offer"
+      ],
+      "ms": 3000,
+      "opcional": true
+    },
+    {
+      "nombre": "omitir_video_tras_enviar",
+      "accion": "clic",
+      "selector": [
+        "#jobOfferApplicationVprez #btnSkipVprez"
+      ],
+      "ms": 4000,
+      "opcional": true
+    },
+    {
+      "nombre": "confirmar",
+      "accion": "confirmar",
+      "ms": 25000,
+      "selector": [
+        "div.js-alert-offer"
+      ],
+      "casos": [
+        {
+          "texto": "ya_postulado",
+          "resultado": "ya_postulada"
+        },
+        {
+          "selector": [
+            ".js-alert-offer-cv-incomplete"
+          ],
+          "resultado": "bloqueada",
+          "motivo": "portal_perfil_incompleto"
+        }
+      ],
+      "no_enviado": [
+        "#QuickApplicationApplyOffer form.js-quick-application-form",
+        "#ApplicationNoteLightBox form.js-offer-apply",
+        ".modal [required]",
+        ".modal [data-val-required]"
+      ]
+    }
+  ]
+}

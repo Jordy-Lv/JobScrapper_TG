@@ -50,9 +50,10 @@ def test_falta_el_dominio():
     assert incompletas(plataformas, dominios=dominios) == ["computrabajo: sin dominio"]
 
 
-def test_automatica_sin_selectores_cargados():
+def test_automatica_sin_selectores_cargados(tmp_path):
     plataformas = {"elempleo": AsistentePlataforma(automatica=True)}
-    assert incompletas(plataformas) == ["elempleo: sin selectores"]
+    assert incompletas(plataformas, ruta_selectores=tmp_path) == ["elempleo: sin selectores"]
+    assert incompletas(plataformas) == []  # con assets/asistente/selectores/elempleo.json
 
 
 def test_sin_automatica_no_exige_nada():

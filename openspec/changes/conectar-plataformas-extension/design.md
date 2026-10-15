@@ -38,6 +38,8 @@ Se escribe el JSON de selectores con los pasos declarativos existentes y se prue
 
 *Alternativa descartada:* un adaptador por plataforma por simetría. Más código que mantener sin necesidad, y cada corrección exigiría publicar la extensión.
 
+*Resultado en elempleo (2026-10-15):* **no se creó adaptador** ni se tocó `motor.js`. Las dos variantes del portal (postulación normal de un clic y rápida con modal), el aviso de datos, la nota VIP y el video opcional caben en pasos opcionales del JSON. Lo único que los datos del portal no decían, que la nota no se puede enviar vacía, lo declara el JSON en `campos_obligatorios` y lo aplica el servidor al recibir el formulario.
+
 ### 3. Revisión de términos antes de escribir selectores
 Antes del reconocimiento se leen y registran en `docs/asistente/portales.md` los términos de cada portal sobre automatización, bots y uso asistido. Es la misma razón por la que LinkedIn está fuera. Si prohíben la postulación asistida, la plataforma queda en respaldo y no se invierte más.
 
@@ -68,6 +70,8 @@ Reconocimiento de elempleo (2026-10-15): tras pulsar postular salen un aviso de 
 - **Implica su imagen o voz** (grabar video): nunca sin su respuesta expresa.
 - **Obligatorio y no reconocido**: `formulario_desconocido` y paquete de respaldo, sin enviar.
 El objetivo es que la postulación termine exitosa sin que el usuario tenga que entrar al portal.
+
+*Aplicación en elempleo (2026-10-15):* el video de V-Prez sale después de guardar la postulación y se omite con «Omitir»; «Continuar proceso» nunca se pulsa. La nota de presentación (solo ofertas VIP) se lee como formulario antes del envío y `campos_obligatorios` la vuelve obligatoria para el servidor: la IA la redacta o la pregunta va a la card. Un modal con campos obligatorios desconocidos, o la nota o el modal del CV que siguen en pantalla, terminan en `formulario_desconocido` en lugar de darse por enviados. elempleo no tiene cuestionario propio del empleador en el detalle de la oferta.
 
 *Alternativa descartada:* tratar todo paso desconocido como fallo; dejaría sin postular a las vacantes con una nota o un video opcionales, que son una parte importante.
 

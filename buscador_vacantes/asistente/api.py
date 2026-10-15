@@ -132,6 +132,15 @@ class Resultado(BaseModel):
 # --- utilidades ---------------------------------------------------------------------------
 
 
+def campos_obligatorios(selectores: tuple[str, dict] | None) -> set[str]:
+    """Campos que el portal no marca como obligatorios pero que no se envían vacíos.
+
+    Los declara `campos_obligatorios` en los selectores (por ejemplo, la nota de presentación de
+    elempleo): si la IA no puede responderlos, se le preguntan al usuario por la card.
+    """
+    return set(selectores[1].get("campos_obligatorios", [])) if selectores else set()
+
+
 def version_tupla(version: str) -> tuple[int, ...]:
     try:
         return tuple(int(p) for p in version.split("."))
@@ -256,16 +265,16 @@ PAGINA_PRIVACIDAD = """<!doctype html><html lang="es"><head><meta charset="utf-8
 color:#1f2937;line-height:1.55}h1{color:#1f3a5f;font-size:1.5rem}h2{color:#1f3a5f;
 font-size:1.1rem;margin-top:1.8em}</style></head>
 <body><h1>Política de privacidad de la extensión «Asistente de postulación»</h1>
-<p>Última actualización: 4 de octubre de 2026.</p>
+<p>Última actualización: 15 de octubre de 2026.</p>
 <p>La extensión es parte de un asistente privado para los miembros del canal de Telegram
-«JOBS - PRÁCTICAS/APRENDIZ». Postula a vacantes de Computrabajo y Magneto (y, si el usuario las
-activa, de elempleo, GetOnBoard, LinkedIn y el Servicio Público de Empleo) desde el navegador
-del propio usuario, con su sesión, cuando el usuario lo pide desde el bot de Telegram.</p>
+«JOBS - PRÁCTICAS/APRENDIZ». Postula a vacantes de Computrabajo y Magneto (y de elempleo, si el
+usuario activa su permiso) desde el navegador del propio usuario, con su sesión, cuando el
+usuario lo pide desde el bot de Telegram.</p>
 <h2>Qué datos usa la extensión</h2>
 <ul>
 <li><b>Token del navegador</b>: un código aleatorio que se guarda en el navegador para
 identificarlo ante el servidor del asistente. El servidor solo guarda su huella (hash).</li>
-<li><b>Estado de los portales</b>: si hay una sesión iniciada en Computrabajo o Magneto y el
+<li><b>Estado de los portales</b>: si hay una sesión iniciada en cada portal activo y el
 correo de esa cuenta, para no postular con la cuenta de otra persona.</li>
 <li><b>Preguntas de los formularios de postulación</b>: su texto y opciones se envían al
 servidor para obtener las respuestas del perfil del usuario.</li>
@@ -532,8 +541,11 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         p = postulacion_de(pid, nav)
         if p.navegador_id != nav.id or p.estado != E.EN_CURSO:
             raise HTTPException(409, "la postulación no está en curso en este navegador")
-        preguntas = [Pregunta(c.texto, c.tipo, c.opciones, c.obligatoria, c.nombre)
-                     for c in cuerpo.campos]  # fmt: skip
+        forzadas = campos_obligatorios(nucleo.selectores(p.plataforma))
+        preguntas = [
+            Pregunta(c.texto, c.tipo, c.opciones, c.obligatoria or c.nombre in forzadas, c.nombre)
+            for c in cuerpo.campos
+        ]
         resultado = await nucleo.resolver_formulario(p, preguntas)
         if any(r.pregunta.obligatoria for r in resultado.faltan):
             nucleo.cola.esperar_usuario(pid, nav.id, nucleo.ahora())

@@ -11,7 +11,7 @@
 
 Mismo método que la tarea 3.1 de `asistente-postulacion-telegram`; conviene hacerlo en la misma jornada.
 
-- [ ] 2.1 👤 elempleo: recorrer 3 vacantes reales con la sesión del dueño hasta el formulario **sin enviar**, guardando el HTML de cada paso. Registrar:
+- [x] 2.1 👤 elempleo: recorrer 3 vacantes reales con la sesión del dueño hasta el formulario **sin enviar**, guardando el HTML de cada paso. Registrar:
   - indicadores de sesión iniciada, de ya postulado y de vacante cerrada;
   - tipos de campos y preguntas, y si se puede adjuntar un archivo;
   - captchas o verificaciones vistos;
@@ -21,10 +21,12 @@ Mismo método que la tarea 3.1 de `asistente-postulacion-telegram`; conviene hac
   - páginas que el motor no debe tocar.
 
   Verificar con la sección de elempleo en `docs/asistente/portales.md` y los HTML guardados.
-  Avance (2026-10-15): recorridas 2 vacantes (una con pasos extra de video y nota) y registrados los indicadores en `portales.md`. Falta el correo de la cuenta, una vacante cerrada, una con preguntas del empleador y guardar los HTML de cada paso.
+  Avance (2026-10-15): recorridas 2 vacantes (una con pasos extra de video y nota) y registrados los indicadores en `portales.md`.
+  Hecho (2026-10-15): correo en `/co/hoja-de-vida/mi-cuenta`, vacante cerrada, las dos variantes de postulación (normal y rápida) y el flujo leído del JavaScript del portal, sin pulsar envíos. elempleo no tiene cuestionario propio: lo que pide el empleador aparte es el video de V-Prez o la nota (ofertas VIP). El modo del CV resultó `perfil_multiple`. Los HTML de cada paso quedaron recortados como fixtures (2.4) en lugar de guardarse completos: el marcado de la sesión trae datos personales.
 - [x] 2.2 (OMITIDA: GetOnBoard queda en respaldo) 👤 GetOnBoard: lo mismo que 2.1, y además anotar cuántas ofertas se aplican dentro del portal y cuántas redirigen a un sitio externo. Verificar con la sección de GetOnBoard en `docs/asistente/portales.md`.
 - [x] 2.3 (OMITIDA: el SPE queda en respaldo) 👤 Solo si 1.3 lo pide: reconocimiento del SPE (`buscadordeempleo.gov.co`) con los mismos puntos. Verificar con su sección en `docs/asistente/portales.md`.
-- [ ] 2.4 🟡 Recortar los HTML guardados a fixtures sin datos personales en `tests/fixtures/asistente/<plataforma>/`. Verificar con `grep -ri` del nombre, correo, teléfono y documento del dueño sin coincidencias en esas carpetas.
+- [x] 2.4 🟡 Recortar los HTML guardados a fixtures sin datos personales en `tests/fixtures/asistente/<plataforma>/`. Verificar con `grep -ri` del nombre, correo, teléfono y documento del dueño sin coincidencias en esas carpetas.
+  Hecho (2026-10-15): `tests/fixtures/extension/ee_*.html` y `ee_respuesta_*.json` (la carpeta que ya usan las pruebas de la extensión, con el prefijo `ee_` como `ct_` y `mg_`); el `grep` del nombre, el teléfono y los correos del dueño no tiene coincidencias.
 - [ ] 2.5 👤 Una postulación real controlada por plataforma, con la aprobación expresa del dueño en una vacante que él elija, para capturar la página de confirmación. Verificar con la confirmación guardada como fixture y la postulación visible en el portal.
 
 ## 3. Reconocimiento del dominio y textos en el servidor
@@ -38,16 +40,23 @@ Mismo método que la tarea 3.1 de `asistente-postulacion-telegram`; conviene hac
 
 Se omite el grupo completo si 1.1 o 1.2 lo descartan.
 
-- [ ] 4.1 🔴 Escribir `assets/asistente/selectores/elempleo.json` (sesión, cuenta, perfil, CV, captcha, textos y pasos de postular) a partir de 2.1 y 2.5, con `verificado` honesto por sección. Verificar con `tests/asistente/test_extension.py` sobre los fixtures de 2.4:
+- [x] 4.1 🔴 Escribir `assets/asistente/selectores/elempleo.json` (sesión, cuenta, perfil, CV, captcha, textos y pasos de postular) a partir de 2.1 y 2.5, con `verificado` honesto por sección. Verificar con `tests/asistente/test_extension.py` sobre los fixtures de 2.4:
   - postulación completa llega a `enviada`;
   - detecta `ya_postulada`, `vacante_cerrada` y `sin_sesion`;
   - un selector ausente reporta `formulario_desconocido`;
   - el HTML reportado no contiene los valores escritos.
-- [ ] 4.2 🟡 Solo si los datos no alcanzan: `extension/adaptadores/elempleo.js` y su entrada en `ADAPTADORES` de `portales.js`. Verificar con la prueba `navegador` del comportamiento concreto que lo exigió. Si no hace falta, dejar anotado en `design.md` que no se creó adaptador.
-- [ ] 4.3 🟡 Lectura del correo de la cuenta y detección `sin_sesion`, `incompleto` y `listo`, con la cuenta asociada. Verificar con pruebas `navegador`: la primera detección pide confirmar, una sesión con otro correo no postula y avisa enmascarado, y sin correo legible da `formulario_desconocido`.
-- [ ] 4.4 🟡 Pasos `cv_subir` y `cv_verificar` según el modo real del CV de elempleo. Verificar con fixtures del modo detectado en 2.1: sin autorización no se toca el CV, y si la verificación falla se postula con el existente y se registra.
-- [ ] 4.4b 🔴 Pasos extra de elempleo (decisión 7): leer y resolver el aviso de datos, el video opcional (omitir), la nota de presentación y las preguntas del empleador, reutilizando las preguntas pendientes de la card. Verificar con fixtures de cada paso: el video se omite, la nota y las preguntas piden respuesta por la card antes de enviar y un paso obligatorio desconocido da `formulario_desconocido`.
+
+  Hecho (2026-10-15): `elempleo.json` con `verificado.postulacion: false` hasta el piloto y 18 pruebas `test_elempleo_*` en `test_extension.py`, más `tests/asistente/test_elempleo.py`.
+- [x] 4.2 🟡 Solo si los datos no alcanzan: `extension/adaptadores/elempleo.js` y su entrada en `ADAPTADORES` de `portales.js`. Verificar con la prueba `navegador` del comportamiento concreto que lo exigió. Si no hace falta, dejar anotado en `design.md` que no se creó adaptador.
+  Hecho (2026-10-15): no hizo falta; anotado en la decisión 2 de `design.md`. Tampoco se tocó `motor.js`: no hay que publicar otra versión de la extensión.
+- [x] 4.3 🟡 Lectura del correo de la cuenta y detección `sin_sesion`, `incompleto` y `listo`, con la cuenta asociada. Verificar con pruebas `navegador`: la primera detección pide confirmar, una sesión con otro correo no postula y avisa enmascarado, y sin correo legible da `formulario_desconocido`.
+  Hecho (2026-10-15): el correo se lee en «Mi cuenta» y la sesión por el enlace de «Cerrar sesión». La confirmación y la cuenta distinta enmascarada se prueban en `test_elempleo.py`; sin correo legible el navegador no toma la postulación. El estado `incompleto` no lo reporta la extensión para ningún portal (encolaría un «completar perfil» que aún no existe): en elempleo la hoja de vida incompleta se detecta al postular y termina `bloqueada` con `portal_perfil_incompleto`, que le explica al usuario qué completar.
+- [x] 4.4 🟡 Pasos `cv_subir` y `cv_verificar` según el modo real del CV de elempleo. Verificar con fixtures del modo detectado en 2.1: sin autorización no se toca el CV, y si la verificación falla se postula con el existente y se registra.
+  Hecho (2026-10-15): modo `perfil_multiple`, solo en la variante rápida (la normal no deja elegir el CV). Limitación anotada: no hay `cv_liberar` y con 5 documentos el portal desactiva el campo del archivo.
+- [x] 4.4b 🔴 Pasos extra de elempleo (decisión 7): leer y resolver el aviso de datos, el video opcional (omitir), la nota de presentación y las preguntas del empleador, reutilizando las preguntas pendientes de la card. Verificar con fixtures de cada paso: el video se omite, la nota y las preguntas piden respuesta por la card antes de enviar y un paso obligatorio desconocido da `formulario_desconocido`.
+  Hecho (2026-10-15): el aviso de datos se cierra con «Entendido» (o solo); el video se omite y nunca se pulsa «Continuar proceso»; la nota se lee como formulario y `campos_obligatorios` del JSON hace que el servidor la pregunte por la card si la IA no la redacta; un modal con campos obligatorios desconocidos o la nota que no se pudo enviar terminan en `formulario_desconocido` sin dar la postulación por enviada.
 - [ ] 4.5 👤 Piloto del dueño: cargar los selectores en el Fedora, activar el permiso en el popup y tocar ⚡ en 3 vacantes reales de elempleo. Verificar con las 3 en `enviada`, visibles en el portal, con el CV enviado correcto y sin datos inventados.
+  Preparado (2026-10-15): pasos en `docs/asistente/portales.md`, «Piloto de elempleo». Se activa en caliente con `/plataformas elempleo on`.
 
 ## 5. GetOnBoard
 
@@ -69,7 +78,9 @@ Omitido por decisión del dueño el 2026-10-14 (tareas 1.2 y 1.3): el SPE tiene 
 ## 7. Habilitación, invitados y documentación
 
 - [ ] 7.1 👤 Por cada plataforma con el piloto exitoso, poner `automatica: true` en `config.yaml`, desplegar en el Fedora (`git pull --ff-only` y reinicio del servicio) y verificar que un toque de ⚡ termina en `enviada`. Las que no pasen el piloto quedan en `false`, con el motivo anotado en `docs/asistente/portales.md`.
+  Preparado (2026-10-15): para elempleo, además de `automatica: true`, cambiar `verificado.postulacion` a `true` y subir la `version` de `elempleo.json` (pasos en «Piloto de elempleo» de `portales.md`).
 - [ ] 7.2 👤 Probar con 2 o 3 invitados durante al menos 3 días. Verificar que el log no tiene errores sin resolver y recoger sus comentarios; las preguntas nuevas se agregan al banco.
 - [ ] 7.3 🟢 Actualizar `docs/asistente/guia-usuario.md` (plataformas con postulación automática y las que siguen con paquete), la política de datos si nombra a los portales, `docs/asistente/tienda-edge` (qué dominios se piden y para qué) y el `README.md`. Verificar con una lectura de los textos y `grep` de las listas viejas de plataformas sin resultados.
+  Avance (2026-10-15): guía (nueva sección «Plataformas»), ficha de la tienda, `README.md` y la página `/privacidad` de `api.py` ya nombran elempleo como «se postula sola si el administrador la activa y el usuario da el permiso»; el `grep` de las listas viejas no da resultados. Falta la autorización de datos de `config.yaml` (`asistente.politica.texto`, punto 1, «el correo de tus cuentas de Computrabajo y Magneto»): cambiarla exige subir `politica.version` y que todos la acepten de nuevo, así que la decide el dueño (lo natural es hacerlo junto con 7.1).
 - [ ] 7.4 🟡 Ejecutar la suite completa y `ruff check` / `ruff format --check`. La suite tarda unos 11 minutos: lanzarla en segundo plano y no tocar archivos mientras corre. Verificar con todo en verde (la prueba intermitente de `test_extension.py` por tiempos es la única excepción conocida).
 - [ ] 7.5 🟢 Archivar este change después de `asistente-postulacion-telegram`, porque sus deltas usan `ADDED` y complementan specs que solo existen al archivar ese change. Verificar con `openspec validate` y `openspec list --specs`.

@@ -116,6 +116,11 @@ BLOQUEOS_PORTAL = {
         "pide algo en tu cuenta (verificar el correo, aceptar condiciones…). Entra a {portal} "
         "y resuelve los avisos de tu inicio."
     ),
+    "portal_perfil_incompleto": (
+        "{portal} dice que tu hoja de vida está incompleta y no acepta postulaciones hasta que "
+        "la completes. Entra a {portal}, abre «Hoja de vida» y completa las secciones que "
+        "marca como pendientes."
+    ),
 }
 
 ESTADOS = {

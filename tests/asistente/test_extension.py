@@ -44,6 +44,7 @@ class ApiPrueba:
         self.llamadas: list[tuple[str, dict]] = []
         self.trabajos: list[dict] = []
         self.respuestas = lambda campos: []
+        self.esperar = False  # True: el servidor le pregunta al usuario lo que falta
         self.ajustar = lambda plataforma, selectores: selectores
         self.preferencias: dict[str, dict] = {}
         self.cuentas: dict[str, dict] = {}
@@ -134,6 +135,8 @@ class ApiPrueba:
             api.llamadas.append((accion, {"id": pid, **cuerpo}))
             if accion == "tomar":
                 api.trabajos = [t for t in api.trabajos if t["id"] != pid]
+            if accion == "formulario" and api.esperar and cuerpo["campos"]:
+                return {"esperar_usuario": True}
             if accion == "formulario":
                 return {"esperar_usuario": False, "respuestas": api.respuestas(cuerpo["campos"]),
                         "cv_url": "/api/v1/cv/uno", "cv_nombre": "CV_Ana_Perez.pdf"}  # fmt: skip
@@ -175,6 +178,7 @@ def api(servidor):
     servidor.llamadas.clear()
     servidor.trabajos.clear()
     servidor.respuestas = lambda campos: []
+    servidor.esperar = False
     servidor.ajustar = lambda plataforma, selectores: selectores
     servidor.con_ping = True
     servidor.demora_ping = 0.0
@@ -184,11 +188,15 @@ def api(servidor):
 # --- navegador con la extensión ----------------------------------------------------------
 
 
-def copia_extension(destino: Path) -> Path:
-    """Copia la extensión y permite el servidor local de prueba (como lo haría Opciones)."""
+def copia_extension(destino: Path, permisos: tuple[str, ...] = ()) -> Path:
+    """Copia la extensión y permite el servidor local de prueba (como lo haría Opciones).
+
+    `permisos`: dominios opcionales que el usuario ya activó desde el popup (por ejemplo
+    elempleo.com)."""
     shutil.copytree(EXTENSION, destino)
     manifiesto = json.loads((destino / "manifest.json").read_text(encoding="utf-8"))
     manifiesto["host_permissions"].append("http://127.0.0.1/*")
+    manifiesto["host_permissions"] += [f"https://*.{d}/*" for d in permisos]
     (destino / "manifest.json").write_text(json.dumps(manifiesto), encoding="utf-8")
     return destino
 
@@ -295,9 +303,10 @@ def correr(corutina):
     return asyncio.run(corutina)
 
 
-async def abrir(tmp_path: Path, url_api: str, portales: Portales, *, vinculado=True):
+async def abrir(tmp_path: Path, url_api: str, portales: Portales, *, vinculado=True,
+                permisos: tuple[str, ...] = ()):  # fmt: skip
     pw = await playwright_api.async_playwright().start()
-    ruta = copia_extension(tmp_path / "ext")
+    ruta = copia_extension(tmp_path / "ext", permisos)
     try:
         contexto = await pw.chromium.launch_persistent_context(
             str(tmp_path / "perfil"), channel="chromium", headless=True,
@@ -308,6 +317,7 @@ async def abrir(tmp_path: Path, url_api: str, portales: Portales, *, vinculado=T
         pytest.skip(f"Chromium no disponible: {exc}")
     await contexto.route("https://*.computrabajo.com/**", portales.atender)
     await contexto.route("https://*.magneto365.com/**", portales.atender)
+    await contexto.route("https://*.elempleo.com/**", portales.atender)
     await contexto.route("https://www.google.com/**", portales.atender)
     worker = (
         contexto.service_workers[0]
@@ -1288,3 +1298,217 @@ def test_etiquetas_de_las_tarjetas(tmp_path, api):
     assert segundo["magneto"]["pill"] == "Iniciando sesión…"
     assert segundo["elempleo"]["pill"] == "Próximamente"  # ya no está habilitado
     assert tercero["computrabajo"]["pill"] == "Perfil incompleto"
+
+
+# --- elempleo (conectar-plataformas-extension, grupo 4) --------------------------------------
+# Las páginas imitan el marcado y el comportamiento reales del portal (reconocimiento del
+# 2026-10-15, docs/asistente/portales.md): la variante normal postula con un solo clic, la
+# rápida abre un modal con el CV, las ofertas VIP piden una nota y algunas un video opcional.
+
+VACANTE_EE = "https://www.elempleo.com/co/ofertas-trabajo/auxiliar-de-pruebas-1886700000"
+GUARDAR_EE = "https://www.elempleo.com/co/JobOffers/JobOfferDetail/Save?jobOfferId=PRUEBA"
+GUARDAR_RAPIDA_EE = (
+    "https://www.elempleo.com/co/JobOffers/JobOfferDetail/SaveQuickApplication?jobOfferId=PRUEBA"
+)
+INICIO_EE = "https://www.elempleo.com/co/"
+CUENTA_EE = "https://www.elempleo.com/co/hoja-de-vida/mi-cuenta"
+PASO_DESCONOCIDO_EE = "https://www.elempleo.com/co/postulacion/paso-desconocido"
+BOTON_NORMAL = 'js-apply-offer" data-ga4-typebutton="Boton 1"'
+RAPIDA = {
+    'data-is-quick-offer-application="False"': 'data-is-quick-offer-application="True"',
+    BOTON_NORMAL: 'js-apply-modal-quick-offer" data-ga4-typebutton="Boton 1"',
+}
+VIP = {
+    'data-is-vip="False"': 'data-is-vip="True"',
+    BOTON_NORMAL: 'js-apply-offer-vip" data-ga4-typebutton="Boton 1"',
+}
+VIP_RAPIDA = {**RAPIDA, **VIP}
+VIDEO = {'data-vprez-url=""': 'data-vprez-url="https://v-prez.com/jobboard/cuestionario"'}
+NOTA = "Me motiva aprender y aportar con orden y puntualidad."
+
+
+def portales_elempleo(
+    reemplazos=None, *, fixture="ee_vacante.html", respuesta="ee_respuesta_ok.json"
+) -> Portales:
+    p = portales_listos()
+    p.poner(INICIO_EE, "ee_inicio.html")
+    p.poner(CUENTA_EE, "ee_cuenta.html")
+    p.poner(VACANTE_EE, fixture, reemplazos)
+    p.al_enviar(GUARDAR_EE, respuesta)
+    p.al_enviar(GUARDAR_RAPIDA_EE, respuesta)
+    return p
+
+
+def trabajo_ee(autorizado=False):
+    return {"id": 21, "tipo": "postular", "plataforma": "elempleo", "url": VACANTE_EE,
+            "titulo": "Auxiliar de pruebas", "actualizar_cv_portal": autorizado}  # fmt: skip
+
+
+def confirmar_rapido(plataforma, sel):
+    """Acorta la espera de la confirmación en los casos que terminan sin ella."""
+    sel = json.loads(json.dumps(sel))
+    for paso in sel["postular"]:
+        if paso["accion"] == "confirmar":
+            paso["ms"] = 3000
+    return sel
+
+
+async def latido_elempleo(tmp_path, api, portales) -> None:
+    nav = await abrir(tmp_path, api.url, portales, permisos=("elempleo.com",))
+    try:
+        await nav.latido()
+    finally:
+        await cerrar(nav)
+
+
+def postular_elempleo(tmp_path, api, portales, *, autorizado=False) -> Portales:
+    api.trabajos = [trabajo_ee(autorizado)]
+    correr(latido_elempleo(tmp_path, api, portales))
+    return portales
+
+
+def recibidos(portales: Portales) -> list[str]:
+    return [r.decode("latin-1") for r in portales.recibido]
+
+
+def test_elempleo_latido_lee_el_correo_en_mi_cuenta(tmp_path, api):
+    correr(latido_elempleo(tmp_path, api, portales_elempleo()))
+    ee = api.de("latido")[-1]["portales"]["elempleo"]
+    assert ee["estado"] == "listo"
+    # El correo del pie (@elempleo.com) es del portal: se toma el de "Mi cuenta"
+    assert ee["correo"] == "ana.perez@example.com"
+    assert ee["pagina_correo"] == "/co/hoja-de-vida/mi-cuenta"
+
+
+def test_elempleo_sin_sesion_en_el_latido(tmp_path, api):
+    portales = portales_elempleo()
+    portales.poner(INICIO_EE, "ee_sin_sesion.html")
+    correr(latido_elempleo(tmp_path, api, portales))
+    ee = api.de("latido")[-1]["portales"]["elempleo"]
+    assert (ee["estado"], ee["correo"]) == ("sin_sesion", None)
+
+
+def test_elempleo_sin_correo_legible_no_postula(tmp_path, api):
+    portales = portales_elempleo()
+    portales.poner(CUENTA_EE, "ee_inicio.html")  # "Mi cuenta" sin el correo
+    postular_elempleo(tmp_path, api, portales)
+    assert api.de("latido")[-1]["portales"]["elempleo"]["correo"] is None
+    assert not api.de("tomar") and not portales.recibido
+
+
+def test_elempleo_postulacion_normal_llega_a_enviada(tmp_path, api):
+    portales = postular_elempleo(tmp_path, api, portales_elempleo())
+    assert api.de("resultado")[0]["estado"] == "enviada"
+    acciones = [r for r, _ in api.llamadas if r in ("tomar", "envio", "formulario", "resultado")]
+    assert acciones == ["tomar", "envio", "resultado"]  # sin formulario
+    assert recibidos(portales) == ["ApplicationNote=undefined"]
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert pasos[:3] == ["abrir", "revisar_vacante", "aplicar"]
+    assert "revisar_postulacion" in pasos and "cv_subir" not in pasos
+
+
+def test_elempleo_rapida_sin_autorizacion_envia_el_documento_elegido(tmp_path, api):
+    portales = postular_elempleo(tmp_path, api, portales_elempleo(RAPIDA))
+    assert api.de("resultado")[0]["estado"] == "enviada"
+    enviado = recibidos(portales)[0]
+    assert 'name="Attachments.SelectedIds"\r\n\r\n1002' in enviado
+    assert "CV_Ana_Perez.pdf" not in enviado
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert "cv_sin_autorizacion" in pasos and "enviar" in pasos
+
+
+def test_elempleo_rapida_con_autorizacion_sube_el_cv_antes_de_enviar(tmp_path, api):
+    portales = postular_elempleo(tmp_path, api, portales_elempleo(RAPIDA), autorizado=True)
+    assert api.de("resultado")[0]["estado"] == "enviada"
+    assert 'filename="CV_Ana_Perez.pdf"' in recibidos(portales)[0]
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert "cv_subir" in pasos and "cv_verificar_fallo" not in pasos
+
+
+@pytest.mark.parametrize("variante", [{}, RAPIDA], ids=["normal", "rapida"])
+def test_elempleo_el_video_opcional_se_omite(tmp_path, api, variante):
+    portales = postular_elempleo(tmp_path, api, portales_elempleo({**variante, **VIDEO}))
+    assert api.de("resultado")[0]["estado"] == "enviada"
+    avisos = recibidos(portales)
+    assert "video:omitido" in avisos
+    assert "video:grabar" not in avisos  # su imagen y su voz, nunca sin respuesta expresa
+
+
+@pytest.mark.parametrize("variante", [VIP, VIP_RAPIDA], ids=["normal", "rapida"])
+def test_elempleo_nota_vip_se_llena_antes_de_enviar(tmp_path, api, variante):
+    api.respuestas = lambda campos: [
+        {"indice": i, "valor": NOTA, "opcion": None}
+        for i, c in enumerate(campos)
+        if c["nombre"] == "ApplicationNote"
+    ]
+    portales = postular_elempleo(tmp_path, api, portales_elempleo(variante))
+    campos = api.de("formulario")[0]["campos"]
+    assert [(c["nombre"], c["tipo"]) for c in campos] == [("ApplicationNote", "texto")]
+    assert "candidato ideal" in campos[0]["texto"]
+    assert api.de("resultado")[0]["estado"] == "enviada"
+    enviado = recibidos(portales)[0]
+    assert "Me motiva aprender" in enviado or "Me+motiva+aprender" in enviado
+
+
+def test_elempleo_nota_sin_respuesta_espera_al_usuario_sin_enviar(tmp_path, api):
+    api.esperar = True  # la IA no la redactó: el servidor la pregunta por la card
+    portales = postular_elempleo(tmp_path, api, portales_elempleo(VIP))
+    assert api.de("formulario")
+    assert "esperando_usuario" in [p["paso"] for p in api.de("paso")]
+    assert not api.de("resultado")
+    assert not portales.recibido
+
+
+def test_elempleo_ya_postulada(tmp_path, api):
+    portales = postular_elempleo(tmp_path, api, portales_elempleo(fixture="ee_postulado.html"))
+    assert api.de("resultado")[0]["estado"] == "ya_postulada"
+    assert not api.de("envio") and not portales.recibido
+
+
+def test_elempleo_vacante_cerrada(tmp_path, api):
+    postular_elempleo(tmp_path, api, portales_elempleo(fixture="ee_cerrada.html"))
+    assert api.de("resultado")[0]["estado"] == "vacante_cerrada"
+    assert not api.de("envio")
+
+
+def test_elempleo_sin_sesion_queda_esperando_sesion(tmp_path, api):
+    postular_elempleo(tmp_path, api, portales_elempleo(fixture="ee_sin_sesion.html"))
+    assert api.de("resultado")[0]["estado"] == "esperando_sesion"
+
+
+def test_elempleo_hoja_de_vida_incompleta_bloquea(tmp_path, api):
+    postular_elempleo(tmp_path, api, portales_elempleo(respuesta="ee_respuesta_incompleta.json"))
+    resultado = api.de("resultado")[0]
+    assert (resultado["estado"], resultado["motivo"]) == ("bloqueada", "portal_perfil_incompleto")
+
+
+def test_elempleo_sin_boton_de_postular_es_formulario_desconocido(tmp_path, api):
+    portales = postular_elempleo(tmp_path, api, portales_elempleo({BOTON_NORMAL: 'otra-clase"'}))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido"
+    assert "clic" in resultado["motivo"]
+    assert "js-offer-apply-container" in resultado["html"]
+    assert not portales.recibido
+
+
+def test_elempleo_nota_que_no_se_puede_enviar_no_filtra_lo_escrito(tmp_path, api):
+    """El portal cambió el botón de la nota: no se envía y el HTML del reporte no trae la nota."""
+    api.respuestas = lambda campos: [{"indice": 0, "valor": NOTA, "opcion": None}]
+    api.ajustar = confirmar_rapido
+    reemplazos = {**VIP, "js-apply-with-note": "js-enviar-nota-nuevo"}
+    portales = postular_elempleo(tmp_path, api, portales_elempleo(reemplazos))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido"
+    assert "ApplicationNote" in resultado["html"]
+    assert "Me motiva" not in resultado["html"]
+    assert not portales.recibido
+
+
+def test_elempleo_paso_obligatorio_desconocido_no_se_da_por_enviado(tmp_path, api):
+    api.ajustar = confirmar_rapido
+    portales = portales_elempleo(respuesta="ee_respuesta_redirige.json")
+    portales.poner(PASO_DESCONOCIDO_EE, "ee_paso_desconocido.html")
+    postular_elempleo(tmp_path, api, portales)
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido"
+    assert "preguntasEmpleador" in resultado["html"]
