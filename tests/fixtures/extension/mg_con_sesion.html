@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Magneto</title></head>
+<body>
+<!-- Marcado recortado de la página principal de Magneto con sesión (2026-10-15), sin datos
+     personales. El HTML del servidor trae el enlace «Iniciar sesión» aunque haya sesión; el JS
+     lo cambia por el avatar del usuario cuando la página termina de cargarse. -->
+<header>
+  <div class="mg_account_select_magneto-ui-account-select_1x2y3" id="cuenta"></div>
+  <div class="header_actions_8f2k1" id="acciones">
+    <a class="mg_button_magneto-ui-button_link_4k2j9" href="https://web.magneto365.com/sign-in"
+       target="_self">Iniciar sesión</a>
+  </div>
+</header>
+<main><h1>Empleos en Colombia</h1></main>
+<script>
+  setTimeout(() => {
+    document.getElementById("acciones").innerHTML =
+      '<div class="logoutBlock_avatar_3h7d2">' +
+      '<img alt="User Avatar" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="32" height="32">' +
+      '</div>';
+    document.getElementById("cuenta").innerHTML =
+      '<button type="button">Candidato de prueba</button>' +
+      '<div class="mg_tooltip_tooltip_9q1w5" style="display:none">' +
+      '<span>Cuenta</span> <strong>candidato.prueba@example.com</strong>' +
+      '</div>';
+  }, 2000);
+</script>
+</body></html>
