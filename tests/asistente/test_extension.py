@@ -209,6 +209,7 @@ class Portales:
         self.envios: dict[str, str] = {}  # respuesta a un POST de formulario, por URL
         self.redirecciones: dict[str, str] = {}
         self.recibido: list[bytes] = []
+        self.pedidas: list[str] = []  # URLs que pidió el navegador, en orden
 
     @staticmethod
     def _leer(fixture: str, reemplazos: dict[str, str] | None) -> str:
@@ -227,6 +228,7 @@ class Portales:
     async def atender(self, route) -> None:
         peticion = route.request
         url = peticion.url.split("#")[0]
+        self.pedidas.append(url)
         if url.endswith("/recibir"):
             self.recibido.append(peticion.post_data_buffer or b"")
             await route.fulfill(status=200, body="ok")
@@ -261,6 +263,10 @@ PERFIL_CT = "https://candidato.co.computrabajo.com/candidate/cv/"
 CUENTA_MG = "https://www.magneto365.com/co/perfil"
 INICIO_CT = "https://co.computrabajo.com/"
 INICIO_MG = "https://www.magneto365.com/co"
+BUSCAR_MG = "https://www.magneto365.com/co/trabajos/buscar"
+INGRESO_MG = "https://web.magneto365.com/sign-in"
+RESUME_MG = "https://web.magneto365.com/profile/resume?callback=true"
+CORREO_MG = "candidato.prueba@example.com"
 INGRESO_CT = "https://candidato.co.computrabajo.com/acceso/"
 MI_CUENTA_CT = "https://candidato.co.computrabajo.com/candidate/micuenta/"
 
@@ -344,6 +350,7 @@ def portales_listos() -> Portales:
     p.poner(CUENTA_MG, "mg_sin_sesion.html")  # Magneto: sin sesión
     p.poner(INICIO_CT, "ct_cuenta.html")
     p.poner(INICIO_MG, "mg_sin_sesion.html")
+    p.poner(BUSCAR_MG, "mg_sin_sesion.html")
     return p
 
 
@@ -413,7 +420,7 @@ def test_vinculacion_automatica_desde_la_pagina(tmp_path, api):
     correr(flujo())
     vinculo = api.de("vincular")[0]
     assert vinculo["codigo"] == "ABCD2345"
-    assert vinculo["version"] == "1.0.0"
+    assert vinculo["version"] == "1.1.0"
 
 
 def test_codigo_vencido_lo_dice_en_la_pagina(tmp_path, api):
@@ -890,6 +897,138 @@ def test_iniciar_sesion_cierra_la_pestana_sola_y_reporta_al_servidor(tmp_path, a
     assert despues == antes  # la pestaña de ingreso se cerró sola: no quedó ninguna de más
     ct = api.de("latido")[-1]["portales"]["computrabajo"]
     assert ct["estado"] == "listo" and ct["correo"] == "ana.perez@gmail.com"
+
+
+# --- Magneto: la sesión se ve por el avatar, no por el enlace de ingreso -------------------
+
+
+def latido_magneto(tmp_path, api, portales: Portales) -> dict:
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    return api.de("latido")[-1]["portales"]["magneto"]
+
+
+def test_magneto_con_sesion_se_detecta_aunque_el_html_traiga_iniciar_sesion(tmp_path, api):
+    """El HTML de Magneto trae «Iniciar sesión» aunque haya sesión; el JS lo cambia por el
+    avatar segundos después. La extensión espera la marca y no se queda con el enlace."""
+    portales = portales_listos()
+    portales.poner(BUSCAR_MG, "mg_con_sesion.html")
+
+    mg = latido_magneto(tmp_path, api, portales)
+    assert mg["estado"] == "listo"
+    assert mg["correo"] == CORREO_MG
+
+
+# Sin el script, la página se queda con el enlace «Iniciar sesión» y nunca muestra el avatar
+SIN_AVATAR = {"<script>": "<script>/*", "</script>": "*/</script>"}
+
+
+@pytest.mark.parametrize("enlace_antiguo", [False, True], ids=["actual", "sin_sesion_antiguo"])
+def test_magneto_sin_avatar_queda_sin_sesion(tmp_path, api, enlace_antiguo):
+    portales = portales_listos()
+    portales.poner(BUSCAR_MG, "mg_con_sesion.html", SIN_AVATAR)
+
+    def ajustar(plataforma, sel):
+        if plataforma == "magneto":
+            sel["sesion"]["espera_ms"] = 3000
+            if enlace_antiguo:
+                sel["sesion"]["sin_sesion"].append("a[href*='web.magneto365.com/sign-in']")
+        return sel
+
+    api.ajustar = ajustar
+    mg = latido_magneto(tmp_path, api, portales)
+    assert mg["estado"] == "sin_sesion"
+    assert mg["motivo"] == ("enlace_ingresar" if enlace_antiguo else "sin_marca_sesion")
+
+
+@pytest.mark.parametrize("con_abrir", [True, False], ids=["con_clic", "sin_clic"])
+def test_magneto_lee_el_correo_tras_abrir_el_menu_del_avatar(tmp_path, api, con_abrir):
+    """El tooltip con el correo solo existe después de hacer clic en el avatar (cuenta.abrir):
+    sin ese dato la sesión se detecta igual, pero el correo no aparece."""
+    portales = portales_listos()
+    portales.poner(BUSCAR_MG, "mg_con_sesion.html")
+
+    def ajustar(plataforma, sel):
+        if plataforma == "magneto" and not con_abrir:
+            sel["cuenta"].pop("abrir")
+            sel["cuenta"]["urls"] = [BUSCAR_MG]  # sin más páginas donde buscarlo
+        return sel
+
+    api.ajustar = ajustar
+    mg = latido_magneto(tmp_path, api, portales)
+    assert mg["estado"] == "listo"
+    assert mg["correo"] == (CORREO_MG if con_abrir else None)
+
+
+def test_vigilar_magneto_no_cierra_la_pestana_en_la_pagina_intermedia(tmp_path, api):
+    """Tras iniciar sesión, Magneto pasa por /profile/resume con el cuerpo vacío antes de
+    llegar al portal con el avatar. Esa página no es sesión iniciada: la pestaña sigue
+    abierta hasta ver el avatar."""
+    destino = BUSCAR_MG + "?desde=ingreso"  # solo la pide la pestaña de ingreso
+    portales = portales_listos()
+    portales.paginas[INGRESO_MG] = (
+        "<!doctype html><html><body>Formulario de acceso"
+        f'<script>setTimeout(() => {{ location.href = "{RESUME_MG}"; }}, 300)</script>'
+        "</body></html>"
+    )
+    portales.paginas[RESUME_MG] = (
+        "<!doctype html><html><body>"
+        f'<script>setTimeout(() => {{ location.href = "{destino}"; }}, 1500)</script>'
+        "</body></html>"
+    )
+    portales.poner(destino, "mg_con_sesion.html")
+    portales.poner(BUSCAR_MG, "mg_con_sesion.html")
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            antes = len(nav.contexto.pages)
+            await nav.evaluar("asistente.vigilarInicioSesion('magneto')")
+            vigilando = await nav.almacenamiento("vigilando")
+            return vigilando, antes, len(nav.contexto.pages)
+        finally:
+            await cerrar(nav)
+
+    vigilando, antes, despues = correr(flujo())
+    assert destino in portales.pedidas  # no se cerró en la página vacía
+    assert not vigilando
+    assert despues == antes
+    mg = api.de("latido")[-1]["portales"]["magneto"]
+    assert mg["estado"] == "listo" and mg["correo"] == CORREO_MG
+
+
+def test_vigilar_sin_token_no_deja_errores_sin_capturar(tmp_path, api):
+    """Sin token, «Iniciar sesión» no abre la pestaña ni deja el 401 «navegador sin
+    vincular» como rechazo sin capturar en el service worker; el latido tampoco."""
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos(), vinculado=False)
+        try:
+            await nav.evaluar(
+                "globalThis.__rechazos = []; self.addEventListener('unhandledrejection', "
+                "(e) => __rechazos.push(String((e.reason && e.reason.message) || e.reason)))"
+            )
+            pagina = await nav.popup()
+            antes = len(nav.contexto.pages)
+            respuesta = await pagina.evaluate(
+                "chrome.runtime.sendMessage({tipo: 'iniciarSesion', plataforma: 'magneto'})"
+            )
+            await asyncio.sleep(3)
+            await nav.evaluar("asistente.latido()")
+            return respuesta, antes, len(nav.contexto.pages), await nav.evaluar("__rechazos")
+        finally:
+            await cerrar(nav)
+
+    respuesta, antes, despues, rechazos = correr(flujo())
+    assert respuesta == {"ok": True}
+    assert despues == antes  # no abrió la página de ingreso
+    assert rechazos == []
 
 
 def test_sin_confirmar_la_cuenta_el_popup_no_la_muestra_como_lista(tmp_path, api):

@@ -991,11 +991,16 @@ class Conversacion:
 
     def _guardar_tarjeta(self, usuario: Usuario, tj: Tarjeta | None) -> None:
         self.n.base.kv_guardar(f"tarjeta:{usuario.id}", tj.a_texto() if tj else "")
+        if tj is None:  # se soltó la tarjeta: el mensaje aparte de otros portales ya no se edita
+            self.n.base.kv_guardar(f"tarjeta_otros:{usuario.id}", "")
 
-    async def _actualizar_tarjeta(self, usuario: Usuario, cambiar: Callable[[Tarjeta], None]):
+    async def _actualizar_tarjeta(
+        self, usuario: Usuario, cambiar: Callable[[Tarjeta], None], plataforma: str | None = None
+    ):
         """Aplica el cambio al estado de la tarjeta y la vuelve a pintar (la crea si no existe).
 
         Si hay una postulación en curso con su card, la conexión se pinta como bloque de esa card.
+        Un cambio de la cuenta de otro portal no toca la card: va a un mensaje de conexión aparte.
         """
         tj = self._tarjeta(usuario) or Tarjeta()
         if tj.pid is None and (pid := self._pid_en_curso(usuario)) is not None:
@@ -1005,7 +1010,32 @@ class Conversacion:
             )  # fmt: skip
         cambiar(tj)
         self._guardar_tarjeta(usuario, tj)
+        de_la_card = self._plataforma_de(tj.pid) if tj.pid is not None else None
+        if plataforma is not None and de_la_card is not None and plataforma != de_la_card:
+            await self._pintar_otros(usuario, tj, de_la_card)
+            return
         await self._pintar_tarjeta(usuario, tj)
+
+    def _plataforma_de(self, pid: int) -> str | None:
+        fila = self.n.base.cx.execute(
+            "SELECT plataforma FROM postulaciones WHERE id = ?", (pid,)
+        ).fetchone()
+        return fila["plataforma"] if fila else None
+
+    async def _pintar_otros(self, usuario: Usuario, tj: Tarjeta, excepto: str) -> None:
+        """Mensaje de conexión con los portales distintos al de la card abierta: se edita en su
+        sitio con cada aviso y conserva los botones Confirmar y Cancelar."""
+        clave = f"tarjeta_otros:{usuario.id}"
+        texto = tarjeta.texto(tj, excepto=excepto)
+        botones = tarjeta.botones(tj, cb, excepto=excepto)
+        if mensaje := self.n.base.kv_obtener(clave):
+            try:
+                await self.s.editar(usuario.telegram_id, int(mensaje), texto, botones)
+                return
+            except Exception:  # noqa: BLE001 - mensaje borrado: se envía uno nuevo
+                log.info("No se pudo editar la conexión aparte de %s", usuario.id)
+        mensaje_id = await self._enviar(usuario, texto, botones)
+        self.n.base.kv_guardar(clave, str(mensaje_id) if mensaje_id else "")
 
     async def _pintar_tarjeta(self, usuario: Usuario, tj: Tarjeta) -> None:
         """Con postulación, la tarjeta es el bloque de conexión de su card; si no, un mensaje."""
@@ -1073,8 +1103,8 @@ class Conversacion:
         )  # fmt: skip
         tj = self._tarjeta(usuario)
         if tj is not None and tj.pid == pid and card.fase not in (tp.CONFIRMADA, tp.INCIERTA):
-            d.conexion = tarjeta.lineas(tj)
-            d.botones_conexion = tarjeta.botones(tj, cb) or []
+            d.conexion = tarjeta.lineas(tj, solo=d.plataforma)
+            d.botones_conexion = tarjeta.botones(tj, cb, solo=d.plataforma) or []
         if card.fase == tp.PREGUNTA and card.pregunta:
             pendiente = next(
                 (x for x in self.n.pendientes(usuario.id) if x["id"] == card.pregunta["id"]), None
@@ -1625,19 +1655,25 @@ class Conversacion:
                 if decision == "si":
                     self.n.cuentas.confirmar(usuario.id, plataforma, ahora)
                     await self._actualizar_tarjeta(
-                        usuario, lambda tj: tj.poner_cuenta(plataforma, tarjeta.CONFIRMADA)
+                        usuario,
+                        lambda tj: tj.poner_cuenta(plataforma, tarjeta.CONFIRMADA),
+                        plataforma,
                     )
                 elif decision == "nueva":
                     # No se guarda el correo ajeno: se olvida la asociación y en el próximo
                     # latido se pide confirmar la cuenta abierta, mostrando su correo completo
                     self.n.cuentas.olvidar(usuario.id, plataforma)
                     await self._actualizar_tarjeta(
-                        usuario, lambda tj: tj.poner_cuenta(plataforma, tarjeta.REVISANDO)
+                        usuario,
+                        lambda tj: tj.poner_cuenta(plataforma, tarjeta.REVISANDO),
+                        plataforma,
                     )
                 else:
                     self.n.cuentas.olvidar(usuario.id, plataforma)
                     await self._actualizar_tarjeta(
-                        usuario, lambda tj: tj.poner_cuenta(plataforma, tarjeta.PENDIENTE)
+                        usuario,
+                        lambda tj: tj.poner_cuenta(plataforma, tarjeta.PENDIENTE),
+                        plataforma,
                     )
             case "nav":
                 vinculos.revocar(self.n.base, usuario.id, int(args[0]))
@@ -2022,6 +2058,7 @@ class Conversacion:
             await self._actualizar_tarjeta(
                 usuario,
                 lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.POR_CONFIRMAR, d["asociado"]),
+                d["plataforma"],
             )
         elif tipo == "cuenta_distinta":
             await self._actualizar_tarjeta(
@@ -2029,6 +2066,7 @@ class Conversacion:
                 lambda tj: tj.poner_cuenta(
                     d["plataforma"], tarjeta.DISTINTA, d["asociado"], d["encontrado"]
                 ),
+                d["plataforma"],
             )
         elif tipo == "cuenta_sin_correo":
             log.info("No se pudo leer el correo de %s para el usuario %s", nombre, usuario.id)
@@ -2036,10 +2074,13 @@ class Conversacion:
             await self._actualizar_tarjeta(
                 usuario,
                 lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.CONFIRMADA, d.get("asociado")),
+                d["plataforma"],
             )
         elif tipo == "portal_incompleto":
             await self._actualizar_tarjeta(
-                usuario, lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.COMPLETANDO)
+                usuario,
+                lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.COMPLETANDO),
+                d["plataforma"],
             )
         elif tipo == "verificacion":
             await self._poner_fase(usuario, d["postulacion_id"], tp.VERIFICACION)

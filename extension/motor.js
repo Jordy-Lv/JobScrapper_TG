@@ -86,10 +86,45 @@
     return Boolean(buscar(sel.captcha || [])) || hayTexto(textos(sel, "verificacion"));
   }
 
-  function sinSesion(sel) {
+  function enIngreso(sel) {
+    return ((sel.sesion || {}).url_sin_sesion || []).some((p) => location.href.includes(p));
+  }
+
+  // La marca de sesión debe existir; no se exige que se vea (en pantallas pequeñas el portal
+  // la oculta en un menú)
+  function hayMarca(sel) {
+    const marca = (sel.sesion || {}).iniciada || [];
+    return marca.length > 0 && Boolean(buscar(marca, { ocultos: true }));
+  }
+
+  // Por qué no hay sesión, o null si la hay. La página de ingreso manda; si no, la marca de
+  // sesión iniciada prevalece sobre el enlace de ingreso (Magneto lo trae en el HTML inicial
+  // aunque haya sesión). Con marca_obligatoria, sin marca tampoco hay sesión.
+  function motivoSinSesion(sel) {
     const s = sel.sesion || {};
-    if ((s.url_sin_sesion || []).some((p) => location.href.includes(p))) return true;
-    return Boolean(buscar(s.sin_sesion || []));
+    if (enIngreso(sel)) return "redireccion_login";
+    if (hayMarca(sel)) return null;
+    if (buscar(s.sin_sesion || [])) return "enlace_ingresar";
+    if (s.marca_obligatoria && (s.iniciada || []).length) return "sin_marca_sesion";
+    return null;
+  }
+
+  function sinSesion(sel) {
+    return Boolean(motivoSinSesion(sel));
+  }
+
+  // Espera la marca hasta sesion.espera_ms: hay portales que la muestran solo cuando la página
+  // termina de cargarse. Esperan los portales con marca obligatoria y, con `exigirMarca` (la
+  // revisión del portal), también los demás mientras no haya enlace de ingreso, como antes.
+  async function esperarSesion(sel, { exigirMarca = false } = {}) {
+    const s = sel.sesion || {};
+    const marca = s.iniciada || [];
+    const esperarMarca = marca.length && !enIngreso(sel) && !hayMarca(sel)
+      && (s.marca_obligatoria || (exigirMarca && !buscar(s.sin_sesion || [])));
+    if (esperarMarca) await esperar(marca, s.espera_ms ?? 5000, { ocultos: true });
+    const motivo = motivoSinSesion(sel);
+    if (motivo) return motivo;
+    return exigirMarca && marca.length && !hayMarca(sel) ? "sin_marca_sesion" : null;
   }
 
   // HTML del formulario (o la página) sin los valores escritos: evidencia para el dueño
@@ -350,7 +385,7 @@
 
   async function paso(paso, sel, datos = {}) {
     if (hayCaptcha(sel)) return { captcha: true };
-    if (sinSesion(sel)) return { sin_sesion: true };
+    if (await esperarSesion(sel)) return { sin_sesion: true };
     const adaptador = adaptadores[datos.plataforma] || {};
     if (adaptador[paso.accion]) {
       const propio = await adaptador[paso.accion](paso, sel, api);
@@ -475,18 +510,11 @@
   async function revisar(sel, datos = {}) {
     await esperar(["body"], 5000);
     await dormir(datos.espera_ms ?? 1500); // las páginas armadas con JS tardan en mostrar el usuario
-    if (sinSesion(sel)) {
-      const redirigido = ((sel.sesion || {}).url_sin_sesion || []).some((p) => location.href.includes(p));
-      return { estado: "sin_sesion", motivo: redirigido ? "redireccion_login" : "enlace_ingresar" };
-    }
-    const s = sel.sesion || {};
-    // La marca de sesión debe existir; no se exige que se vea (en pantallas pequeñas el portal
-    // la oculta en un menú)
-    if ((s.iniciada || []).length && !(await esperar(s.iniciada, 5000, { ocultos: true }))) {
-      return { estado: "sin_sesion", motivo: "sin_marca_sesion" };
-    }
+    const motivo = await esperarSesion(sel, { exigirMarca: true });
+    if (motivo) return { estado: "sin_sesion", motivo };
     const resultado = { estado: "listo", correo: null, secciones: {} };
     const cuenta = sel.cuenta || {};
+    await abrirCuenta(sel);
     if (cuenta.correo) await esperar(cuenta.correo, 3000, { ocultos: true });
     resultado.correo = buscarCorreo(sel).correo || null;
     for (const [nombre, seccion] of Object.entries((sel.perfil || {}).secciones || {})) {
@@ -516,8 +544,11 @@
       && !/\.(png|jpe?g|gif|svg|webp)$/.test(correo);
   }
 
+  // La sesión ya la confirmó `revisar`: en las páginas de cuenta solo la página o el enlace de
+  // ingreso dicen que se perdió (una página sin la marca deja el correo sin encontrar)
   function buscarCorreo(sel) {
-    if (sinSesion(sel)) return { sin_sesion: true };
+    const motivo = motivoSinSesion(sel);
+    if (motivo && motivo !== "sin_marca_sesion") return { sin_sesion: true };
     const candidatos = [];
     const el = buscar((sel.cuenta || {}).correo || [], { ocultos: true });
     if (el) candidatos.push(el.value || el.getAttribute("content") || el.textContent || "");
@@ -529,6 +560,34 @@
       if (correo) return { correo: correo.toLowerCase(), enlaces: [] };
     }
     return { correo: null, enlaces: enlacesCuenta() };
+  }
+
+  // Correo válido dentro de los elementos declarados en cuenta.correo (sin mirar el resto de
+  // la página, que puede traer correos de las vacantes listadas)
+  function correoDeLaCuenta(sel) {
+    for (const selector of [].concat((sel.cuenta || {}).correo || [])) {
+      for (const el of candidatos(selector)) {
+        const texto = el.value || el.getAttribute("content") || el.textContent || "";
+        if ((String(texto).match(CORREO) || []).some(correoValido)) return true;
+      }
+    }
+    return false;
+  }
+
+  // Hay portales que solo generan el correo al abrir el menú de la cuenta (Magneto: clic en el
+  // avatar). Se hace clic solo en el elemento declarado en cuenta.abrir, que únicamente
+  // despliega el menú, y se espera el correo hasta 3 s.
+  async function abrirCuenta(sel) {
+    const abrir = (sel.cuenta || {}).abrir || [];
+    if (!abrir.length || (await esperarSesion(sel)) || correoDeLaCuenta(sel)) {
+      return { abierto: false };
+    }
+    const el = await esperar(abrir, 3000);
+    if (!el) return { abierto: false };
+    el.click();
+    const limite = Date.now() + 3000;
+    while (!correoDeLaCuenta(sel) && Date.now() < limite) await dormir(250);
+    return { abierto: true };
   }
 
   // Enlaces del mismo portal hacia la cuenta o el perfil del usuario
@@ -561,6 +620,7 @@
     paso,
     revisar,
     buscarCorreo,
+    abrirCuenta,
     enlacesCuenta,
     sesion: (sel) => ({ sin_sesion: sinSesion(sel), captcha: hayCaptcha(sel) }),
     html: () => htmlSinValores(),

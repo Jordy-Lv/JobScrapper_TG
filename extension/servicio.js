@@ -40,8 +40,12 @@ async function opciones() {
 
 // --- latido -------------------------------------------------------------------------------
 
+// Lo llaman la alarma, el arranque y el oyente de pestañas sin esperar el resultado: un error
+// queda como latido fallido (null), igual que sin token, y no como rechazo sin capturar
 function latido(opciones = {}) {
-  if (!enCurso) enCurso = latidoUnico(opciones).finally(() => (enCurso = null));
+  if (!enCurso) {
+    enCurso = latidoUnico(opciones).catch(() => null).finally(() => (enCurso = null));
+  }
   return enCurso;
 }
 
@@ -184,6 +188,7 @@ async function revisarPortal(plataforma) {
       tab = await chrome.tabs.get(pestana.id);
       if (!paginaPermitida(tab.url, plataforma)) continue;
       await inyectar(pestana.id, plataforma);
+      await enPestana(pestana.id, (ss) => globalThis.__asistente.abrirCuenta(ss), sel);
       const r = await enPestana(pestana.id, (ss) => globalThis.__asistente.buscarCorreo(ss), sel);
       if (r.sin_sesion) return { estado: "sin_sesion", correo: null };
       if (r.correo) {
@@ -608,7 +613,18 @@ async function marcarVigilando(plataforma, activo) {
 // Abre la página de ingreso del portal, espera a que el usuario inicie sesión (sondeando la
 // pestaña cada 2 s) y la cierra sola en cuanto detecta la sesión; entonces relee ese portal y
 // avisa al servidor, que es quien le pide al usuario confirmar la cuenta en el bot.
+// El popup la lanza sin esperarla: sin token no abre nada y ningún error queda sin capturar.
 async function vigilarInicioSesion(plataforma) {
+  try {
+    const { token } = await ajustes();
+    if (!token) return;
+    await vigilar(plataforma);
+  } catch (error) {
+    await guardarEstado({ error: String(error.message || error) }).catch(() => {});
+  }
+}
+
+async function vigilar(plataforma) {
   const url = INGRESO[plataforma];
   if (!url) return;
   let tab;

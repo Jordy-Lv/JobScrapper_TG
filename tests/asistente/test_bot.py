@@ -1312,6 +1312,7 @@ def test_la_vacante_del_alta_se_postula_dentro_de_la_misma_tarjeta(mundo):
         await hasta_resumen(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
         usuario = await vincular_navegador(mundo, ANA)
         fila = mundo.n.base.cx.execute("SELECT id, mensaje_id FROM postulaciones").fetchone()
+        de_plataforma(mundo, fila["id"], "computrabajo")  # el bloque muestra solo su portal
         base = {"postulacion_id": fila["id"], "usuario_id": usuario.id}
         await mundo.c.notificar({"tipo": "postulando", **base})
         await mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com"))
@@ -1384,6 +1385,12 @@ def tocar(mundo, usuario):
 
 def card_guardada(mundo, pid):
     return tp.Card.de_texto(mundo.base.kv_obtener(f"card:{pid}"))
+
+
+def de_plataforma(mundo, pid, plataforma):
+    """La vacante de la prueba es de LinkedIn: la postulación pasa a ser del portal dado."""
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET plataforma = ? WHERE id = ?", (plataforma, pid))
 
 
 def nuevos(mundo, desde):
@@ -1479,6 +1486,7 @@ def test_card_borrada_se_envia_una_nueva_con_el_estado_actual(mundo):
 def test_la_cuenta_por_confirmar_se_pinta_en_la_card_en_curso(mundo):
     usuario = preparar_toque(mundo)
     pid, _ = tocar(mundo, usuario)
+    de_plataforma(mundo, pid, "computrabajo")
     mensaje = card_guardada(mundo, pid).mensaje_id
     antes = len(mundo.s.mensajes)
     correr(mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com")))
@@ -1499,6 +1507,7 @@ def test_la_cuenta_por_confirmar_se_pinta_en_la_card_en_curso(mundo):
 def test_cuenta_distinta_ofrece_sus_dos_botones_en_la_card(mundo):
     usuario = preparar_toque(mundo)
     pid, _ = tocar(mundo, usuario)
+    de_plataforma(mundo, pid, "computrabajo")
     mensaje = card_guardada(mundo, pid).mensaje_id
     aviso = aviso_cuenta(usuario, "computrabajo", "ana@gmail.com", "cuenta_distinta")
     aviso["encontrado"] = "l***@hotmail.com"
@@ -1506,6 +1515,96 @@ def test_cuenta_distinta_ofrece_sus_dos_botones_en_la_card(mundo):
     texto, botones = card_de(mundo, mensaje)
     assert "⚠️" in texto and "No postularé con ella" in texto
     assert [b[0] for b in botones[0]] == ["Es mi cuenta nueva", "No es mía"]
+
+
+# --- conexión limitada al portal de la vacante ---------------------------------------------
+
+
+def ediciones_de(mundo, mensaje):
+    return [e for e in mundo.s.ediciones if e[1] == mensaje]
+
+
+@respx.mock
+def test_vacante_de_magneto_con_computrabajo_confirmado_no_lo_menciona(mundo):
+    usuario = preparar_toque(mundo)
+    aviso = aviso_cuenta(usuario, "computrabajo", "ana@gmail.com", "portal_listo")
+    correr(mundo.c.notificar(aviso))
+    pid, _ = tocar(mundo, usuario)
+    de_plataforma(mundo, pid, "magneto")
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    correr(mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id}))
+    texto, botones = card_de(mundo, mensaje)
+    assert "Conexión con tus portales" in texto
+    assert "· Magneto: inicia sesión con tu cuenta en ese navegador" in texto
+    assert "Computrabajo" not in texto and botones is None
+
+
+@respx.mock
+def test_cuenta_por_confirmar_del_mismo_portal_va_en_la_card(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    de_plataforma(mundo, pid, "magneto")
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "magneto", "ana@magneto.co")))
+    texto, botones = card_de(mundo, mensaje)
+    assert "<b>Magneto</b>: sesión iniciada con <b>ana@magneto.co</b>" in texto
+    assert botones == [[
+        ("Confirmar Magneto", cb("cuenta", "magneto", "si")),
+        ("Cancelar", cb("cuenta", "magneto", "no")),
+    ]]  # fmt: skip
+    assert len(mundo.s.mensajes) == antes
+
+
+@respx.mock
+def test_aviso_de_otro_portal_con_la_card_abierta_va_a_un_mensaje_aparte(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    de_plataforma(mundo, pid, "magneto")
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "magneto", "ana@magneto.co")))
+    ediciones_card = len(ediciones_de(mundo, mensaje))
+    antes = len(mundo.s.mensajes)
+
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com")))
+    assert len(ediciones_de(mundo, mensaje)) == ediciones_card  # la card no cambia
+    (chat, texto, botones), = mundo.s.mensajes[antes:]  # fmt: skip
+    aparte = mundo.s._id
+    assert "Conexión con tus portales" in texto
+    assert "<b>Computrabajo</b>: sesión iniciada con <b>ana@gmail.com</b>" in texto
+    assert "Magneto" not in texto
+    assert botones == [[
+        ("Confirmar Computrabajo", cb("cuenta", "computrabajo", "si")),
+        ("Cancelar", cb("cuenta", "computrabajo", "no")),
+    ]]  # fmt: skip
+    assert mundo.base.kv_obtener(f"tarjeta_otros:{usuario.id}") == str(aparte)
+
+    # Confirmar desde el mensaje aparte lo edita en su sitio, sin tocar la card ni enviar otro
+    correr(mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si")))
+    assert len(mundo.s.mensajes) == antes + 1
+    assert len(ediciones_de(mundo, mensaje)) == ediciones_card
+    texto, botones = card_de(mundo, aparte)
+    assert "✓ Computrabajo · ana@gmail.com" in texto and botones is None
+    texto, botones = card_de(mundo, mensaje)
+    assert "Confirmar Magneto" in botones[0][0][0]  # la card conserva lo suyo
+
+    # Al soltar la card, el mensaje aparte deja de editarse
+    correr(mundo.c.notificar(Evento("resultado", pid, usuario.id, E.ENVIADA)))
+    assert not mundo.base.kv_obtener(f"tarjeta_otros:{usuario.id}")
+
+
+@respx.mock
+def test_sin_card_abierta_la_tarjeta_muestra_todos_los_portales(mundo):
+    usuario = preparar_toque(mundo)
+    correr(
+        mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com", "portal_listo"))
+    )
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "magneto", "ana@magneto.co")))
+    texto, botones = mundo.s.ediciones[-1][2], mundo.s.botones_editados[mundo.s.ediciones[-1][1]]
+    assert "✓ Computrabajo · ana@gmail.com" in texto
+    assert "<b>Magneto</b>: sesión iniciada con <b>ana@magneto.co</b>" in texto
+    assert botones[0][0] == ("Confirmar Magneto", cb("cuenta", "magneto", "si"))
+    assert not mundo.base.kv_obtener(f"tarjeta_otros:{usuario.id}")
 
 
 @respx.mock

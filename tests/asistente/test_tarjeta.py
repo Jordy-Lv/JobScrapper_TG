@@ -63,3 +63,57 @@ def test_el_estado_se_guarda_y_se_lee_como_texto():
     tj.poner_cuenta("magneto", tarjeta.REVISANDO)
     assert Tarjeta.de_texto(tj.a_texto()) == tj
     assert Tarjeta.de_texto("") is None and Tarjeta.de_texto(None) is None
+
+
+def _con_dos_portales() -> Tarjeta:
+    tj = Tarjeta(navegador=True)
+    tj.poner_cuenta("computrabajo", tarjeta.POR_CONFIRMAR, "ana@gmail.com")
+    tj.poner_cuenta("magneto", tarjeta.CONFIRMADA, "ana@magneto.co")
+    return tj
+
+
+def test_solo_muestra_el_portal_de_la_vacante():
+    tj = _con_dos_portales()
+    assert tarjeta.lineas(tj, solo="magneto") == [
+        "🔗 <b>Conexión con tus portales</b>",
+        "✓ Navegador vinculado",
+        "✓ Magneto · ana@magneto.co",
+    ]
+    assert tarjeta.botones(tj, cb, solo="magneto") is None
+    assert tarjeta.botones(tj, cb, solo="computrabajo") == [
+        [
+            ("Confirmar Computrabajo", "cb:cuenta:computrabajo:si"),
+            ("Cancelar", "cb:cuenta:computrabajo:no"),
+        ]
+    ]
+
+
+def test_solo_sin_cuenta_del_portal_pide_iniciar_sesion_en_el():
+    tj = Tarjeta(navegador=True)
+    tj.poner_cuenta("computrabajo", tarjeta.CONFIRMADA, "ana@gmail.com")
+    lineas = tarjeta.lineas(tj, solo="magneto")
+    assert lineas[-1] == "· Magneto: inicia sesión con tu cuenta en ese navegador"
+    assert not any("Computrabajo" in x for x in lineas)
+    assert tarjeta.botones(tj, cb, solo="magneto") is None
+
+
+def test_excepto_muestra_los_demas_portales():
+    tj = _con_dos_portales()
+    lineas = tarjeta.lineas(tj, excepto="magneto")
+    assert not any("Magneto" in x for x in lineas)
+    assert any(x.startswith("❓ <b>Computrabajo</b>") for x in lineas)
+    assert tarjeta.botones(tj, cb, excepto="magneto") == tarjeta.botones(
+        tj, cb, solo="computrabajo"
+    )
+    assert tarjeta.texto(tj, excepto="magneto") == "\n".join(lineas)
+
+
+def test_sin_filtro_todas_las_cuentas_como_antes():
+    tj = _con_dos_portales()
+    assert tarjeta.lineas(tj) == [
+        "🔗 <b>Conexión con tus portales</b>",
+        "✓ Navegador vinculado",
+        "❓ <b>Computrabajo</b>: sesión iniciada con <b>ana@gmail.com</b>. ¿Es tu cuenta?",
+        "✓ Magneto · ana@magneto.co",
+    ]
+    assert len(tarjeta.botones(tj, cb)) == 1

@@ -67,28 +67,43 @@ def _linea_cuenta(nombre: str, cuenta: dict) -> str:
             return f"· {nombre}: inicia sesión con tu cuenta en ese navegador"
 
 
-def lineas(tarjeta: Tarjeta) -> list[str]:
-    """Las líneas del bloque «Conexión»: navegador y una por portal."""
+def _cuentas(tarjeta: Tarjeta, solo: str | None, excepto: str | None) -> dict[str, dict]:
+    """Las cuentas que se muestran: la de `solo` (pendiente si aún no hay), las distintas de
+    `excepto` o todas."""
+    if solo is not None:
+        return {solo: tarjeta.cuentas.get(solo, {"estado": PENDIENTE})}
+    return {p: c for p, c in tarjeta.cuentas.items() if p != excepto}
+
+
+def lineas(tarjeta: Tarjeta, solo: str | None = None, excepto: str | None = None) -> list[str]:
+    """Las líneas del bloque «Conexión»: navegador y una por portal.
+
+    `solo=p` deja solo la línea del portal `p` (la card de una vacante de `p`); `excepto=p`,
+    las de los demás portales (el mensaje aparte mientras hay una card de `p` abierta)."""
     salida = ["🔗 <b>Conexión con tus portales</b>"]
     if tarjeta.navegador:
         salida.append("✓ Navegador vinculado")
-    if tarjeta.cuentas:
-        for plataforma, cuenta in tarjeta.cuentas.items():
+    cuentas = _cuentas(tarjeta, solo, excepto)
+    if cuentas:
+        for plataforma, cuenta in cuentas.items():
             salida.append(_linea_cuenta(t.NOMBRES_PLATAFORMA.get(plataforma, plataforma), cuenta))
-    elif tarjeta.navegador:
+    elif tarjeta.navegador and excepto is None:
         salida.append("· Inicia sesión en Computrabajo y Magneto en ese navegador.")
     return salida
 
 
-def texto(tarjeta: Tarjeta) -> str:
+def texto(tarjeta: Tarjeta, solo: str | None = None, excepto: str | None = None) -> str:
     """La tarjeta de conexión sola (sin postulación)."""
-    return "\n".join(lineas(tarjeta))
+    return "\n".join(lineas(tarjeta, solo, excepto))
 
 
-def botones(tarjeta: Tarjeta, cb: Callable[..., str]) -> list[list[tuple[str, str]]] | None:
-    """Confirmar / Cancelar de cada cuenta por confirmar y los de la cuenta distinta."""
+def botones(
+    tarjeta: Tarjeta, cb: Callable[..., str], solo: str | None = None, excepto: str | None = None
+) -> list[list[tuple[str, str]]] | None:
+    """Confirmar / Cancelar de cada cuenta por confirmar y los de la cuenta distinta, con el
+    mismo filtro que `lineas`."""
     filas = []
-    for plataforma, cuenta in tarjeta.cuentas.items():
+    for plataforma, cuenta in _cuentas(tarjeta, solo, excepto).items():
         nombre = t.NOMBRES_PLATAFORMA.get(plataforma, plataforma)
         if cuenta["estado"] == POR_CONFIRMAR:
             filas.append([
