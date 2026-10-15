@@ -28,8 +28,17 @@ Los portales que no declaran marca obligatoria (Computrabajo) MUST conservar su 
 - **THEN** el resultado es el mismo que antes de este cambio
 
 ### Requirement: Correo de la cuenta de Magneto
-La extensión SHALL leer el correo de la cuenta de Magneto de la cabecera del portal con sesión iniciada, donde está en un elemento oculto del selector de cuenta. MUST NOT abrir ni modificar páginas de configuración de la cuenta para obtenerlo.
+La extensión SHALL leer el correo de la cuenta de Magneto del menú de la cuenta, en la página de búsqueda de empleos del portal. Magneto solo genera ese menú, con el correo en un elemento oculto del selector de cuenta, al hacer clic en el avatar del usuario.
 
-#### Scenario: Correo encontrado en la cabecera
+Para obtenerlo, la extensión:
+- MAY hacer clic en el elemento que los selectores del portal declaran para abrir el menú de la cuenta, y en ningún otro;
+- MUST NOT cambiar nada de la cuenta con ese clic, que solo despliega el menú;
+- MUST NOT abrir ni modificar páginas de configuración de la cuenta.
+
+#### Scenario: Correo encontrado al abrir el menú de la cuenta
 - **WHEN** la extensión revisa Magneto con sesión iniciada
-- **THEN** informa el correo de la cuenta sin salir de la página principal del portal
+- **THEN** abre el menú del avatar en la página de búsqueda de empleos e informa el correo de la cuenta
+
+#### Scenario: Correo ya visible
+- **WHEN** el correo ya está en la página antes del clic
+- **THEN** la extensión lo informa sin hacer clic

@@ -12,14 +12,16 @@ Causa, verificada el 2026-10-15 en el navegador del dueño con sesión real:
 - **Selectores de Magneto** (`assets/asistente/selectores/magneto.json`), verificados con sesión real:
   - marca de sesión iniciada: el avatar del usuario;
   - el enlace «Iniciar sesión» a `web.magneto365.com/sign-in` deja de contar como señal de «sin sesión», porque aparece también con sesión;
-  - correo de la cuenta: está en la cabecera, en un tooltip oculto del selector de cuenta (`[class*='mg_account_select'] [class*='tooltip'] strong`);
+  - correo de la cuenta: está en un tooltip oculto del selector de cuenta (`[class*='mg_account_select'] [class*='tooltip'] strong`). Magneto solo lo genera al hacer clic en el avatar en `/co/trabajos/buscar`, que pasa a ser la página de revisión;
   - tiempo de espera de la marca más largo que el de Computrabajo.
-  - Este cambio de datos ya corrige el caso con la extensión publicada, sin esperar una versión nueva.
+  - Este cambio de datos ya corrige la detección de la sesión con la extensión publicada (verificado el 2026-10-15). El correo necesita la versión nueva, porque exige el clic previo.
 - **Motor de la extensión** (`extension/motor.js`):
   - la marca de sesión iniciada prevalece sobre el enlace de ingreso;
   - un portal puede declarar que la marca es obligatoria, y entonces sin marca no hay sesión;
-  - el tiempo de espera de la marca se configura por portal.
+  - el tiempo de espera de la marca se configura por portal;
+  - un portal puede declarar en `cuenta.abrir` el elemento en el que hacer clic para que aparezca el correo (el avatar de Magneto). La extensión solo hace clic en ese elemento.
   - Computrabajo sigue igual. La extensión sube de versión.
+- **Servicio de la extensión** (`extension/servicio.js`): vigilar el inicio de sesión y los latidos automáticos no dejan errores sin capturar. Hoy aparece «HTTP 401: navegador sin vincular» en `api.js` cuando no hay token.
 - **Card de la postulación** (bot): el bloque «Conexión con tus portales» muestra solo el portal de la vacante:
   - si ese portal no tiene cuenta, muestra su línea pendiente («inicia sesión con tu cuenta en ese navegador»);
   - los avisos de cuenta de **otros** portales que lleguen mientras la card está abierta van a un mensaje aparte, para que sus botones Confirmar y Cancelar sigan disponibles sin mezclarse con la vacante.
@@ -39,7 +41,7 @@ Causa, verificada el 2026-10-15 en el navegador del dueño con sesión real:
 ## Impact
 
 - Código:
-  - `extension/motor.js` y `extension/manifest.json` (versión);
+  - `extension/motor.js`, `extension/servicio.js` y `extension/manifest.json` (versión);
   - `assets/asistente/selectores/magneto.json`;
   - `buscador_vacantes/asistente/tarjeta.py` y `buscador_vacantes/asistente/conversacion.py` (`_datos_card`, `_actualizar_tarjeta` y los avisos de cuenta).
 - Pruebas:
