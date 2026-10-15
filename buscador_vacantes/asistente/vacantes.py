@@ -51,8 +51,10 @@ class VacanteIndexada:
 
     @classmethod
     def de_fila(cls, f: sqlite3.Row) -> VacanteIndexada:
+        # Una fila indexada antes de reconocer su dominio quedó sin plataforma: se deduce del enlace
+        plataforma = f["plataforma"] or plataforma_de_url(f["url"])
         return cls(
-            f["id_corto"], f["clave"], f["fuente"], f["plataforma"], f["url"], f["titulo"],
+            f["id_corto"], f["clave"], f["fuente"], plataforma, f["url"], f["titulo"],
             f["empresa"], de_texto(f["enviada_en"]), f["detalle"], f["estado_pagina"],
             de_texto(f["detalle_en"]), json.loads(f["ficha_json"]) if f["ficha_json"] else None,
         )  # fmt: skip

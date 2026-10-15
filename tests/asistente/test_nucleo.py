@@ -141,6 +141,18 @@ def test_plataforma_nueva_sin_automatica_va_a_respaldo_sin_tarea(mundo, platafor
     assert mundo.nucleo.cola.siguiente(mundo.usuario.id, listos, T0) is None
 
 
+def test_vacante_indexada_antes_de_reconocer_el_dominio_toma_la_plataforma_del_enlace(mundo):
+    mundo.vincular()
+    id_ = publicar(mundo, "elempleo", "3", NUEVAS["elempleo"])
+    mundo.nucleo.indice.indexar(T0)
+    # Así quedaron las filas indexadas cuando elempleo.com aún no estaba en PLATAFORMAS
+    mundo.base.cx.execute("UPDATE vacantes SET plataforma = NULL WHERE id_corto = ?", (id_,))
+    mundo.base.cx.commit()
+    toque = mundo.nucleo.tocar(mundo.usuario, id_)
+    assert toque.vacante.plataforma == "elempleo"
+    assert toque.camino == Camino.RESPALDO and toque.motivo == "plataforma_no_automatica"
+
+
 @pytest.mark.parametrize(
     ("url", "plataforma", "motivo"),
     [
