@@ -54,6 +54,7 @@ class Camino(StrEnum):
     RESPALDO = "respaldo"
     NO_DISPONIBLE = "no_disponible"
     YA_EXISTE = "ya_existe"
+    EN_CUENTA = "en_cuenta"  # la cuenta regresiva corre: aún no se encoló nada
 
 
 @dataclass

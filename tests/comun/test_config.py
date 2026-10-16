@@ -299,6 +299,18 @@ def test_asistente_tope_negativo(tmp_path):
         cargar_configuracion(ruta)
 
 
+def test_asistente_cuenta_regresiva_por_defecto_cero_y_negativa(tmp_path):
+    defecto = cargar_configuracion(escribir_config(tmp_path, lambda d: None))
+    assert defecto.asistente.cuenta_regresiva_segundos == 5
+    cero = escribir_config(tmp_path, lambda d: d["asistente"].update(cuenta_regresiva_segundos=0))
+    assert cargar_configuracion(cero).asistente.cuenta_regresiva_segundos == 0
+    negativa = escribir_config(
+        tmp_path, lambda d: d["asistente"].update(cuenta_regresiva_segundos=-1)
+    )
+    with pytest.raises(ErrorConfiguracion, match="asistente.cuenta_regresiva_segundos"):
+        cargar_configuracion(negativa)
+
+
 def _proveedor(datos: dict, id_: str = "gemini") -> dict:
     return datos["asistente"]["ia"]["proveedores"][id_]
 

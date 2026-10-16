@@ -22,7 +22,7 @@ from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.membresia import Comprobador  # noqa: E402
-from buscador_vacantes.asistente.nucleo import Nucleo  # noqa: E402
+from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
 from buscador_vacantes.asistente.respuestas import sembrar_banco  # noqa: E402
 from buscador_vacantes.asistente.usuarios import EstadoUsuario  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
@@ -85,6 +85,7 @@ def mundo(tmp_path):
     estado.registrar_vista(v, "h", momento=T0, enviada=True)
     configuracion = cargar_configuracion()
     configuracion.asistente.dueno_telegram_id = DUENO
+    configuracion.asistente.cuenta_regresiva_segundos = 0  # las pruebas de la cuenta la activan
     base = BaseAsistente.abrir(tmp_path / "a.db")
     sembrar_banco(base, T0)
     ro = abrir_vacantes_ro(tmp_path / "vacantes.db")
@@ -1887,3 +1888,248 @@ def test_botones_de_proveedores_paginan_de_cuatro_en_cuatro():
     assert len(p0) == 5 and p0[-1] == [("Siguiente ➡️", cb("provpag", 1))]
     assert p0[0][0][1] == cb("prov", "gemini")
     assert len(p1) == 3 and p1[-1] == [("⬅️ Anterior", cb("provpag", 0))]
+
+
+# --- cuenta regresiva antes de encolar -----------------------------------------------------
+
+
+INTERVALO_CUENTA = 1.0
+
+
+class RelojManual:
+    """La cuenta espera aquí: cada ``avanzar`` deja pasar un segundo de la cuenta."""
+
+    def __init__(self):
+        self.cola = asyncio.Queue()
+
+    async def dormir(self, segundos):
+        if segundos != INTERVALO_CUENTA:  # otras esperas del bot (CV, cuota) no se controlan
+            return
+        await self.cola.get()
+
+    async def avanzar(self, segundos=1):
+        for _ in range(segundos):
+            self.cola.put_nowait(None)
+            for _ in range(10):
+                await asyncio.sleep(0)
+
+
+def con_cuenta(mundo, segundos=3):
+    mundo.n.config.cuenta_regresiva_segundos = segundos
+    reloj = RelojManual()
+    mundo.c.dormir = reloj.dormir
+    return reloj
+
+
+def postulaciones(mundo):
+    return mundo.n.base.cx.execute("SELECT id, mensaje_id FROM postulaciones").fetchall()
+
+
+def ultimo_texto(mundo, mensaje):
+    return ediciones_de(mundo, mensaje)[-1][2]
+
+
+def botones_de(mundo, mensaje):
+    return [texto for fila in mundo.s.botones_editados.get(mensaje) or [] for texto, _ in fila]
+
+
+@respx.mock
+def test_la_cuenta_pinta_la_card_y_no_encola_hasta_terminar(mundo):
+    usuario = preparar_toque(mundo)
+    reloj = con_cuenta(mundo, 3)
+    corta = id_corto("linkedin:1")
+
+    async def flujo():
+        antes = len(mundo.s.mensajes)
+        toque = await mundo.c.procesar_toque(usuario, corta)
+        nuevos = mundo.s.mensajes[antes:]
+        mensaje = mundo.s._id
+        assert toque.camino == Camino.EN_CUENTA and len(nuevos) == 1
+        texto, botones = nuevos[0][1], nuevos[0][2]
+        assert "Practicante de sistemas" in texto and "Postulando en 3 s" in texto
+        assert botones == [[("Cancelar", cb("cancel", corta))]]
+        assert postulaciones(mundo) == []
+        await reloj.avanzar(1)
+        assert "Postulando en 2 s" in ultimo_texto(mundo, mensaje) and postulaciones(mundo) == []
+        await reloj.avanzar(1)
+        assert "Postulando en 1 s" in ultimo_texto(mundo, mensaje) and postulaciones(mundo) == []
+        await reloj.avanzar(1)
+        await mundo.c.esperar_tareas()
+        return mensaje, len(mundo.s.mensajes) - antes
+
+    mensaje, mensajes_nuevos = correr(flujo())
+    fila = postulaciones(mundo)[0]
+    assert mensajes_nuevos == 1 and fila["mensaje_id"] == mensaje  # todo en el mismo mensaje
+    assert "En cola" in ultimo_texto(mundo, mensaje) and not botones_de(mundo, mensaje)
+    assert mundo.base.kv_obtener(f"cuenta:{usuario.id}:{corta}") == ""
+
+
+@respx.mock
+def test_cancelar_a_tiempo_no_encola_y_postular_reabre_la_cuenta_en_el_mismo_mensaje(mundo):
+    usuario = preparar_toque(mundo)
+    reloj = con_cuenta(mundo, 3)
+    corta = id_corto("linkedin:1")
+
+    async def flujo():
+        antes = len(mundo.s.mensajes)
+        await mundo.c.procesar_toque(usuario, corta)
+        mensaje = mundo.s._id
+        await reloj.avanzar(1)
+        await mundo.c.al_boton(ANA, cb("cancel", corta))
+        await reloj.avanzar(5)  # aunque pasara el tiempo, nada se encola
+        cancelada = ultimo_texto(mundo, mensaje), botones_de(mundo, mensaje), postulaciones(mundo)
+        await mundo.c.al_boton(ANA, cb("post", corta))
+        reabierta = ultimo_texto(mundo, mensaje), botones_de(mundo, mensaje), postulaciones(mundo)
+        await reloj.avanzar(3)
+        await mundo.c.esperar_tareas()
+        return mensaje, len(mundo.s.mensajes) - antes, cancelada, reabierta
+
+    mensaje, mensajes_nuevos, cancelada, reabierta = correr(flujo())
+    assert "Cancelaste la postulación. No envié nada." in cancelada[0]
+    assert cancelada[1] == ["Postular"] and cancelada[2] == []
+    assert "Postulando en 3 s" in reabierta[0] and reabierta[1] == ["Cancelar"]
+    assert reabierta[2] == []
+    assert mensajes_nuevos == 1  # ningún mensaje nuevo en todo el recorrido
+    assert postulaciones(mundo)[0]["mensaje_id"] == mensaje
+
+
+@respx.mock
+def test_cancelar_tarde_avisa_y_no_cambia_la_card(mundo):
+    usuario = preparar_toque(mundo)
+    reloj = con_cuenta(mundo, 2)
+    corta = id_corto("linkedin:1")
+
+    async def flujo():
+        await mundo.c.procesar_toque(usuario, corta)
+        mensaje = mundo.s._id
+        await reloj.avanzar(2)
+        await mundo.c.esperar_tareas()
+        antes = len(mundo.s.ediciones)
+        aviso = await mundo.c.al_boton(ANA, cb("cancel", corta))
+        return mensaje, aviso, len(mundo.s.ediciones) - antes
+
+    mensaje, aviso, ediciones = correr(flujo())
+    assert "Ya se está postulando" in aviso and ediciones == 0
+    assert len(postulaciones(mundo)) == 1 and "En cola" in ultimo_texto(mundo, mensaje)
+
+
+@respx.mock
+def test_un_segundo_toque_mientras_cuenta_no_abre_otra_cuenta(mundo):
+    usuario = preparar_toque(mundo)
+    reloj = con_cuenta(mundo, 3)
+    corta = id_corto("linkedin:1")
+
+    async def flujo():
+        antes = len(mundo.s.mensajes)
+        await mundo.c.procesar_toque(usuario, corta)
+        segundo = await mundo.c.procesar_toque(usuario, corta)
+        canal = await mundo.c.al_toque_canal(ANA, corta)
+        await reloj.avanzar(3)
+        await mundo.c.esperar_tareas()
+        return segundo, canal, len(mundo.s.mensajes) - antes
+
+    segundo, canal, mensajes_nuevos = correr(flujo())
+    assert segundo.camino == Camino.EN_CUENTA and segundo.motivo == "ya_contando"
+    assert "Ya está contando" in canal.texto
+    assert mensajes_nuevos == 1 and len(postulaciones(mundo)) == 1
+
+
+@respx.mock
+def test_el_toque_del_canal_responde_al_instante_con_el_aviso_de_los_segundos(mundo):
+    preparar_toque(mundo)
+    con_cuenta(mundo, 5)  # nadie avanza el reloj: si la respuesta esperara la cuenta, no llegaría
+
+    async def flujo():
+        return await asyncio.wait_for(mundo.c.al_toque_canal(ANA, id_corto("linkedin:1")), 1)
+
+    respuesta = correr(flujo())
+    assert respuesta.texto == "⚡ Tienes 5 s para cancelar en el bot." and not respuesta.alerta
+    assert postulaciones(mundo) == []
+
+
+@respx.mock
+def test_una_vacante_que_ya_existe_no_abre_cuenta(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)  # con la cuenta en 0 se encola de inmediato
+    con_cuenta(mundo, 3)
+
+    async def flujo():
+        antes = len(mundo.s.mensajes)
+        toque = await mundo.c.procesar_toque(usuario, id_corto("linkedin:1"))
+        return toque, mundo.s.mensajes[antes:]
+
+    toque, nuevos = correr(flujo())
+    assert toque.camino != Camino.EN_CUENTA and toque.postulacion.id == pid
+    assert not any("Postulando en" in (m[1] or "") for m in nuevos)
+
+
+@respx.mock
+def test_los_toques_automaticos_encolan_sin_cuenta(mundo):
+    usuario = preparar_toque(mundo)
+    con_cuenta(mundo, 3)
+    toque = correr(mundo.c.procesar_toque(usuario, id_corto("linkedin:1"), origen="automatico"))
+    assert toque.camino == Camino.AUTOMATICA and len(postulaciones(mundo)) == 1
+    assert not mundo.base.kv_con_prefijo("cuenta:")
+
+
+@respx.mock
+def test_con_cuenta_en_cero_la_card_dice_en_cola_sin_boton_cancelar(mundo):
+    usuario = preparar_toque(mundo)
+    pid, nuevos = tocar(mundo, usuario)
+    assert "En cola" in nuevos[0][1]
+    assert all("Cancelar" not in texto for fila in nuevos[0][2] or [] for texto, _ in fila)
+
+
+@respx.mock
+def test_el_reintento_de_un_bloqueo_no_pasa_por_la_cuenta(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    con_cuenta(mundo, 3)
+    correr(mundo.c.al_boton(ANA, cb("rei", pid)))
+    assert not any("Postulando en" in (m[1] or "") for m in mundo.s.mensajes)
+
+
+@respx.mock
+def test_la_vacante_pendiente_del_alta_cuenta_en_la_tarjeta_y_se_adopta_el_mensaje(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    mundo.n.camino_automatico = lambda *_: None  # la vacante de la prueba es de LinkedIn
+    reloj = con_cuenta(mundo, 2)
+
+    async def flujo():
+        await hasta_resumen(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
+        # El auxiliar espera las tareas de fondo, y la cuenta espera al reloj: va en paralelo
+        alta = asyncio.create_task(vincular_navegador(mundo, ANA))
+        while not any("Postulando en" in e[2] for e in mundo.s.ediciones):
+            await asyncio.sleep(0.01)
+        en_cuenta = [e for e in mundo.s.ediciones if "Postulando en" in e[2]]
+        mensajes = len(mundo.s.mensajes)
+        durante = postulaciones(mundo)
+        await reloj.avanzar(2)
+        await alta
+        return en_cuenta, mensajes, durante
+
+    en_cuenta, mensajes, durante = correr(flujo())
+    assert durante == []  # la cuenta corre antes de encolar
+    assert en_cuenta and "Conexión" in en_cuenta[0][2]  # bajo el bloque de conexión
+    fila = postulaciones(mundo)[0]
+    assert fila["mensaje_id"] == en_cuenta[0][1]  # la card adopta el mensaje de la tarjeta
+    assert len(mundo.s.mensajes) == mensajes  # el final no mandó mensajes nuevos
+
+
+@respx.mock
+def test_el_reinicio_descarta_la_cuenta_y_deja_la_card_interrumpida(mundo):
+    usuario = preparar_toque(mundo)
+    con_cuenta(mundo, 5)
+    corta = id_corto("linkedin:1")
+    correr(mundo.c.procesar_toque(usuario, corta))
+    mensaje = mundo.s._id
+
+    async def reinicio():
+        otra = Conversacion(mundo.n, mundo.s, mundo.comprobador)
+        await otra.descartar_cuentas()
+
+    correr(reinicio())
+    assert postulaciones(mundo) == []
+    assert "La cuenta se interrumpió; no envié nada." in ultimo_texto(mundo, mensaje)
+    assert botones_de(mundo, mensaje) == ["Postular"]
+    assert '"cancelada": true' in mundo.base.kv_obtener(f"cuenta:{usuario.id}:{corta}")

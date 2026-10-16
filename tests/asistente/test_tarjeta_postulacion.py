@@ -187,7 +187,7 @@ def test_ningun_estado_pasa_el_limite_ni_mas_de_tres_botones_por_fila():
     pendiente = {"id": 1, "pregunta": "¿?" * 5000, "opciones": [str(i) for i in range(12)]}
     for fase in (tp.EN_COLA, tp.ESPERANDO_NAVEGADOR, tp.PREGUNTA, tp.PROGRESO, tp.SESION,
                  tp.VERIFICACION, tp.BLOQUEO, tp.CONFIRMADA, tp.INCIERTA, tp.RESPALDO,
-                 tp.CERRADA):  # fmt: skip
+                 tp.CERRADA, tp.CUENTA, tp.CANCELADA):  # fmt: skip
         card = tp.Card(fase=fase, motivo="portal_redirige_inicio", pregunta={"id": 1, "n": 1})
         d = datos(titulo="T" * 5000, pendiente=pendiente, resumen=resumen())
         assert len(tp.texto(card, d)) <= tp.MAX_TEXTO, fase
@@ -200,3 +200,43 @@ def test_el_estado_se_guarda_y_se_lee_como_texto():
                    pregunta={"id": 3, "n": 1, "total": 2}, motivo="x")  # fmt: skip
     assert tp.Card.de_texto(card.a_texto()) == card
     assert tp.Card.de_texto("") is None and tp.Card.de_texto(None) is None
+
+
+def test_cuenta_muestra_los_segundos_la_barra_y_el_boton_cancelar():
+    d = datos(pid=0, id_corto="abc", segundos=3, total=5)
+    texto = tp.texto(tp.Card(fase=tp.CUENTA), d)
+    assert texto.split("\n") == [
+        "<b>Aprendiz &lt;SENA&gt;</b>",
+        "Euro",
+        "",
+        "<blockquote>⚡ Postulando en 3 s",
+        "▰▰▱▱▱</blockquote>",
+    ]
+    assert tp.botones(tp.Card(fase=tp.CUENTA), d, cb) == [[("Cancelar", "cb:cancel:abc")]]
+
+
+def test_la_barra_se_llena_hasta_el_final_y_no_pasa_de_diez_casillas():
+    assert tp._barra(5, 5) == "▱▱▱▱▱"
+    assert tp._barra(1, 5) == "▰▰▰▰▱"
+    assert tp._barra(0, 5) == "▰▰▰▰▰"
+    assert len(tp._barra(30, 60)) == 10
+
+
+def test_cancelada_dice_que_no_envio_nada_y_ofrece_postular():
+    d = datos(pid=0, id_corto="abc")
+    card = tp.Card(fase=tp.CANCELADA)
+    assert "<blockquote>Cancelaste la postulación. No envié nada.</blockquote>" in tp.texto(card, d)
+    assert tp.botones(card, d, cb) == [[("Postular", "cb:post:abc")]]
+
+
+def test_cancelada_por_reinicio_avisa_que_la_cuenta_se_interrumpio():
+    card = tp.Card(fase=tp.CANCELADA, motivo="interrumpida")
+    texto = tp.texto(card, datos(pid=0, id_corto="abc"))
+    assert "La cuenta se interrumpió; no envié nada." in texto
+
+
+def test_la_cuenta_conserva_el_bloque_de_conexion_del_alta():
+    d = datos(pid=0, id_corto="abc", segundos=2, total=5,
+              conexion=["🔗 <b>Conexión con tus portales</b>"])  # fmt: skip
+    texto = tp.texto(tp.Card(fase=tp.CUENTA), d)
+    assert texto.index("Conexión con tus portales") < texto.index("Postulando en 2 s")

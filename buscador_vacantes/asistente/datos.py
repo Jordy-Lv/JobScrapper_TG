@@ -293,6 +293,14 @@ class BaseAsistente:
         fila = self.cx.execute("SELECT valor FROM kv WHERE clave = ?", (clave,)).fetchone()
         return fila["valor"] if fila else None
 
+    def kv_con_prefijo(self, prefijo: str) -> list[tuple[str, str]]:
+        """Pares (clave, valor) no vacíos cuya clave empieza por el prefijo."""
+        filas = self.cx.execute(
+            "SELECT clave, valor FROM kv WHERE substr(clave, 1, ?) = ? AND valor != ''",
+            (len(prefijo), prefijo),
+        ).fetchall()
+        return [(f["clave"], f["valor"]) for f in filas]
+
     def kv_guardar(self, clave: str, valor: str) -> None:
         with self.cx:
             self.cx.execute(

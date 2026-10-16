@@ -105,6 +105,7 @@ class Servicio:
         conversacion = self._crear_conversacion(bot)
         for evento in self.nucleo.cola.recuperar_al_arrancar(self.nucleo.ahora()):
             await conversacion.notificar(evento)
+        await conversacion.descartar_cuentas()
         ultimo_indice = 0.0
         while not self.detener.is_set():
             ahora = self.nucleo.ahora()

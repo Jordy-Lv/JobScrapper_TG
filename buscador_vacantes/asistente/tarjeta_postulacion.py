@@ -27,6 +27,8 @@ CONFIRMADA = "confirmada"
 INCIERTA = "incierta"
 RESPALDO = "respaldo"
 CERRADA = "cerrada"
+CUENTA = "cuenta"  # cuenta regresiva antes de encolar: la postulación aún no existe
+CANCELADA = "cancelada"
 
 PRINCIPAL = "principal"
 RESPUESTAS = "respuestas"
@@ -77,6 +79,9 @@ class Datos:
     botones_conexion: Botones = field(default_factory=list)
     pendiente: dict | None = None  # {"id", "pregunta", "opciones"} de la fase PREGUNTA
     resumen: DatosResumen | None = None  # confirmada / incierta
+    id_corto: str | None = None  # cuenta / cancelada: aún no hay postulación (pid)
+    segundos: int = 0  # cuenta: segundos que faltan
+    total: int = 0  # cuenta: duración completa
 
     @property
     def portal(self) -> str:
@@ -112,9 +117,34 @@ def _respaldo(card: Card) -> list[str]:
     return lineas
 
 
+def _barra(restante: int, total: int) -> str:
+    """Barra que se va llenando: ▰ lo transcurrido y ▱ lo que falta (hasta 10 casillas)."""
+    ancho = max(1, min(total, 10))
+    llenas = round(ancho * (total - restante) / total) if total > 0 else ancho
+    return "▰" * llenas + "▱" * (ancho - llenas)
+
+
+def _cuenta(d: Datos) -> list[str]:
+    return [f"⚡ Postulando en {d.segundos} s", _barra(d.segundos, d.total)]
+
+
+def _cancelada(card: Card) -> list[str]:
+    match card.motivo:
+        case "interrumpida":
+            return ["La cuenta se interrumpió; no envié nada."]
+        case "pausa":
+            return ["Tus postulaciones están en pausa. No envié nada."]
+        case _:
+            return ["Cancelaste la postulación. No envié nada."]
+
+
 def _cuerpo(card: Card, d: Datos) -> list[str]:
     """Líneas del `<blockquote>` de estado para las fases que no son la confirmación."""
     match card.fase:
+        case "cuenta":
+            return _cuenta(d)
+        case "cancelada":
+            return _cancelada(card)
         case "esperando_navegador":
             return ["Se enviará cuando abras tu navegador."]
         case "pregunta":
@@ -205,6 +235,10 @@ def botones(card: Card, d: Datos, cb: Cb) -> Botones | None:
     match card.fase:
         case "confirmada" | "incierta":
             filas += _botones_confirmacion(card, d, cb)
+        case "cuenta":
+            filas.append([("Cancelar", cb("cancel", d.id_corto))])
+        case "cancelada":
+            filas.append([("Postular", cb("post", d.id_corto))])
         case "pregunta":
             for n, opcion in enumerate((d.pendiente or {}).get("opciones", [])[:8]):
                 filas.append([(opcion, cb("pend", d.pendiente["id"], n))])

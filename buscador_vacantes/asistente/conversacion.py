@@ -37,7 +37,7 @@ from buscador_vacantes.asistente.cv_lectura import (
 from buscador_vacantes.asistente.enlaces import PREFIJO_VACANTE
 from buscador_vacantes.asistente.ia import ClaveInvalida, CuotaAgotada, ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
-from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Paquete
+from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Paquete, Toque
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
     ErrorPegado,
@@ -154,6 +154,15 @@ class Opciones:
     limite_mensajes_min: int = 30
 
 
+@dataclass
+class _Cuenta:
+    """Cuenta regresiva en curso: el mensaje donde corre y la tarea que la anima."""
+
+    mensaje_id: int | None = None
+    en_tarjeta: bool = False  # corre en la tarjeta del alta, bajo el bloque de conexión
+    tarea: asyncio.Task | None = None
+
+
 class Conversacion:
     def __init__(
         self,
@@ -178,6 +187,8 @@ class Conversacion:
         self.intervalo_animacion = 2.5  # segundos entre cuadros del progreso
         self._etapas: dict[int, int] = {}  # postulación → etapa en curso del progreso
         self._animaciones: dict[int, asyncio.Task] = {}
+        self.intervalo_cuenta = 1.0  # segundos entre cuadros de la cuenta regresiva
+        self._cuentas: dict[tuple[int, str], _Cuenta] = {}  # (usuario, vacante) → cuenta en curso
 
     # --- utilidades ------------------------------------------------------------------
 
@@ -201,10 +212,11 @@ class Conversacion:
     def _esperar(self, usuario: Usuario, datos: dict | None) -> None:
         self.n.base.kv_guardar(f"esperando:{usuario.id}", json.dumps(datos) if datos else "")
 
-    def _en_segundo_plano(self, coro) -> None:
+    def _en_segundo_plano(self, coro) -> asyncio.Task:
         tarea = asyncio.create_task(coro)
         self._tareas.add(tarea)
         tarea.add_done_callback(self._tareas.discard)
+        return tarea
 
     async def esperar_tareas(self) -> None:
         """Para pruebas y para el cierre limpio."""
@@ -1179,31 +1191,245 @@ class Conversacion:
     # --- toque de ⚡ ----------------------------------------------------------------
 
     async def procesar_toque(
-        self, usuario: Usuario, id_corto: str, *, origen: str = "boton", en_tarjeta: bool = False
-    ):
-        """Encola la vacante. Devuelve el toque, o None si las postulaciones están en pausa."""
+        self, usuario: Usuario, id_corto: str, *, origen: str = "boton", en_tarjeta: bool = False,
+        con_cuenta: bool = True, mensaje_id: int | None = None,
+    ):  # fmt: skip
+        """Encola la vacante, tras la cuenta regresiva si la hay. Devuelve el toque (``EN_CUENTA``
+        si la cuenta arrancó y encolará al terminar), o None si las postulaciones están en pausa.
+
+        Sin cuenta (los toques automáticos, «Reintentar» y la duración 0) encola de inmediato.
+        ``mensaje_id`` es el mensaje donde ya corrió una cuenta cancelada y se reabre.
+        """
+        segundos = self.config.cuenta_regresiva_segundos
+        if con_cuenta and segundos > 0 and origen != "automatico":
+            return await self._abrir_cuenta(usuario, id_corto, origen, en_tarjeta, mensaje_id)
+        return await self._encolar_toque(
+            usuario, id_corto, origen=origen, en_tarjeta=en_tarjeta, mensaje_id=mensaje_id
+        )
+
+    # --- cuenta regresiva antes de encolar --------------------------------------------
+
+    def _clave_cuenta(self, usuario_id: int, id_corto: str) -> str:
+        return f"cuenta:{usuario_id}:{id_corto}"
+
+    def _guardar_cuenta(self, usuario_id: int, id_corto: str, datos: dict | None) -> None:
+        self.n.base.kv_guardar(
+            self._clave_cuenta(usuario_id, id_corto), json.dumps(datos) if datos else ""
+        )
+
+    def _leer_cuenta(self, usuario_id: int, id_corto: str) -> dict | None:
+        valor = self.n.base.kv_obtener(self._clave_cuenta(usuario_id, id_corto))
+        return json.loads(valor) if valor else None
+
+    async def _abrir_cuenta(
+        self, usuario: Usuario, id_corto: str, origen: str, en_tarjeta: bool,
+        mensaje_id: int | None,
+    ):  # fmt: skip
+        """Valida el toque y arranca la cuenta; solo cuenta lo que se podría encolar de verdad."""
+        clave = (usuario.id, id_corto)
+        async with self._candados[usuario.id]:
+            vacante = self.n.indice.resolver(id_corto, self.n.ahora())
+            existe = vacante is not None and self.n.cola.de_usuario(usuario.id, id_corto)
+            contar = not usuario.pausado and vacante is not None and not existe
+            if contar and clave in self._cuentas:
+                return Toque(Camino.EN_CUENTA, vacante, motivo="ya_contando")
+            if contar:
+                tj = self._tarjeta(usuario) if en_tarjeta else None
+                if tj is not None and tj.pid is None:  # la cuenta se pinta en la tarjeta del alta
+                    mensaje_id = mensaje_id or tj.mensaje_id
+                cuenta = self._cuentas[clave] = _Cuenta(mensaje_id, en_tarjeta)
+        if not contar:  # pausa, vacante no disponible o ya existente: responde el camino normal
+            return await self._encolar_toque(
+                usuario, id_corto, origen=origen, en_tarjeta=en_tarjeta, mensaje_id=mensaje_id
+            )
+        total = self.config.cuenta_regresiva_segundos
+        try:
+            cuenta.mensaje_id = await self._pintar_cuenta(
+                usuario, vacante, cuenta, tp.CUENTA, total, total
+            )
+        except BaseException:
+            self._cuentas.pop(clave, None)
+            raise
+        if cuenta.mensaje_id is None:  # el usuario bloqueó el bot: no hay dónde mostrar la cuenta
+            self._cuentas.pop(clave, None)
+            return Toque(Camino.NO_DISPONIBLE, vacante)
+        self._guardar_cuenta(usuario.id, id_corto, {
+            "mensaje_id": cuenta.mensaje_id, "en_tarjeta": en_tarjeta,
+            "vence": a_texto(self.n.ahora() + timedelta(seconds=total)),
+        })  # fmt: skip
+        cuenta.tarea = self._en_segundo_plano(
+            self._correr_cuenta(usuario, vacante, cuenta, origen, total)
+        )
+        return Toque(Camino.EN_CUENTA, vacante)
+
+    async def _pintar_cuenta(
+        self, usuario: Usuario, vacante, cuenta: _Cuenta, fase: str, restante: int, total: int,
+        *, motivo: str | None = None, siempre: bool = False,
+    ) -> int | None:  # fmt: skip
+        """Pinta un cuadro de la cuenta (o su cierre) en el mensaje; sin mensaje envía uno.
+
+        Devuelve el id del mensaje. Con ``siempre`` y el mensaje borrado, envía uno nuevo.
+        """
+        card = tp.Card(mensaje_id=cuenta.mensaje_id, fase=fase, motivo=motivo)
+        d = tp.Datos(
+            pid=0, titulo=vacante.titulo, empresa=vacante.empresa, plataforma=vacante.plataforma,
+            url=vacante.url, id_corto=vacante.id_corto, segundos=restante, total=total,
+        )  # fmt: skip
+        tj = self._tarjeta(usuario) if cuenta.en_tarjeta else None
+        if tj is not None and tj.pid is None:  # el alta: la cuenta va bajo el bloque de conexión
+            d.conexion = tarjeta.lineas(tj, solo=vacante.plataforma)
+            d.botones_conexion = tarjeta.botones(tj, cb, solo=vacante.plataforma) or []
+        texto, botones = tp.texto(card, d), tp.botones(card, d, cb)
+        if cuenta.mensaje_id:
+            try:
+                await self.s.editar(usuario.telegram_id, cuenta.mensaje_id, texto, botones)
+                return cuenta.mensaje_id
+            except Exception:  # noqa: BLE001 - un cuadro perdido lo atrapa el siguiente
+                if not siempre:
+                    raise
+                log.info("No se pudo editar la cuenta de %s", usuario.id)
+        return await self._enviar(usuario, texto, botones)
+
+    async def _correr_cuenta(
+        self, usuario: Usuario, vacante, cuenta: _Cuenta, origen: str, total: int
+    ) -> None:
+        """Un cuadro por segundo; al terminar sin cancelar, encola en el mismo mensaje."""
+        clave = (usuario.id, vacante.id_corto)
+        for restante in range(total - 1, 0, -1):
+            await self.dormir(self.intervalo_cuenta)
+            try:
+                await self._pintar_cuenta(usuario, vacante, cuenta, tp.CUENTA, restante, total)
+            except Exception:  # noqa: BLE001 - un cuadro perdido no importa
+                log.debug("Cuadro de cuenta perdido en %s", usuario.id)
+        await self.dormir(self.intervalo_cuenta)
+        # Desde aquí «Cancelar» ya no encuentra la cuenta: llegó tarde
+        self._cuentas.pop(clave, None)
+        self._guardar_cuenta(usuario.id, vacante.id_corto, None)
+        try:
+            actual = self.n.usuarios.por_id(usuario.id)
+            if actual is None:
+                return
+            if actual.pausado:
+                await self._pintar_cuenta(
+                    actual, vacante, cuenta, tp.CANCELADA, 0, total, motivo="pausa", siempre=True
+                )
+                return
+            await self._encolar_toque(
+                actual,
+                vacante.id_corto,
+                origen=origen,
+                en_tarjeta=cuenta.en_tarjeta,
+                mensaje_id=cuenta.mensaje_id,
+            )
+        except Exception:  # noqa: BLE001 - el servicio sigue; la tarea ya no puede reportar
+            log.exception("No se pudo encolar tras la cuenta de %s", usuario.id)
+
+    async def _cancelar_cuenta(self, usuario: Usuario, id_corto: str) -> str | None:
+        clave = (usuario.id, id_corto)
+        cuenta = self._cuentas.get(clave)
+        if cuenta is None or cuenta.tarea is None:
+            return "⏳ Ya se está postulando"
+        del self._cuentas[clave]
+        cuenta.tarea.cancel()
+        await asyncio.gather(cuenta.tarea, return_exceptions=True)
+        vacante = self.n.indice.obtener(id_corto)
+        self._guardar_cuenta(usuario.id, id_corto, {
+            "mensaje_id": cuenta.mensaje_id, "en_tarjeta": cuenta.en_tarjeta, "cancelada": True,
+        })  # fmt: skip
+        if vacante is not None:
+            await self._pintar_cuenta(usuario, vacante, cuenta, tp.CANCELADA, 0, 0, siempre=True)
+        return "Cancelado"
+
+    async def _repostular(self, usuario: Usuario, id_corto: str) -> str | None:
+        """«Postular» de una card cancelada o interrumpida: una cuenta nueva en el mismo mensaje."""
+        guardado = self._leer_cuenta(usuario.id, id_corto) or {}
+        toque = await self.procesar_toque(
+            usuario,
+            id_corto,
+            en_tarjeta=bool(guardado.get("en_tarjeta")),
+            mensaje_id=guardado.get("mensaje_id"),
+        )
+        if toque is not None and toque.camino == Camino.EN_CUENTA and toque.motivo:
+            return "⏳ Ya está contando"
+        return None
+
+    async def descartar_cuentas(self) -> None:
+        """Arranque: una cuenta que quedó a medias nunca se postula; la card avisa y ofrece
+        «Postular» (el usuario pudo querer cancelar y ya no puede)."""
+        for clave, valor in self.n.base.kv_con_prefijo("cuenta:"):
+            try:
+                datos = json.loads(valor)
+                _, usuario_id, id_corto = clave.split(":", 2)
+            except ValueError:
+                self.n.base.kv_guardar(clave, "")
+                continue
+            if datos.get("cancelada"):
+                continue
+            usuario = self.n.usuarios.por_id(int(usuario_id))
+            vacante = self.n.indice.obtener(id_corto)
+            self.n.base.kv_guardar(clave, json.dumps({**datos, "cancelada": True}))
+            if usuario is None or vacante is None or not datos.get("mensaje_id"):
+                continue
+            cuenta = _Cuenta(datos["mensaje_id"], bool(datos.get("en_tarjeta")))
+            try:
+                await self._pintar_cuenta(
+                    usuario,
+                    vacante,
+                    cuenta,
+                    tp.CANCELADA,
+                    0,
+                    0,
+                    motivo="interrumpida",
+                    siempre=True,
+                )
+            except Exception:  # noqa: BLE001 - un aviso fallido no detiene el arranque
+                log.exception("No se pudo avisar la cuenta interrumpida de %s", usuario.id)
+
+    async def _decir(self, usuario: Usuario, mensaje_id: int | None, texto: str) -> None:
+        """Dice algo en el mensaje de la cuenta si lo hay; si no, en uno nuevo."""
+        if mensaje_id:
+            try:
+                await self.s.editar(usuario.telegram_id, mensaje_id, texto, None)
+                return
+            except Exception:  # noqa: BLE001 - mensaje borrado: se envía uno nuevo
+                log.info("No se pudo editar el mensaje de la cuenta de %s", usuario.id)
+        await self._enviar(usuario, texto)
+
+    async def _encolar_toque(
+        self, usuario: Usuario, id_corto: str, *, origen: str = "boton", en_tarjeta: bool = False,
+        mensaje_id: int | None = None,
+    ):  # fmt: skip
+        """Encola la vacante y pinta la card; ``mensaje_id`` es el de la cuenta que acaba."""
         async with self._candados[usuario.id]:
             if usuario.pausado:
-                await self._enviar(
-                    usuario, "Tus postulaciones están en pausa. Usa /pausa para reanudarlas."
+                await self._decir(
+                    usuario,
+                    mensaje_id,
+                    "Tus postulaciones están en pausa. Usa /pausa para reanudarlas.",
                 )
                 return None
             toque = self.n.tocar(usuario, id_corto, origen=origen)
         if toque.camino == Camino.NO_DISPONIBLE:
-            await self._enviar(usuario, "Esa vacante ya no está disponible en el asistente.")
+            await self._decir(
+                usuario, mensaje_id, "Esa vacante ya no está disponible en el asistente."
+            )
             return toque
         pid = toque.postulacion.id
         if toque.camino == Camino.YA_EXISTE:
             if self._card(pid) is not None:  # la card sigue donde estaba: solo se repinta
                 await self._pintar_card(usuario, pid)
+                if mensaje_id and mensaje_id != self._card(pid).mensaje_id:
+                    await self._decir(usuario, mensaje_id, "Ya la tienes en otra card arriba.")
             else:
                 titulo = t.e(toque.vacante.titulo)
                 estado = t.ESTADOS.get(toque.postulacion.estado, toque.postulacion.estado)
-                await self._enviar(usuario, f"<b>{titulo}</b>\nYa la tienes: {estado}.")
+                await self._decir(usuario, mensaje_id, f"<b>{titulo}</b>\nYa la tienes: {estado}.")
             return toque
         # Un toque produce una sola card: la del alta (si la vacante venía pendiente), la que ya
-        # tenía esta postulación (reintento) o una nueva
+        # tenía esta postulación (reintento) o una nueva; el mensaje de la cuenta se adopta
         card = self._card(pid) or tp.Card(mensaje_id=self._mensaje_de(pid))
+        if mensaje_id:
+            card.mensaje_id = mensaje_id
         tj = self._tarjeta(usuario) if en_tarjeta else None
         if tj is not None and tj.pid is None:  # la vacante del alta sigue en la tarjeta
             tj.pid = pid
@@ -1257,6 +1483,11 @@ class Conversacion:
                 "⏸️ Tus postulaciones están en pausa. Reanúdalas con /pausa en el bot.", alerta=True
             )
         titulo = (toque.vacante.titulo or "la vacante") if toque.vacante else "la vacante"
+        if toque.camino == Camino.EN_CUENTA:
+            if toque.motivo:  # ya había una cuenta corriendo para esta vacante
+                return RespuestaToque("⏳ Ya está contando: cancélala en el bot.", alerta=True)
+            segundos = self.config.cuenta_regresiva_segundos
+            return RespuestaToque(f"⚡ Tienes {segundos} s para cancelar en el bot.")
         if toque.camino == Camino.AUTOMATICA:
             return RespuestaToque(
                 f"⚡ Postulando a {titulo[:120]}. Te aviso el resultado en el bot."
@@ -1623,11 +1854,15 @@ class Conversacion:
                 await self._borrar_filas(filas)
             case "res":
                 return await self._ver_resumen(usuario, int(args[0]), args[1])
+            case "cancel":
+                return await self._cancelar_cuenta(usuario, args[0])
+            case "post":
+                return await self._repostular(usuario, args[0])
             case "rei":
                 p = self.n.cola.obtener(int(args[0]))
                 if p is None or p.usuario_id != usuario.id or not p.id_corto:
                     return None
-                toque = await self.procesar_toque(usuario, p.id_corto)
+                toque = await self.procesar_toque(usuario, p.id_corto, con_cuenta=False)
                 if toque is not None and toque.camino == Camino.AUTOMATICA:
                     return "🔁 Reintentando"
                 return None
