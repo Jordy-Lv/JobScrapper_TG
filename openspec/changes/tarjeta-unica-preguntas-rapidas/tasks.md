@@ -18,4 +18,4 @@
 ## 4. Cierre
 
 - [x] 4.1 Ajustar las pruebas existentes del cuestionario que esperaban un mensaje por pregunta y ejecutar `uv run pytest` y `uv run ruff check` en verde
-- [ ] 4.2 👤 Probar en Telegram real con el bot: flujo completo, borrado de respuestas escritas, editar una respuesta y confirmar (lo hace el dueño)
+- [x] 4.2 👤 Probar en Telegram real con el bot: flujo completo, borrado de respuestas escritas, editar una respuesta y confirmar (lo hace el dueño)

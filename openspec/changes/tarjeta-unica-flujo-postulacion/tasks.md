@@ -26,4 +26,4 @@
 ## 5. Cierre
 
 - [x] 5.1 🟡 Ajustar las pruebas existentes que esperaban varios mensajes (`tests/test_asistente_tarjeta.py`, `test_asistente_resumen_postulacion.py` y las de conversación) y ejecutar `uv run pytest` y `uv run ruff check` en verde
-- [ ] 5.2 👤 Probar en Telegram real con el servidor Fedora: toque, preguntas, sesión pendiente, bloqueo, confirmada, incierta, respaldo y seguimiento (lo hace el dueño)
+- [x] 5.2 👤 Probar en Telegram real con el servidor Fedora: toque, preguntas, sesión pendiente, bloqueo, confirmada, incierta, respaldo y seguimiento (lo hace el dueño)
