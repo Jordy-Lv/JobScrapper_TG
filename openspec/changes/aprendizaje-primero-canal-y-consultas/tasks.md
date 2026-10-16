@@ -2,14 +2,14 @@
 
 ## 1. Auditoría de descartes y diagnóstico (🟡)
 
-- [ ] 1.1 Migrar `comun/estado.py` a la siguiente versión de esquema:
+- [x] 1.1 Migrar `comun/estado.py` a la siguiente versión de esquema:
   - tabla `descartes` según design §5;
   - tabla `lotes_canal` según design §2;
   - columnas `publicada`, `destacada` y `area` en `vistas`;
   - limpieza de `descartes` con `estado.dias_descartes` (14) en `Estado.limpiar`, y de `lotes_canal` con `dias_vistas`.
 
   Agregar `dias_descartes` a `config.Estado`. Verificar en `tests/comun/test_estado.py` que una base del esquema anterior con datos migra sin perder filas, que una base nueva nace en el esquema nuevo y que la limpieza borra un descarte de 15 días.
-- [ ] 1.2 Agregar `Estado.registrar_descarte(vacante, huella, etapa, motivo, detalle, momento)`, con upsert por clave que sube `veces` y `ultima_vez`. Llamarlo desde `corrida._aplicar` (etapa `reglas`), desde `_clasificar` con las rechazadas por la IA y su motivo (etapa `ia`), desde `_aplicar_guardarrail` (etapa `guardarrail`) y desde las vencidas del clasificador y de la cola de detalle (etapa `vencida`). Nada se escribe en dry-run, seed ni modo prueba. Verificar en `tests/radar/test_buscador.py` que una corrida con una vacante de cada caso deja un registro por etapa, y que la misma vacante en dos corridas deja `veces = 2`.
+- [x] 1.2 Agregar `Estado.registrar_descarte(vacante, huella, etapa, motivo, detalle, momento)`, con upsert por clave que sube `veces` y `ultima_vez`. Llamarlo desde `corrida._aplicar` (etapa `reglas`), desde `_clasificar` con las rechazadas por la IA y su motivo (etapa `ia`), desde `_aplicar_guardarrail` (etapa `guardarrail`) y desde las vencidas del clasificador y de la cola de detalle (etapa `vencida`). Nada se escribe en dry-run, seed ni modo prueba. Verificar en `tests/radar/test_buscador.py` que una corrida con una vacante de cada caso deja un registro por etapa, y que la misma vacante en dos corridas deja `veces = 2`.
 - [ ] 1.3 Implementar `buscador.py diagnosticar <url | título>` (design §5): búsqueda por URL normalizada, clave o título en `vistas`, `por_enviar`, `pendientes`, `pendientes_detalle` y `descartes`. Sin coincidencias, mostrar el resumen de `intentos` de los últimos 3 días de la fuente que corresponde al dominio. El comando abre la base en solo lectura. Verificar con pruebas en `tests/radar/test_punto_entrada.py` para «publicada», «descartada por reglas», «pendiente de IA» y «nunca vista».
 - [ ] 1.4 Agregar `diagnosticar --evaluar --titulo … [--empresa --ubicacion --modalidad --descripcion --fuente] [--con-ia]`: veredicto, motivo, categoría, guardarraíl y alcance. Con `--con-ia` se usa un `Estado` en memoria, sin escribir en la caché. Verificar con una prueba que evalúa «Aprendiz SENA Tecnólogo ADSO» y con una prueba con respx de `--con-ia` que no toca `clasificaciones`.
 - [ ] 1.5 Documentar `diagnosticar` en `README.md` (sección de operación), con dos ejemplos. Verificar que los ejemplos corren tal como están escritos contra una copia de `data/vacantes.db`.

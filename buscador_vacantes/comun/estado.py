@@ -12,7 +12,7 @@ from pathlib import Path
 
 from buscador_vacantes.comun.modelo import Categoria, Vacante
 
-ESQUEMA_VERSION = 3
+ESQUEMA_VERSION = 4
 
 # Columnas que el esquema 2 agrega al 1 (tabla, columna, definición). Una base nueva ya nace con
 # ellas en ESQUEMA; una del esquema 1 las recibe con ALTER TABLE en _migrar_esquema
@@ -36,6 +36,13 @@ COLUMNAS_ESQUEMA_3 = tuple(
     )
 )
 
+# Columnas que el esquema 4 agrega al 3: datos de consulta de las vacantes publicadas
+COLUMNAS_ESQUEMA_4 = (
+    ("vistas", "publicada", "TEXT"),
+    ("vistas", "destacada", "INTEGER NOT NULL DEFAULT 0"),
+    ("vistas", "area", "TEXT"),
+)
+
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS esquema_version (version INTEGER NOT NULL);
 
@@ -51,7 +58,10 @@ CREATE TABLE IF NOT EXISTS vistas (
     enviada_en TEXT,
     prueba_en TEXT,
     ubicacion TEXT,
-    modalidad TEXT
+    modalidad TEXT,
+    publicada TEXT,
+    destacada INTEGER NOT NULL DEFAULT 0,
+    area TEXT
 );
 CREATE INDEX IF NOT EXISTS vistas_huella ON vistas(huella);
 
@@ -172,6 +182,32 @@ CREATE TABLE IF NOT EXISTS kv (
     clave TEXT PRIMARY KEY,
     valor TEXT
 );
+
+CREATE TABLE IF NOT EXISTS descartes (
+    clave TEXT PRIMARY KEY,
+    huella TEXT NOT NULL,
+    fuente TEXT NOT NULL,
+    keyword TEXT,
+    titulo TEXT,
+    empresa TEXT,
+    url TEXT,
+    ubicacion TEXT,
+    modalidad TEXT,
+    etapa TEXT NOT NULL,
+    motivo TEXT NOT NULL,
+    detalle TEXT,
+    veces INTEGER NOT NULL DEFAULT 1,
+    primera_vez TEXT NOT NULL,
+    ultima_vez TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS descartes_ultima_vez ON descartes(ultima_vez);
+
+CREATE TABLE IF NOT EXISTS lotes_canal (
+    id TEXT PRIMARY KEY,
+    claves_json TEXT NOT NULL,
+    destacadas_json TEXT NOT NULL,
+    enviado_en TEXT NOT NULL
+);
 """
 
 
@@ -245,6 +281,8 @@ class Estado:
                 self._migrar(COLUMNAS_ESQUEMA_2, 2)
             if version < 3:
                 self._migrar(COLUMNAS_ESQUEMA_3, 3)
+            if version < 4:
+                self._migrar(COLUMNAS_ESQUEMA_4, 4)
 
     def _migrar(self, columnas: tuple[tuple[str, str, str], ...], version: int) -> None:
         """Un paso de migración: solo agrega columnas, sin tocar filas.
@@ -373,6 +411,57 @@ class Estado:
             consulta += " WHERE enviada_en IS NULL"
         return self.cx.execute(consulta).fetchone()[0]
 
+    def registrar_descarte(
+        self,
+        vacante: Vacante,
+        huella: str,
+        etapa: str,
+        motivo: str,
+        detalle: str = "",
+        momento: datetime | None = None,
+    ) -> None:
+        """Inserta o actualiza un descarte por clave: sube ``veces`` y actualiza ``ultima_vez``."""
+        ts = a_texto(momento or ahora_utc())
+        with self.cx:
+            self.cx.execute(
+                """
+                INSERT INTO descartes(
+                    clave, huella, fuente, keyword, titulo, empresa, url, ubicacion, modalidad,
+                    etapa, motivo, detalle, veces, primera_vez, ultima_vez
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(clave) DO UPDATE SET
+                    huella = excluded.huella,
+                    keyword = COALESCE(excluded.keyword, descartes.keyword),
+                    titulo = excluded.titulo,
+                    empresa = excluded.empresa,
+                    url = excluded.url,
+                    ubicacion = COALESCE(excluded.ubicacion, descartes.ubicacion),
+                    modalidad = COALESCE(excluded.modalidad, descartes.modalidad),
+                    etapa = excluded.etapa,
+                    motivo = excluded.motivo,
+                    detalle = excluded.detalle,
+                    veces = descartes.veces + 1,
+                    ultima_vez = excluded.ultima_vez
+                """,
+                (
+                    vacante.clave,
+                    huella,
+                    vacante.fuente,
+                    vacante.keyword,
+                    vacante.titulo,
+                    vacante.empresa,
+                    vacante.url,
+                    vacante.ubicacion,
+                    vacante.modalidad,
+                    etapa,
+                    str(motivo),
+                    detalle,
+                    ts,
+                    ts,
+                ),
+            )
+
     # --- vacantes aceptadas cuyo envío falló ------------------------------------------------
 
     def guardar_por_enviar(self, vacante: Vacante, huella: str, momento: datetime) -> None:
@@ -500,18 +589,22 @@ class Estado:
         dias_vistas: int = 90,
         dias_intentos: int = 30,
         dias_detalles: int = 15,
+        dias_descartes: int = 14,
     ) -> dict[str, int]:
         """Borra registros antiguos. Los incidentes abiertos nunca se borran."""
         limite_vistas = a_texto(momento - timedelta(days=dias_vistas))
         limite_corto = a_texto(momento - timedelta(days=dias_intentos))
         limite_detalles = a_texto(momento - timedelta(days=dias_detalles))
+        limite_descartes = a_texto(momento - timedelta(days=dias_descartes))
         sentencias = {
             "vistas": ("DELETE FROM vistas WHERE primera_vez < ?", limite_vistas),
+            "lotes_canal": ("DELETE FROM lotes_canal WHERE enviado_en < ?", limite_vistas),
             "clasificaciones": ("DELETE FROM clasificaciones WHERE ts < ?", limite_vistas),
             "intentos": ("DELETE FROM intentos WHERE ts < ?", limite_corto),
             "corridas": ("DELETE FROM corridas WHERE inicio < ?", limite_corto),
             "ia_uso": ("DELETE FROM ia_uso WHERE ts < ?", limite_corto),
             "detalles": ("DELETE FROM detalles WHERE ts < ?", limite_detalles),
+            "descartes": ("DELETE FROM descartes WHERE ultima_vez < ?", limite_descartes),
             # Red de seguridad: la cola se vacía sola por vencimiento mucho antes
             "pendientes_detalle": (
                 "DELETE FROM pendientes_detalle WHERE desde < ?",

@@ -1018,6 +1018,7 @@ incidentes:
 estado:
   dias_vistas: 90
   dias_intentos: 30
+  dias_descartes: 14
 
 salud:
   activo: true

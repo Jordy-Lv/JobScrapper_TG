@@ -7,6 +7,7 @@ import pytest
 from buscador_vacantes.comun.estado import (
     COLUMNAS_ESQUEMA_2,
     COLUMNAS_ESQUEMA_3,
+    COLUMNAS_ESQUEMA_4,
     Estado,
     EstadoNoInicializado,
     a_texto,
@@ -65,6 +66,8 @@ def test_crea_base_con_todas_las_tablas(tmp_path, estado):
         "kv",
         "pendientes_detalle",
         "detalles",
+        "descartes",
+        "lotes_canal",
     }
     assert esperadas <= set(estado.tablas())
     for tabla in esperadas:
@@ -222,9 +225,9 @@ def test_json_antiguo_sin_exige_modalidad_se_lee():
     assert vacante_de_json(json.dumps(datos)).exige_modalidad is None
 
 
-def test_base_nueva_nace_en_el_esquema_3(estado):
-    assert estado.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 3
-    for tabla, columna, _ in COLUMNAS_ESQUEMA_2 + COLUMNAS_ESQUEMA_3:
+def test_base_nueva_nace_en_el_esquema_4(estado):
+    assert estado.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 4
+    for tabla, columna, _ in COLUMNAS_ESQUEMA_2 + COLUMNAS_ESQUEMA_3 + COLUMNAS_ESQUEMA_4:
         columnas = {f["name"] for f in estado.cx.execute(f"PRAGMA table_info({tabla})")}
         assert columna in columnas, (tabla, columna)
 
@@ -266,15 +269,16 @@ def crear_base_esquema_1(ruta):
     cx.close()
 
 
-def test_base_del_esquema_1_migra_a_3_sin_perder_filas(tmp_path):
+def test_base_del_esquema_1_migra_a_4_sin_perder_filas(tmp_path):
     ruta = tmp_path / "vacantes.db"
     crear_base_esquema_1(ruta)
     e = Estado.abrir(ruta)
-    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 3
+    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 4
     vista = e.cx.execute("SELECT * FROM vistas").fetchone()
     assert (vista["clave"], vista["enviada_en"], vista["ubicacion"], vista["modalidad"]) == (
         "linkedin:1", "2026-10-01T00:00:00+00:00", None, None,
     )  # fmt: skip
+    assert (vista["publicada"], vista["destacada"], vista["area"]) == (None, 0, None)
     corrida = e.cx.execute("SELECT * FROM corridas").fetchone()
     assert (corrida["crudas"], corrida["practicas_recategorizadas"]) == (7, 0)
     assert corrida["practicas_rechazadas"] == 0
@@ -293,7 +297,7 @@ def test_volver_a_migrar_tras_bajar_la_version_tolera_las_columnas_existentes(tm
     cx.commit()
     cx.close()
     e = Estado.abrir(ruta)
-    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 3
+    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 4
     e.cerrar()
 
 
@@ -330,12 +334,12 @@ def crear_base_esquema_2(ruta):
     cx.close()
 
 
-def test_base_del_esquema_2_migra_a_3_sin_perder_filas(tmp_path):
+def test_base_del_esquema_2_migra_a_4_sin_perder_filas(tmp_path):
     ruta = tmp_path / "vacantes.db"
     crear_base_esquema_2(ruta)
     e = Estado.abrir(ruta)
-    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 3
-    assert {"pendientes_detalle", "detalles"} <= set(e.tablas())
+    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 4
+    assert {"pendientes_detalle", "detalles", "descartes", "lotes_canal"} <= set(e.tablas())
     assert e.cx.execute("SELECT clave FROM vistas").fetchone()[0] == "linkedin:1"
     corrida = e.cx.execute("SELECT * FROM corridas").fetchone()
     assert corrida["crudas"] == 7
@@ -353,18 +357,56 @@ def test_volver_a_migrar_desde_la_version_2_tolera_lo_ya_creado(tmp_path):
     cx.commit()
     cx.close()
     e = Estado.abrir(ruta)
-    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 3
+    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 4
     e.cerrar()
+
+
+def crear_base_esquema_3(ruta):
+    """Base del esquema 3: sin ``descartes``, ``lotes_canal`` ni las columnas de ``vistas``."""
+    cx = sqlite3.connect(ruta)
+    cx.executescript(
+        """
+        CREATE TABLE esquema_version (version INTEGER NOT NULL);
+        INSERT INTO esquema_version VALUES (3);
+        CREATE TABLE vistas (
+            clave TEXT PRIMARY KEY, huella TEXT NOT NULL, fuente TEXT NOT NULL, titulo TEXT,
+            empresa TEXT, url TEXT, categoria TEXT, primera_vez TEXT NOT NULL,
+            enviada_en TEXT, prueba_en TEXT, ubicacion TEXT, modalidad TEXT
+        );
+        INSERT INTO vistas(
+            clave, huella, fuente, titulo, primera_vez, enviada_en, ubicacion, modalidad
+        )
+        VALUES ('linkedin:1', 'h1', 'linkedin', 'Practicante', '2026-10-01T00:00:00+00:00',
+                '2026-10-01T00:00:00+00:00', 'Cartagena', 'Presencial');
+        """
+    )
+    cx.commit()
+    cx.close()
+
+
+def test_base_del_esquema_3_migra_a_4_sin_perder_filas(tmp_path):
+    ruta = tmp_path / "vacantes.db"
+    crear_base_esquema_3(ruta)
+    e = Estado.abrir(ruta)
+    assert e.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 4
+    assert {"descartes", "lotes_canal"} <= set(e.tablas())
+    vista = e.cx.execute("SELECT * FROM vistas").fetchone()
+    assert (vista["clave"], vista["ubicacion"], vista["modalidad"]) == (
+        "linkedin:1", "Cartagena", "Presencial",
+    )  # fmt: skip
+    assert (vista["publicada"], vista["destacada"], vista["area"]) == (None, 0, None)
+    e.cerrar()
+    Estado.abrir(ruta).cerrar()
 
 
 def test_esquema_mas_nuevo_que_el_codigo_se_rechaza(tmp_path):
     ruta = tmp_path / "vacantes.db"
     Estado.abrir(ruta).cerrar()
     cx = sqlite3.connect(ruta)
-    cx.execute("UPDATE esquema_version SET version = 4")
+    cx.execute("UPDATE esquema_version SET version = 5")
     cx.commit()
     cx.close()
-    with pytest.raises(RuntimeError, match="esquema 4"):
+    with pytest.raises(RuntimeError, match="esquema 5"):
         Estado.abrir(ruta)
 
 
@@ -446,3 +488,28 @@ def test_limpieza_de_detalles_y_cola(estado):
     assert borrados["detalles"] == 1 and borrados["pendientes_detalle"] == 1
     assert estado.leer_detalle("viejo") is None and estado.leer_detalle("nuevo") == "texto"
     assert [v.clave for v, _, _ in estado.cola_detalle_lista(AHORA)] == ["linkedin:2"]
+
+
+def test_limpieza_de_descartes_y_lotes_canal(estado):
+    with estado.transaccion() as cx:
+        for dias, clave in ((15, "computrabajo:1"), (13, "computrabajo:2")):
+            ts = a_texto(AHORA - timedelta(days=dias))
+            cx.execute(
+                "INSERT INTO descartes(clave, huella, fuente, etapa, motivo, primera_vez, "
+                "ultima_vez) VALUES (?, ?, 'computrabajo', 'reglas', 'no_ti', ?, ?)",
+                (clave, clave, ts, ts),
+            )
+        for dias, id_lote in ((91, "lote_viejo"), (89, "lote_nuevo")):
+            ts = a_texto(AHORA - timedelta(days=dias))
+            cx.execute(
+                "INSERT INTO lotes_canal(id, claves_json, destacadas_json, enviado_en) "
+                "VALUES (?, '[]', '[]', ?)",
+                (id_lote, ts),
+            )
+    borrados = estado.limpiar(AHORA, dias_vistas=90, dias_intentos=30, dias_descartes=14)
+    assert borrados["descartes"] == 1
+    assert borrados["lotes_canal"] == 1
+    claves = [f["clave"] for f in estado.cx.execute("SELECT clave FROM descartes")]
+    assert claves == ["computrabajo:2"]
+    lotes = [f["id"] for f in estado.cx.execute("SELECT id FROM lotes_canal")]
+    assert lotes == ["lote_nuevo"]
