@@ -1217,15 +1217,18 @@ async def esperar(pagina, expresion: str, timeout: float = 10.0) -> None:
         await asyncio.sleep(0.05)
 
 
+JS_BARRA = (
+    "({texto: document.getElementById('linea-texto').textContent,"
+    " ping: document.getElementById('ping').textContent,"
+    " clase_ping: document.getElementById('ping').className,"
+    " clase: document.getElementById('conexion').className,"
+    " oculta: document.getElementById('conexion').hidden,"
+    " recargar_deshabilitado: document.getElementById('recargar').disabled})"
+)
+
+
 async def leer_barra(pagina) -> dict:
-    return await pagina.evaluate(
-        "({texto: document.getElementById('linea-texto').textContent,"
-        " ping: document.getElementById('ping').textContent,"
-        " clase_ping: document.getElementById('ping').className,"
-        " clase: document.getElementById('conexion').className,"
-        " oculta: document.getElementById('conexion').hidden,"
-        " recargar_deshabilitado: document.getElementById('recargar').disabled})"
-    )
+    return await pagina.evaluate(JS_BARRA)
 
 
 def test_barra_de_conexion_colorea_el_ping_y_muestra_la_pausa(tmp_path, api):
@@ -1328,15 +1331,16 @@ def test_recargar_tras_una_caida_reconecta_y_manda_un_latido(tmp_path, api):
             # El servidor vuelve: el usuario toca recargar (dos veces seguidas)
             await nav.guardar({"servidor": api.url})
             latidos_antes = len(api.de("latido"))
-            await pagina.evaluate(
+            # La barra se lee en el mismo evaluate que los toques: si no, la recarga podría
+            # avanzar entre una llamada y otra
+            durante = await pagina.evaluate(
                 "window.latidosPedidos = 0;"
                 "const enviar = chrome.runtime.sendMessage.bind(chrome.runtime);"
                 "chrome.runtime.sendMessage = (m, ...r) => {"
                 "  if (m.tipo === 'latido') window.latidosPedidos++; return enviar(m, ...r); };"
                 "document.getElementById('recargar').click();"
-                "document.getElementById('recargar').click();"
+                "document.getElementById('recargar').click();" + JS_BARRA
             )
-            durante = await leer_barra(pagina)
             await esperar(pagina, RECARGA_TERMINADA, 30)
             final = await leer_barra(pagina)
             pedidos = await pagina.evaluate("window.latidosPedidos")

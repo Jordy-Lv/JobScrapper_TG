@@ -138,12 +138,14 @@ const UMBRAL_LENTO_MS = 500;
 
 let midiendo = false; // medición al abrir el popup, aún sin terminar
 let recargando = false;
+let ultimaConexion = [null, false]; // medida y pausa con que se pintó la barra por última vez
 
 function velocidad(ms) {
   return ms < UMBRAL_RAPIDO_MS ? "rapido" : ms < UMBRAL_LENTO_MS ? "medio" : "lento";
 }
 
 function pintarConexion(medida, pausado) {
+  ultimaConexion = [medida, pausado];
   let clase, texto;
   if (recargando) {
     [clase, texto] = ["reconectando", "Reconectando…"];
@@ -185,7 +187,8 @@ async function medirAlAbrir() {
 async function recargar() {
   if (recargando) return;
   recargando = true;
-  pintar();
+  // Se pinta ya, sin esperar al almacenamiento: el toque se ve en el acto
+  pintarConexion(...ultimaConexion);
   try {
     const { ok } = await ping();
     if (ok) await chrome.runtime.sendMessage({ tipo: "latido", revisar: true });
