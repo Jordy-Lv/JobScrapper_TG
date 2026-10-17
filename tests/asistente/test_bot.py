@@ -973,10 +973,15 @@ def postulacion_enviada_con_datos(mundo):
     return usuario, p, cv
 
 
-def card_de(mundo, mensaje=42):
-    """Texto y botones de la última edición de la card (la fixture ya le dio el mensaje 42)."""
-    texto = next(e[2] for e in reversed(mundo.s.ediciones) if e[1] == mensaje)
-    return texto, mundo.s.botones_editados[mensaje]
+def card_de(mundo, mensaje=None):
+    """Texto y botones actuales de la card: la fixture le dio el mensaje 42 y, al confirmarse,
+    la card pasa a un mensaje nuevo (con confeti) que se edita desde ahí."""
+    mensaje = mensaje or max(mundo.s.efectos, default=42)
+    texto = next((e[2] for e in reversed(mundo.s.ediciones) if e[1] == mensaje), None)
+    if texto is not None:
+        return texto, mundo.s.botones_editados[mensaje]
+    _, texto, botones = mundo.s.mensajes[mensaje - 1]  # enviada y sin editar
+    return texto, botones
 
 
 def test_tarjeta_corta_con_botones_al_confirmar_la_postulacion(mundo):
@@ -996,7 +1001,8 @@ def test_tarjeta_corta_con_botones_al_confirmar_la_postulacion(mundo):
     ]]  # fmt: skip
     assert "¿Cómo te fue?" not in texto
     assert mundo.s.documentos == [(ANA, cv.name)]
-    assert len(mundo.s.mensajes) == enviados  # todo en la misma card
+    assert len(mundo.s.mensajes) == enviados + 1  # solo la card nueva, con el confeti
+    assert mundo.s.efectos == {mundo.s._id: t.EFECTO_CONFETI}
 
 
 def test_botones_de_la_tarjeta_muestran_respuestas_y_descripcion(mundo):
@@ -1389,7 +1395,9 @@ def test_la_vacante_del_alta_se_postula_dentro_de_la_misma_tarjeta(mundo):
     assert any("✓ Navegador vinculado" in x and "Abriendo la oferta" in x for x in textos)
     assert any("✓ Computrabajo · ana@gmail.com" in x and "Respondiendo el formulario…" in x
                for x in textos)  # fmt: skip
-    assert "confirmó tu postulación" in textos[-1] and "Conexión" not in textos[-1]
+    final = mundo.s.ultimo(ANA)[1]  # la confirmación llega como la card nueva, con confeti
+    assert "confirmó tu postulación" in final and "Conexión" not in final
+    assert (ANA, fila["mensaje_id"]) in mundo.s.borrados
     assert not kv_tarjeta(mundo, usuario)
     # Un solo mensaje para todo el proceso: nada de avisos sueltos de cuenta ni de alta
     todos = "\n".join(mundo.s.de(ANA))
