@@ -214,13 +214,34 @@ async function revisarPortal(plataforma) {
 // el portal muestra su versión de escritorio (una ventana minimizada lo pasa a la versión móvil
 // y oculta la cabecera y los botones). Si el portal pide una verificación, se activa.
 async function abrirPestana(url) {
-  const pestana = await chrome.tabs.create({ url: "about:blank", active: false });
+  const pestana = await crearPestana({ active: false });
   try {
     await navegar(pestana.id, url);
   } catch (error) {
     await cerrarPestana(pestana);
     throw error;
   }
+  return pestana;
+}
+
+// Una pestaña nueva carga about:blank por su cuenta. Si se navega antes de que esa carga
+// termine, Chrome puede descartar la navegación (la pestaña queda en "unloaded" aunque el
+// portal respondió) y la espera agota su plazo: pasa sobre todo con el navegador ocupado.
+async function crearPestana(propiedades) {
+  const pestana = await chrome.tabs.create({ ...propiedades, url: "about:blank" });
+  await new Promise((resolver) => {
+    const fin = setTimeout(listo, 5000);
+    function listo() {
+      clearTimeout(fin);
+      chrome.tabs.onUpdated.removeListener(oyente);
+      resolver();
+    }
+    function oyente(id, cambio) {
+      if (id === pestana.id && cambio.status === "complete") listo();
+    }
+    chrome.tabs.onUpdated.addListener(oyente);
+    chrome.tabs.get(pestana.id).then((tab) => tab.status === "complete" && listo(), listo);
+  });
   return pestana;
 }
 
@@ -631,7 +652,7 @@ async function vigilar(plataforma) {
   try {
     // Se crea en blanco y luego navega, igual que abrirPestana: así el navegador ya tiene la
     // pestaña lista para interceptar la navegación real (y las pruebas pueden servirla)
-    tab = await chrome.tabs.create({ url: "about:blank", active: true });
+    tab = await crearPestana({ active: true });
     await navegar(tab.id, url);
   } catch (error) {
     if (tab) cerrarPestana(tab);
