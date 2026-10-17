@@ -9,6 +9,7 @@ import respx
 pytest.importorskip("fpdf", reason="requiere uv sync --group asistente")
 pytest.importorskip("cryptography", reason="requiere uv sync --group asistente")
 
+from buscador_vacantes.asistente import tarjeta_postulacion as tp  # noqa: E402
 from buscador_vacantes.asistente import vinculos  # noqa: E402
 from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa: E402
 from buscador_vacantes.asistente.cola import E  # noqa: E402
@@ -18,7 +19,8 @@ from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
-from buscador_vacantes.asistente.respuestas import Pregunta, sembrar_banco  # noqa: E402
+from buscador_vacantes.asistente.respuestas import Pregunta, recordar, sembrar_banco  # noqa: E402
+from buscador_vacantes.asistente.resumen_postulacion import DatosResumen  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
 from buscador_vacantes.comun.estado import Estado  # noqa: E402
@@ -266,3 +268,89 @@ def test_preferencia_de_afinidad_propia_prevalece_sobre_la_del_usuario(mundo):
     mundo.base.kv_guardar("automatico_hasta", "2000-01-01T00:00:00+00:00")
     nuevas = asyncio.run(mundo.nucleo.encolar_automaticos())
     assert [p.id_corto for p in nuevas] == [id_corto("computrabajo:1")]
+
+
+URL_MG = "https://www.magneto365.com/co/empleos/desarrollador-junior-erp-odoo-1100511"
+ENCUESTA_MG = [
+    "¿Tienes disponibilidad para trabajar de forma presencial?",
+    "¿Autorizas el tratamiento de tus datos personales?",
+]
+
+
+def postulacion_magneto(mundo):
+    """Postulación de Magneto en curso y su vacante indexada."""
+    mundo.vincular()
+    id_ = publicar(mundo, "magneto", "1", URL_MG)
+    mundo.nucleo.indice.indexar(T0)
+    pid = mundo.nucleo.tocar(mundo.usuario, id_).postulacion.id
+    navegador = mundo.base.cx.execute("SELECT id FROM navegadores").fetchone()[0]
+    mundo.nucleo.cola.tomar(pid, navegador, T0)
+    mundo.nucleo.cola.iniciar(pid, navegador, T0)
+    return mundo.nucleo.cola.obtener(pid), id_
+
+
+def preguntas_magneto():
+    """Como las lee la extensión: opciones Si/No, sin name, todas obligatorias."""
+    return [Pregunta(t, "opciones", ["Si", "No"], True, None) for t in ENCUESTA_MG]
+
+
+def test_encuesta_de_magneto_queda_guardada_y_llega_a_la_tarjeta(mundo):
+    p, id_ = postulacion_magneto(mundo)
+    for texto in ENCUESTA_MG:
+        recordar(mundo.base, mundo.usuario.id, texto, "Si", T0)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas_magneto()))
+    assert not resultado.faltan
+    assert [r.opcion for r in resultado.respuestas] == [0, 0]
+    filas = mundo.base.cx.execute(
+        "SELECT pregunta, respuesta, origen FROM respuestas WHERE postulacion_id = ? ORDER BY id",
+        (p.id,),
+    ).fetchall()
+    assert [(f["pregunta"], f["respuesta"], f["origen"]) for f in filas] == [
+        (t, "Si", "aprendida") for t in ENCUESTA_MG
+    ]
+    resumen = DatosResumen(
+        mundo.nucleo.indice.obtener(id_), "magneto", T0, respuestas=[dict(f) for f in filas],
+        folio=f"P-{p.id}",
+    )  # fmt: skip
+    datos = tp.Datos(pid=p.id, titulo="Desarrollador junior", empresa="ACME",
+                     plataforma="magneto", url=URL_MG, resumen=resumen)  # fmt: skip
+    card = tp.Card(fase=tp.CONFIRMADA)
+    assert "Encuesta de 2" in tp.texto(card, datos)
+    botones = tp.botones(card, datos, lambda *partes: "cb:" + ":".join(map(str, partes)))
+    assert "Respuestas" in [texto for fila in botones for texto, _ in fila]
+
+
+def test_magneto_sin_encuesta_se_muestra_como_sin_encuesta(mundo):
+    p, id_ = postulacion_magneto(mundo)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, []))
+    assert not resultado.faltan and not resultado.respuestas
+    resumen = DatosResumen(mundo.nucleo.indice.obtener(id_), "magneto", T0)
+    datos = tp.Datos(pid=p.id, titulo="Desarrollador junior", empresa="ACME",
+                     plataforma="magneto", url=URL_MG, resumen=resumen)  # fmt: skip
+    card = tp.Card(fase=tp.CONFIRMADA)
+    assert "Sin encuesta" in tp.texto(card, datos)
+    botones = tp.botones(card, datos, lambda *partes: "cb:" + ":".join(map(str, partes)))
+    assert "Respuestas" not in [texto for fila in botones for texto, _ in fila]
+
+
+def test_consentimiento_de_magneto_sin_respuesta_espera_al_usuario(mundo):
+    p, _ = postulacion_magneto(mundo)
+    recordar(mundo.base, mundo.usuario.id, ENCUESTA_MG[0], "Si", T0)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas_magneto()))
+    assert [r.pregunta.texto for r in resultado.faltan] == [ENCUESTA_MG[1]]
+    pendientes = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert [x["pregunta"] for x in pendientes] == [ENCUESTA_MG[1]]
+    assert any(e.get("tipo") == "preguntas_pendientes" for e in mundo.eventos)
+
+
+# --- redactor por formulario -----------------------------------------------------------------
+
+URL_REDACTAR = (
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
+)
+ABIERTAS = [
+    "¿Qué programa estás estudiando y en qué institución?",
+    "¿Por qué te interesa esta vacante?",
+    "Cuéntanos de un proyecto del que estés orgulloso",
+]
+INSTITUCION = {"pregunta": "¿En qué institución estudias?", "sugerencias": ["SENA", "ITM"]}

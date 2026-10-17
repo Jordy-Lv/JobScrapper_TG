@@ -264,6 +264,19 @@ def _desde_tipo(pregunta: Pregunta) -> tuple[str, None] | None:
     return None
 
 
+# Autorizaciones y aceptaciones (tratamiento de datos, términos): las decide el usuario. No se
+# confunde con «¿tienes autorización para trabajar?», que es un dato del perfil.
+_CONSENTIMIENTO = re.compile(
+    r"tratamiento de (?:tus |sus |mis )?datos|datos personales|habeas data|terminos y condiciones"
+    r"|politicas? de (?:privacidad|tratamiento)|consentimiento|\bautoriz(?:o|as|a|amos)\b"
+)
+
+
+def es_consentimiento(norma: str) -> bool:
+    """True si la pregunta (ya normalizada) pide autorizar o aceptar algo."""
+    return bool(_CONSENTIMIENTO.search(norma))
+
+
 async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
     norma = normalizar_pregunta(pregunta.texto)
     if estandar := _desde_tipo(pregunta):
@@ -277,6 +290,9 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
                 return Respuesta(pregunta, opcion=indice, origen=Origen.APRENDIDA)
         else:
             return Respuesta(pregunta, valor=texto, origen=Origen.APRENDIDA)
+    if es_consentimiento(norma):
+        # Solo vale lo que el usuario respondió: ni el banco ni la IA aceptan por él
+        return Respuesta(pregunta, falta=True)
     if encontrada := buscar_en_banco(ctx.base, norma):
         return _desde_campo(pregunta, *encontrada, ctx, Origen.PERFIL)
     if not ctx.con_ia:

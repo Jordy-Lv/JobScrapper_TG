@@ -23,6 +23,7 @@ from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     Origen,
     Pregunta,
     elegir_opcion,
+    es_consentimiento,
     guardar_en_banco,
     normalizar_pregunta,
     recordar,
@@ -265,3 +266,54 @@ def test_limites_de_preguntas_pegadas():
         separar_preguntas("\n".join(f"¿Pregunta {i}?" for i in range(16)))
     with pytest.raises(ErrorPegado, match="4000"):
         separar_preguntas("x" * 4001)
+
+
+CONSENTIMIENTOS = [
+    "¿Autorizas el tratamiento de tus datos personales?",
+    "Acepto la política de tratamiento de datos de la empresa",
+    "¿Aceptas los términos y condiciones?",
+    "Autorizo el uso de mis datos (Habeas Data)",
+]
+
+
+@pytest.mark.parametrize("texto", CONSENTIMIENTOS)
+def test_consentimiento_se_reconoce(texto):
+    assert es_consentimiento(normalizar_pregunta(texto))
+
+
+@pytest.mark.parametrize("texto", [
+    "¿Tienes autorización para trabajar en Colombia?",
+    "¿Tienes disponibilidad para trabajar de forma presencial?",
+    "¿Cuál es tu aspiración salarial?",
+])  # fmt: skip
+def test_pregunta_normal_no_es_consentimiento(texto):
+    assert not es_consentimiento(normalizar_pregunta(texto))
+
+
+@respx.mock
+@pytest.mark.parametrize("texto", CONSENTIMIENTOS)
+def test_consentimiento_sin_respuesta_del_usuario_no_se_inventa(base, texto):
+    ruta = respx.post(URL_LITE).mock(
+        return_value=gemini({"respuesta": "Sí", "opcion": 0, "suficiente": True})
+    )
+    pregunta = Pregunta(texto, "opciones", ["Si", "No"])
+    r = asyncio.run(resolver(pregunta, contexto(base)))
+    assert r.falta and r.texto is None
+    assert not ruta.called  # ni siquiera se le pregunta a la IA
+
+
+@respx.mock
+def test_consentimiento_aprendido_del_usuario_se_reutiliza(base):
+    texto = "¿Autorizas el tratamiento de tus datos personales?"
+    recordar(base, 1, texto, "No", AHORA)
+    r = asyncio.run(resolver(Pregunta(texto, "opciones", ["Si", "No"]), contexto(base)))
+    assert not r.falta and r.texto == "No" and r.origen == Origen.APRENDIDA
+
+
+# --- redactor por formulario -------------------------------------------------------------
+
+URL_REDACTAR = BASE_URL + "gemini-flash-latest:generateContent"
+COMPUESTA = (
+    "¿Qué programa técnico o tecnológico estás estudiando relacionado con Sistemas o "
+    "Informática y en qué institución?"
+)

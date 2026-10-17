@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Auxiliar de sistemas - Magneto</title></head>
+<body>
+<!-- Vacante de Magneto con sesión y sin encuesta (reconocimiento del 2026-10-17), sin datos
+     personales. Al pulsar «Aplicar» la postulación se envía sola y, unos segundos después, aparece
+     el modal con «Se ha enviado tu aplicación». -->
+<header>
+  <div class="logoutBlock_avatar_7d3k2">
+    <img alt="User Avatar" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="32" height="32">
+  </div>
+</header>
+<main>
+  <h1>Auxiliar de sistemas</h1>
+  <p>Empresa de prueba · Bogotá</p>
+  <button type="button" class="applyButton_apply-btn__x9p2q">Aplicar</button>
+</main>
+<script>
+  document.querySelector(".applyButton_apply-btn__x9p2q").addEventListener("click", () => {
+    setTimeout(() => {
+      const modal = document.createElement("div");
+      modal.className = "mg_application_summary_summary-modal_y7z8a";
+      modal.innerHTML =
+        '<h2>Se ha enviado tu aplicación</h2>' +
+        '<button type="button" class="mg_application_button_button-summary_b9c0d">Cerrar</button>';
+      document.body.appendChild(modal);
+    }, 1500);
+  });
+</script>
+</body></html>

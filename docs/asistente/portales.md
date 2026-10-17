@@ -168,3 +168,41 @@ aceptación nueva una sola vez.
 - `bloqueada` con `portal_perfil_incompleto`: la hoja de vida del portal está incompleta.
 - Con autorización para actualizar el CV y 5 documentos ya guardados, el portal desactiva el campo del
   archivo: la postulación sale con el documento elegido aunque el resumen diga que se subió el nuevo.
+
+### Magneto
+
+Reconocimiento con la sesión del dueño (2026-10-17). La postulación 41 había terminado «incierta» y no
+quedó registrada en el portal: los selectores se habían escrito antes de ver el flujo real.
+
+**Flujo real** (change `magneto-confirmar-y-leer-encuesta`, `magneto.json` versión `2026.10.17-1`):
+
+- Todo ocurre en la misma página, con la misma URL, y sin `<form>` ni `[role=dialog]`.
+- Si la vacante muestra «Ya aplicaste a este empleo», la postulación termina `ya_postulada` antes de
+  pulsar nada (paso `revisar_vacante`).
+- «Aplicar» (`button[class*='applyButton_apply-btn']`) puede mostrar «Para continuar responde las
+  siguientes preguntas:». Cada pregunta es un bloque `[class*='job-offer-questionnaire__question']` con
+  título `[class*='question-title']` y botones `button[class*='question-possible-answer-button']`
+  («Si» / «No»), cada uno con un `input.ant-radio-input` sin `name`. Al final van «Cancelar» y
+  «Enviar respuestas». El portal no deja enviar con preguntas sin responder.
+- El motor lee esas preguntas con la clave `preguntas` del paso `formulario` (todas obligatorias), las
+  manda al servidor por `/formulario` y responde pulsando el botón elegido; si su `input` no queda marcado
+  no envía nada y termina `formulario_desconocido`. El paso `enviar` pulsa solo «Enviar respuestas».
+- Unos 5 s después de enviar aparece el modal `mg_application_summary_summary-modal` con «Se ha enviado tu
+  aplicación» (botón «Cerrar»). Ese modal confirma la postulación. Si pasan 25 s con las preguntas aún en
+  pantalla y sin modal, el resultado es `formulario_desconocido` («el portal no aceptó el envío»).
+- Una vacante sin encuesta se envía al pulsar «Aplicar» y solo muestra el modal; `preguntas` y `enviar`
+  son opcionales y se omiten tras unos segundos de espera.
+- El indicador fiable es `https://web.magneto365.com/profile/processes` («Procesos activos», cada uno
+  «Aplicación enviada» con fecha).
+
+**Respuestas en Telegram.** Las respuestas que el asistente envía se guardan en la tabla `respuestas` y la
+card muestra «Encuesta de N» y el botón «Respuestas», como en Computrabajo. Magneto no las vuelve a
+mostrar después (la pestaña «Detalle» solo repite la vacante).
+
+**Lo que no se hace.** Las autorizaciones y aceptaciones (tratamiento de datos, términos) no las contesta
+el banco ni la IA: se le preguntan al usuario por la card y se recuerda su respuesta. No se resuelven
+preguntas sin botones de respuesta (texto libre): terminan `formulario_desconocido` con la evidencia.
+
+**Estado.** `verificado.postulacion` sigue en `false` hasta la prueba real en Telegram (tarea 6.3) con una
+vacante que el dueño nombre y que no sea una ya postulada (Comfama CEID `1626548986-1`, Distracom,
+«Aprendiz de sistemas» ni la 41).

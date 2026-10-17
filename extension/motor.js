@@ -285,6 +285,32 @@
     return salida.slice(0, 80);
   }
 
+  // Encuesta hecha de preguntas con botones de respuesta, sin <form> ni name (Magneto). `def`
+  // declara el bloque de cada pregunta, su título y su botón de respuesta. Cada pregunta es
+  // obligatoria: el portal no deja enviar sin responderlas. Los botones de «Cancelar» y de
+  // enviar quedan fuera porque no son botones de respuesta ni están dentro de una pregunta.
+  function leerPreguntas(contenedor, def) {
+    const titulo = (bloque) => textoDe(buscar(def.titulo, { raiz: bloque }));
+    const bloques = candidatos(def.pregunta, contenedor).filter((b) => visible(b) && titulo(b));
+    // Si un bloque contiene a otro con título, vale el interior (el exterior es un envoltorio)
+    const preguntas = bloques.filter((b) => !bloques.some((o) => o !== b && b.contains(o)));
+    campos = [];
+    const salida = [];
+    for (const bloque of preguntas) {
+      const botones = candidatos(def.respuesta, bloque).filter(visible);
+      if (!botones.length) return { sin_botones: titulo(bloque).slice(0, 200) };
+      campos.push({ tipo: "boton", elementos: botones });
+      salida.push({
+        texto: titulo(bloque).slice(0, 1000),
+        tipo: "opciones",
+        opciones: botones.map((b) => textoDe(b)),
+        obligatoria: true,
+        nombre: null,
+      });
+    }
+    return { campos: salida.slice(0, 80) };
+  }
+
   // --- llenado con eventos nativos ---------------------------------------------------------
 
   function asignarValor(el, valor) {
@@ -300,6 +326,22 @@
 
   function marcar(el, activo) {
     if (el.checked !== activo) el.click();
+  }
+
+  // Pulsa el botón de una respuesta y comprueba que su input quedó marcado. Si el portal solo
+  // escucha al input, se prueba también con él. Un botón sin input se da por pulsado.
+  async function pulsarRespuesta(boton) {
+    if (!boton) return false;
+    const input = boton.querySelector("input");
+    const marcado = async () => {
+      await dormir(200); // el portal marca la opción de forma asíncrona
+      return !input || input.checked;
+    };
+    boton.scrollIntoView({ block: "center" });
+    boton.click();
+    if (await marcado()) return true;
+    input.click();
+    return marcado();
   }
 
   function adjuntar(el, archivo) {
@@ -331,6 +373,11 @@
       } else if (campo.tipo === "checkbox") {
         if (r.opcion == null) continue;
         marcar(campo.elementos[r.opcion], true);
+      } else if (campo.tipo === "boton") {
+        if (r.opcion == null) continue;
+        if (!(await pulsarRespuesta(campo.elementos[r.opcion]))) {
+          return error({ accion: "llenar" }, "la opción elegida no quedó marcada");
+        }
       } else if (campo.tipo === "casilla") {
         if (r.opcion == null) continue;
         marcar(campo.el, r.opcion === 0);
@@ -381,6 +428,13 @@
     return hayTexto(textos(sel, "confirmacion"))
       || textos(sel, "confirmacion_titulo").some((t) => titulo.includes(normalizar(t)))
       || Boolean(paso.selector && buscar(paso.selector));
+  }
+
+  // Qué se guarda como confirmación: el título de la página o, si el paso lo pide
+  // (`texto_de_selector`), el texto del aviso que lo confirmó (Magneto no cambia el título)
+  function textoConfirmacion(paso) {
+    const aviso = paso.texto_de_selector && paso.selector && buscar(paso.selector);
+    return (aviso ? textoDe(aviso) : document.title).slice(0, 200);
   }
 
   async function paso(paso, sel, datos = {}) {
@@ -442,6 +496,13 @@
           if (paso.opcional) return { ok: true, campos: [] };
           return error(paso, "no apareció el formulario");
         }
+        if (paso.preguntas) {
+          const leidas = leerPreguntas(contenedor, paso.preguntas);
+          if (leidas.sin_botones) {
+            return error(paso, `la pregunta «${leidas.sin_botones}» no tiene botones de respuesta`, contenedor);
+          }
+          return { campos: leidas.campos };
+        }
         return { campos: leerCampos(contenedor) };
       }
       case "llenar":
@@ -488,7 +549,7 @@
       case "confirmar": {
         const limite = Date.now() + (paso.ms || 20000);
         do {
-          if (confirmado(sel, paso)) return { confirmado: true, texto: document.title.slice(0, 200) };
+          if (confirmado(sel, paso)) return { confirmado: true, texto: textoConfirmacion(paso) };
           const caso = casoPresente(paso.casos, sel);
           if (caso) return caso;
           if (hayCaptcha(sel)) return { captcha: true };

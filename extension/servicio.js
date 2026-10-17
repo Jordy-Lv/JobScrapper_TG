@@ -500,6 +500,11 @@ async function formulario(tabId, contexto, campos) {
     contexto.sel,
     { plataforma: trabajo.plataforma, respuestas: r.respuestas, cv: contexto.cv },
   );
+  if (lleno && lleno.error) {
+    // Una respuesta no quedó marcada: no se envía nada a ciegas
+    await terminar(trabajo.id, lleno.error, { motivo: lleno.motivo, html: lleno.html });
+    return { fin: true };
+  }
   await reportar(trabajo.id, "llenado", `${r.respuestas.length} respuestas`);
   // El servidor arma el resumen final con esto: qué hoja de vida recibió el portal
   if (lleno && lleno.adjunto) await reportar(trabajo.id, "cv_adjunto", lleno.adjunto);

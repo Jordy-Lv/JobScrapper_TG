@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Desarrollador junior - Magneto</title></head>
+<body>
+<!-- Vacante de Magneto con sesión y encuesta (reconocimiento del 2026-10-17), sin datos
+     personales. Estructura medida en el portal: al pulsar «Aplicar» aparece, con la misma URL y
+     sin <form> ni [role=dialog], «Para continuar responde las siguientes preguntas:». Cada
+     pregunta es un div ..._job-offer-questionnaire__question con su título y botones de
+     respuesta; dentro de cada botón hay un input.ant-radio-input sin name. Al pulsar «Enviar
+     respuestas», unos segundos después (~5 s en el portal real) aparece un modal con «Se ha
+     enviado tu aplicación». Con las preguntas sin responder el portal no envía nada. -->
+<header>
+  <div class="logoutBlock_avatar_7d3k2">
+    <img alt="User Avatar" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="32" height="32">
+  </div>
+</header>
+<main>
+  <h1>Desarrollador junior</h1>
+  <p>Empresa de prueba · Medellín</p>
+  <button type="button" class="applyButton_apply-btn__x9p2q">Aplicar</button>
+  <div id="encuesta" style="display:none"></div>
+</main>
+<script>
+  const PREGUNTAS = [
+    "¿Tienes disponibilidad para trabajar de forma presencial?",
+    "¿Autorizas el tratamiento de tus datos personales?",
+  ];
+  const cuadro = (texto, i) =>
+    '<div class="jobOfferQuestionnaire_job-offer-questionnaire__question_a1b2c">' +
+    '<p class="jobOfferQuestionnaire_job-offer-questionnaire__question-title_d3e4f">' + texto + '</p>' +
+    '<div class="jobOfferQuestionnaire_job-offer-questionnaire__question-answers_g5h6i">' +
+    ["Si", "No"].map((r) =>
+      '<button type="button" class="jobOfferQuestionnaire_job-offer-questionnaire__question-possible-answer-button_j7k8l">' +
+      '<span class="ant-radio"><input class="ant-radio-input" type="radio" value="' + r + '"></span>' +
+      '<span>' + r + '</span></button>').join("") +
+    '</div></div>';
+
+  document.querySelector(".applyButton_apply-btn__x9p2q").addEventListener("click", () => {
+    const encuesta = document.getElementById("encuesta");
+    encuesta.style.display = "block";
+    encuesta.innerHTML =
+      '<div class="jobOfferQuestionnaire_job-offer-questionnaire_m9n0o">' +
+      '<h2>Para continuar responde las siguientes preguntas:</h2>' +
+      PREGUNTAS.map(cuadro).join("") +
+      '<div class="jobOfferQuestionnaire_job-offer-questionnaire__actions_p1q2r">' +
+      '<button type="button" class="jobOfferQuestionnaire_job-offer-questionnaire__cancel_s3t4u">Cancelar</button>' +
+      '<button type="button" class="jobOfferQuestionnaire_job-offer-questionnaire__submit_v5w6x">Enviar respuestas</button>' +
+      '</div></div>';
+    // Como el portal: pulsar un botón marca su input y desmarca el de la otra opción
+    encuesta.querySelectorAll("button[class*='question-possible-answer-button']").forEach((boton) => {
+      boton.addEventListener("click", () => {
+        const pregunta = boton.closest("[class*='job-offer-questionnaire__question_']");
+        pregunta.querySelectorAll("input.ant-radio-input").forEach((i) => (i.checked = false));
+        boton.querySelector("input.ant-radio-input").checked = true;
+      });
+    });
+    encuesta.querySelector("[class*='questionnaire__submit']").addEventListener("click", () => {
+      const completo = [...encuesta.querySelectorAll("[class*='job-offer-questionnaire__question_']")]
+        .every((p) => p.querySelector("input.ant-radio-input:checked"));
+      if (!completo) return;
+      setTimeout(() => {
+        encuesta.style.display = "none";
+        const modal = document.createElement("div");
+        modal.className = "mg_application_summary_summary-modal_y7z8a";
+        modal.innerHTML =
+          '<h2>Se ha enviado tu aplicación</h2>' +
+          '<button type="button" class="mg_application_button_button-summary_b9c0d">Cerrar</button>';
+        document.body.appendChild(modal);
+      }, 2000);
+    });
+  });
+</script>
+</body></html>

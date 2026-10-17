@@ -1162,6 +1162,106 @@ def test_encuesta_que_el_portal_no_acepta_queda_como_no_enviada(tmp_path, api):
     assert "no aceptó el envío" in resultado["motivo"]
 
 
+# --- Magneto: encuesta en la página y confirmación por el modal de resumen ------------------
+
+VACANTE_MG = "https://www.magneto365.com/co/empleos/desarrollador-junior-erp-odoo-1100511"
+# El modal de Magneto tarda en salir; sin él las preguntas siguen en pantalla
+SIN_MODAL = {"}, 2000);": "}, 2000000);"}
+
+
+def trabajo_mg():
+    return {"id": 31, "tipo": "postular", "plataforma": "magneto", "url": VACANTE_MG,
+            "titulo": "Desarrollador junior", "actualizar_cv_portal": False}  # fmt: skip
+
+
+def portales_magneto(fixture="mg_cuestionario.html", reemplazos=None) -> Portales:
+    p = portales_listos()
+    for url in (CUENTA_MG, INICIO_MG, BUSCAR_MG):
+        p.poner(url, "mg_con_sesion.html")
+    p.poner(VACANTE_MG, fixture, reemplazos)
+    return p
+
+
+def respuestas_mg(campos: list[dict]) -> list[dict]:
+    return [{"indice": i, "valor": None, "opcion": 0} for i, _ in enumerate(campos)]
+
+
+def postular_magneto(tmp_path, api, portales, *, rapido=False) -> None:
+    api.trabajos = [trabajo_mg()]
+    if rapido:
+        api.ajustar = confirmar_rapido
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+
+
+def test_magneto_encuesta_se_lee_se_responde_y_se_confirma_por_el_modal(tmp_path, api):
+    api.respuestas = respuestas_mg
+    postular_magneto(tmp_path, api, portales_magneto())
+    campos = api.de("formulario")[0]["campos"]
+    assert [(c["texto"], c["tipo"], c["obligatoria"]) for c in campos] == [
+        ("¿Tienes disponibilidad para trabajar de forma presencial?", "opciones", True),
+        ("¿Autorizas el tratamiento de tus datos personales?", "opciones", True),
+    ]
+    assert [[o.lower() for o in c["opciones"]] for c in campos] == [["si", "no"]] * 2
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert "llenado" in pasos and "enviar" in pasos
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "enviada", resultado
+    assert "Se ha enviado tu aplicación" in resultado["confirmacion"]
+
+
+def test_magneto_sin_encuesta_llega_a_enviada_sin_pedir_formulario(tmp_path, api):
+    postular_magneto(tmp_path, api, portales_magneto("mg_aplicada_sin_encuesta.html"))
+    assert not api.de("formulario")
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "enviada", resultado
+    assert "Se ha enviado tu aplicación" in resultado["confirmacion"]
+
+
+def test_magneto_ya_aplicaste_no_pulsa_nada(tmp_path, api):
+    postular_magneto(tmp_path, api, portales_magneto("mg_ya_aplicaste.html"))
+    assert api.de("resultado")[0]["estado"] == "ya_postulada"
+    assert not api.de("envio")
+    assert "aplicar" not in [p["paso"] for p in api.de("paso")]
+
+
+def test_magneto_pregunta_sin_respuesta_espera_al_usuario_sin_enviar(tmp_path, api):
+    api.esperar = True  # el servidor no sabe la respuesta y se la pregunta al usuario
+    postular_magneto(tmp_path, api, portales_magneto())
+    assert len(api.de("formulario")[0]["campos"]) == 2
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert "esperando_usuario" in pasos and "enviar" not in pasos
+    assert not api.de("resultado")
+    assert len(api.de("envio")) == 1  # solo el de «Aplicar»; «Enviar respuestas» no se pulsó
+
+
+def test_magneto_encuesta_que_el_portal_no_acepta_queda_como_no_enviada(tmp_path, api):
+    api.respuestas = respuestas_mg
+    portales = portales_magneto(reemplazos=SIN_MODAL)
+    postular_magneto(tmp_path, api, portales, rapido=True)
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido", resultado
+    assert "no aceptó el envío" in resultado["motivo"]
+
+
+def test_magneto_opcion_que_no_queda_marcada_no_se_envia(tmp_path, api):
+    api.respuestas = respuestas_mg
+    sin_marcar = {'boton.querySelector("input.ant-radio-input").checked = true;': ""}
+    portales = portales_magneto(reemplazos=sin_marcar)
+    postular_magneto(tmp_path, api, portales)
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido", resultado
+    assert "no quedó marcada" in resultado["motivo"]
+    assert "enviar" not in [p["paso"] for p in api.de("paso")]
+
+
 # --- popup: ping y recarga de la conexión ---------------------------------------------------
 
 LEER_PING = "chrome.storage.local.get('ping').then(r => r.ping)"
