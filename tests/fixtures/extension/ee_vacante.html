@@ -125,9 +125,18 @@
   }));
 
   function responder(t) {
+    const conNota = $("#ApplicationNoteLightBox").classList.contains("in");
     ocultar("#QuickApplicationApplyOffer");
     ocultar("#ApplicationNoteLightBox");
     document.querySelectorAll("[class*='js-apply-']").forEach((b) => (b.style.display = "none"));
+    if (t.Response === 1) {
+      // Otra página (por ejemplo el cuestionario adicional): con la nota en pantalla va de una
+      // vez; si no, muestra el aviso de datos y redirige al cerrarlo o a los 6 s
+      if (conNota) return location.assign(t.Url);
+      mostrar("#habeasModal");
+      document.querySelectorAll(".close-habeas").forEach((b) => b.addEventListener("click", () => location.assign(t.Url)));
+      return setTimeout(() => location.assign(t.Url), 6000);
+    }
     if (t.Response === 3) return $(".js-alert-offer-cv-incomplete").classList.remove("hidden");
     if (t.Response === 4 || t.Response === 5) return location.assign(t.Url);
     $(".js-alert-offer").classList.remove("hidden");

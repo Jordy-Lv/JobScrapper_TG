@@ -1,6 +1,6 @@
 {
-  "version": "2026.10.15-1",
-  "notas": "Reconocimiento con la sesión del dueño el 2026-10-15 (docs/asistente/portales.md, sección elempleo): marcado de 5 vacantes y de 20 ofertas del listado, y el JavaScript del portal (JobOfferDetail.min.js). Dos variantes: la normal envía con un solo clic en button.js-apply-offer (POST por AJAX a JobOfferDetail/Save); la rápida abre #QuickApplicationApplyOffer con button.js-apply-modal-quick-offer y envía con button.js-apply-quick-offer. Las dos muestran #habeasModal (se cierra solo a los 6 s) y, al aceptar, div.js-alert-offer 'Postulación exitosa' sin recargar. Después del envío puede salir el video opcional de V-Prez (#jobOfferApplicationVprez): se pulsa 'Omitir' y nunca 'Continuar proceso'. Las ofertas VIP piden antes una nota de presentación (#ApplicationNoteLightBox, textarea ApplicationNote): campos_obligatorios la manda a la card si la IA no la redacta. El banner 'ya postulado' (div.js-alert-already-applied) es fiable pero tarda unos minutos en reflejar una postulación nueva; si se repite el envío, el portal responde 4 (ya postulado). CV perfil_multiple: los documentos de la hoja de vida (máx. 5) se eligen en select.js-select-file y un archivo nuevo se guarda en la hoja de vida; no hay cv_liberar (la lista es un select con un solo botón de borrar) y con el máximo alcanzado el campo del archivo se desactiva, el portal no lo envía y cv_verificar puede darlo por subido. Respuestas 1 y 5 del portal redirigen a una página que no se vio: termina como incierta con el HTML.",
+  "version": "2026.10.17-1",
+  "notas": "Reconocimiento con la sesión del dueño el 2026-10-15 (docs/asistente/portales.md, sección elempleo): marcado de 5 vacantes y de 20 ofertas del listado, y el JavaScript del portal (JobOfferDetail.min.js). Dos variantes: la normal envía con un solo clic en button.js-apply-offer (POST por AJAX a JobOfferDetail/Save); la rápida abre #QuickApplicationApplyOffer con button.js-apply-modal-quick-offer y envía con button.js-apply-quick-offer. Las dos muestran #habeasModal (se cierra solo a los 6 s) y, al aceptar, div.js-alert-offer 'Postulación exitosa' sin recargar. Después del envío puede salir el video opcional de V-Prez (#jobOfferApplicationVprez): se pulsa 'Omitir' y nunca 'Continuar proceso'. Las ofertas VIP piden antes una nota de presentación (#ApplicationNoteLightBox, textarea ApplicationNote): campos_obligatorios la manda a la card si la IA no la redacta. El banner 'ya postulado' (div.js-alert-already-applied) es fiable pero tarda unos minutos en reflejar una postulación nueva; si se repite el envío, el portal responde 4 (ya postulado). CV perfil_multiple: los documentos de la hoja de vida (máx. 5) se eligen en select.js-select-file y un archivo nuevo se guarda en la hoja de vida; no hay cv_liberar (la lista es un select con un solo botón de borrar) y con el máximo alcanzado el campo del archivo se desactiva, el portal no lo envía y cv_verificar puede darlo por subido. Respuestas 1 y 5 del portal redirigen a una página que no se vio: termina como incierta con el HTML. Cuestionario adicional (piloto del 2026-10-17, postulación 39): algunas ofertas responden a Save con 1 o 5 y llevan a /co/JobOffers/Questionnaires ('Para finalizar la postulación ... es obligatorio completar el cuestionario'), con preguntas abiertas (textarea [n].OpenAnswer, obligatorias) y el botón 'Postularme a oferta'. Questionnaires.js lo envía por AJAX a EndQuestionnaire: 2 muestra #confirmationSuccessModal ('¡Postulación exitosa!'), 1 lleva a otro cuestionario y 4 muestra #confirmationSuccessModalAts ('Cuestionario guardado'). Los dos modales vienen ocultos en el HTML desde que carga la página. Las preguntas pasan por el banco de respuestas; si falta una, se pregunta por la card sin enviar. Se lee antes de cv_subir (variante normal) y después de enviar (rápida); un segundo cuestionario encadenado no se conoce y termina en formulario_desconocido o incierta.",
   "verificado": {
     "vacante": true,
     "postulacion": false,
@@ -177,6 +177,49 @@
       "opcional": true
     },
     {
+      "nombre": "cuestionario",
+      "accion": "formulario",
+      "contenedor": [
+        "form.js-questionnaire-form"
+      ],
+      "ms": 5000,
+      "opcional": true
+    },
+    {
+      "nombre": "cuestionario_enviar",
+      "accion": "clic",
+      "selector": [
+        "form.js-questionnaire-form button[type='submit']"
+      ],
+      "ms": 500,
+      "opcional": true,
+      "errores": [
+        "form.js-questionnaire-form .input-validation-error",
+        "form.js-questionnaire-form .field-validation-error"
+      ],
+      "espera_errores_ms": 1500
+    },
+    {
+      "nombre": "revisar_cuestionario",
+      "accion": "detectar",
+      "ms": 5000,
+      "casos": [
+        {
+          "selector": [
+            "#confirmationSuccessModal"
+          ],
+          "resultado": "enviada"
+        },
+        {
+          "selector": [
+            "#confirmationSuccessModalAts"
+          ],
+          "resultado": "incierta",
+          "motivo": "el portal guardó el cuestionario y mandó a la página del empleador"
+        }
+      ]
+    },
+    {
       "nombre": "cv_subir",
       "accion": "cv_subir",
       "selector": [
@@ -207,11 +250,35 @@
       "opcional": true
     },
     {
+      "nombre": "cuestionario_tras_enviar",
+      "accion": "formulario",
+      "contenedor": [
+        "form.js-questionnaire-form"
+      ],
+      "ms": 6000,
+      "opcional": true
+    },
+    {
+      "nombre": "cuestionario_enviar_tras_enviar",
+      "accion": "clic",
+      "selector": [
+        "form.js-questionnaire-form button[type='submit']"
+      ],
+      "ms": 500,
+      "opcional": true,
+      "errores": [
+        "form.js-questionnaire-form .input-validation-error",
+        "form.js-questionnaire-form .field-validation-error"
+      ],
+      "espera_errores_ms": 1500
+    },
+    {
       "nombre": "confirmar",
       "accion": "confirmar",
       "ms": 25000,
       "selector": [
-        "div.js-alert-offer"
+        "div.js-alert-offer",
+        "#confirmationSuccessModal"
       ],
       "casos": [
         {
@@ -224,6 +291,13 @@
           ],
           "resultado": "bloqueada",
           "motivo": "portal_perfil_incompleto"
+        },
+        {
+          "selector": [
+            "#confirmationSuccessModalAts"
+          ],
+          "resultado": "incierta",
+          "motivo": "el portal guardó el cuestionario y mandó a la página del empleador"
         }
       ],
       "no_enviado": [

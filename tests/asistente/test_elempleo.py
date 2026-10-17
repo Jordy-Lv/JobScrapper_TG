@@ -16,6 +16,7 @@ from buscador_vacantes.asistente.api import campos_obligatorios  # noqa: E402
 from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa: E402
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal, EstadoCuenta  # noqa: E402
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
+from buscador_vacantes.asistente.respuestas import normalizar_pregunta  # noqa: E402
 from buscador_vacantes.comun import config as cfg  # noqa: E402
 
 SELECTORES = cfg.RAIZ / "assets" / "asistente" / "selectores"
@@ -54,6 +55,38 @@ def test_elempleo_postula_en_perfil_multiple_y_omite_el_video():
     assert pasos["aplicar"]["envia"]
     assert pasos["cv_subir"]["accion"] == "cv_subir" and pasos["cv_verificar"]
     assert list(pasos).index("cv_subir") < list(pasos).index("enviar")
+
+
+def test_elempleo_lee_el_cuestionario_adicional_en_las_dos_variantes():
+    """Piloto del 2026-10-17: el cuestionario sale tras el envío de la oferta (variante normal,
+    antes de cv_subir) o tras el modal del CV (rápida, antes de confirmar)."""
+    sel = selectores("elempleo")
+    nombres = [p["nombre"] for p in sel["postular"]]
+    pasos = {p["nombre"]: p for p in sel["postular"]}
+    for sufijo, antes_de in (("", "cv_subir"), ("_tras_enviar", "confirmar")):
+        leer, enviar = pasos["cuestionario" + sufijo], pasos["cuestionario_enviar" + sufijo]
+        assert leer["accion"] == "formulario" and leer["opcional"]
+        assert leer["contenedor"] == ["form.js-questionnaire-form"]
+        assert nombres.index(leer["nombre"]) + 1 == nombres.index(enviar["nombre"])
+        assert nombres.index(enviar["nombre"]) < nombres.index(antes_de)
+        # Si el portal marca una pregunta sin responder, no se sigue como si se hubiera enviado
+        assert enviar["accion"] == "clic" and enviar["opcional"] and enviar["errores"]
+    revisar = pasos["revisar_cuestionario"]["casos"]
+    assert {"selector": ["#confirmationSuccessModal"], "resultado": "enviada"} in revisar
+    assert "#confirmationSuccessModal" in pasos["confirmar"]["selector"]
+    # El modal que lleva al sitio del empleador no confirma la postulación
+    ats = [
+        c
+        for c in pasos["confirmar"]["casos"]
+        if "#confirmationSuccessModalAts" in c.get("selector", [])
+    ]
+    assert [c["resultado"] for c in ats] == ["incierta"]
+
+
+def test_preguntas_numeradas_del_cuestionario_se_buscan_sin_el_numero():
+    """El motor lee la etiqueta con su número («1. …»): el banco la guarda sin él."""
+    leida = "3. ¿Cuentas con experiencia en el sector de tecnología?"
+    assert normalizar_pregunta(leida) == normalizar_pregunta(leida[3:])
 
 
 def test_la_nota_de_presentacion_de_elempleo_es_obligatoria():

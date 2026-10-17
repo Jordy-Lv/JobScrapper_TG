@@ -14,6 +14,7 @@ import socket
 import threading
 import time
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -1651,3 +1652,94 @@ def test_elempleo_paso_obligatorio_desconocido_no_se_da_por_enviado(tmp_path, ap
     resultado = api.de("resultado")[0]
     assert resultado["estado"] == "formulario_desconocido"
     assert "preguntasEmpleador" in resultado["html"]
+
+
+# --- elempleo: cuestionario adicional (piloto del 2026-10-17) -------------------------------
+# Algunas ofertas responden al envío con 1 o 5 y llevan a una página con preguntas abiertas
+# obligatorias; ee_cuestionario.html es la evidencia de la postulación 39 del piloto.
+
+CUESTIONARIO_EE = "https://www.elempleo.com/co/JobOffers/Questionnaires/Index?jobOfferId=PRUEBA"
+FIN_CUESTIONARIO_EE = "https://www.elempleo.com/co/JobOffers/Questionnaires/EndQuestionnaire"
+RESPUESTAS_CUESTIONARIO = {
+    "[0].OpenAnswer": "Sí, me interesa.",
+    "[1].OpenAnswer": "Sí, dos años en empresas del sector corporativo.",
+    "[2].OpenAnswer": "Sí, cinco años en soporte de aplicaciones.",
+}
+
+
+def portales_cuestionario(variante=None, *, fin="ee_cuestionario_ok.json") -> Portales:
+    p = portales_elempleo(variante, respuesta="ee_respuesta_cuestionario.json")
+    p.poner(CUESTIONARIO_EE, "ee_cuestionario.html")
+    p.al_enviar(FIN_CUESTIONARIO_EE, fin)
+    return p
+
+
+def respuestas_cuestionario(campos: list[dict]) -> list[dict]:
+    return [
+        {"indice": i, "valor": RESPUESTAS_CUESTIONARIO[c["nombre"]], "opcion": None}
+        for i, c in enumerate(campos)
+        if c["nombre"] in RESPUESTAS_CUESTIONARIO
+    ]
+
+
+def cuestionario_recibido(portales: Portales) -> dict[str, list[str]] | None:
+    """Respuestas que recibió el portal en EndQuestionnaire, o None si no se envió."""
+    if FIN_CUESTIONARIO_EE not in portales.pedidas:
+        return None
+    return parse_qs(recibidos(portales)[-1])
+
+
+@pytest.mark.parametrize("variante", [{}, RAPIDA], ids=["normal", "rapida"])
+def test_elempleo_cuestionario_adicional_se_responde_y_llega_a_enviada(tmp_path, api, variante):
+    api.respuestas = respuestas_cuestionario
+    portales = postular_elempleo(tmp_path, api, portales_cuestionario(variante))
+    campos = api.de("formulario")[0]["campos"]
+    assert [(c["nombre"], c["tipo"], c["obligatoria"]) for c in campos] == [
+        (f"[{i}].OpenAnswer", "texto", True) for i in range(3)
+    ]
+    assert campos[0]["texto"].startswith("1. El salario es $3.000.000 + comisiones")
+    assert campos[2]["texto"] == "3. ¿Cuentas con experiencia en el sector de tecnología?"
+    assert api.de("resultado")[0]["estado"] == "enviada"
+    enviado = cuestionario_recibido(portales)
+    assert enviado is not None
+    for nombre, valor in RESPUESTAS_CUESTIONARIO.items():
+        assert enviado[nombre] == [valor]
+    assert enviado["[0].QuestionId"] == ["9001"]
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert "llenado" in pasos
+    if variante:
+        assert "cuestionario_tras_enviar" in pasos  # sale después del modal del CV
+    else:
+        assert "revisar_cuestionario" in pasos and "cv_subir" not in pasos
+
+
+def test_elempleo_cuestionario_sin_respuesta_espera_al_usuario_sin_enviar(tmp_path, api):
+    api.esperar = True  # al banco le falta una respuesta: el servidor la pregunta por la card
+    portales = postular_elempleo(tmp_path, api, portales_cuestionario())
+    assert len(api.de("formulario")[0]["campos"]) == 3
+    assert "esperando_usuario" in [p["paso"] for p in api.de("paso")]
+    assert not api.de("resultado")
+    assert cuestionario_recibido(portales) is None
+    assert recibidos(portales) == ["ApplicationNote=undefined"]  # solo el envío de la oferta
+
+
+def test_elempleo_cuestionario_con_respuestas_vacias_no_se_da_por_enviado(tmp_path, api):
+    """El portal marca una pregunta sin responder: no se envía y el reporte no trae lo escrito."""
+    api.respuestas = lambda campos: respuestas_cuestionario(campos)[:2]
+    portales = postular_elempleo(tmp_path, api, portales_cuestionario())
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido"
+    assert "campos sin responder" in resultado["motivo"]
+    assert "js-questionnaire-form" in resultado["html"]
+    assert "me interesa" not in resultado["html"]
+    assert cuestionario_recibido(portales) is None
+
+
+def test_elempleo_cuestionario_guardado_hacia_el_empleador_queda_incierta(tmp_path, api):
+    api.respuestas = respuestas_cuestionario
+    portales = portales_cuestionario(fin="ee_cuestionario_ats.json")
+    postular_elempleo(tmp_path, api, portales)
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "incierta"
+    assert "empleador" in resultado["motivo"]
+    assert cuestionario_recibido(portales) is not None

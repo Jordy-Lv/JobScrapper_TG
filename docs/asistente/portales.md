@@ -79,7 +79,8 @@ rápida), «Mercaderista Funza» (1886780017, postulación normal) y «Analista 
 | Confirmación | Sin recargar: `div.alert.js-alert-offer` («Postulación exitosa · Gracias por haberte postulado…») pasa a visible y aparece `.id-ShowApplied` («Postulado»). Otras respuestas del portal: `Response 1` y `5` redirigen a otra página, `2` abre un sitio externo del empleador, `3` hoja de vida incompleta y `4` ya postulado. |
 | Video (V-Prez) | `#jobOfferApplicationVprez`, solo si `#vprezInputHidden[data-vprez-url]` tiene valor (6 de 20). Sale **después** de guardar la postulación: «Omitir» (`#btnSkipVprez`) o «Continuar proceso» (`#btnRedirectVprez`, cuestionario en video en v-prez.com con la imagen del candidato). Es opcional y la postulación ya quedó hecha. |
 | Nota de presentación | `#ApplicationNoteLightBox` (formulario `form.js-offer-apply`, `textarea[name=ApplicationNote]`, hasta 2.000 caracteres), con «Enviar» (`button.js-apply-with-note`) y «Omitir este paso» (`a.js-apply-offer-lightbox`). Solo en ofertas VIP (`data-is-vip`, 0 de 20) y **antes** del envío: en la variante normal «Enviar» postula; en la rápida pasa al modal del CV. |
-| Preguntas del empleador | No hay un cuestionario propio en el detalle de la oferta: lo que el empleador pide aparte es el video de V-Prez (externo) o la nota. Las respuestas `1` y `5` llevan a una página que no se vio; el motor la trata como paso desconocido. |
+| Preguntas del empleador | No hay un cuestionario propio en el detalle de la oferta (ni una marca pública que lo anuncie): lo que el empleador pide aparte es el video de V-Prez (externo), la nota o el cuestionario adicional de la fila siguiente. |
+| Cuestionario adicional | Visto en el piloto del 2026-10-17 (postulación 39, evidencia en `tests/fixtures/extension/ee_cuestionario.html`). Al guardar la postulación, el portal responde `1` o `5` y lleva a `/co/JobOffers/Questionnaires/…`, «Cuestionario adicional · Para finalizar la postulación a la oferta de empleo es obligatorio completar el cuestionario»: preguntas numeradas (`textarea[name='[n].OpenAnswer']`, obligatorias, hasta 2.000 caracteres; `[n].IsCloseAnswer` hace pensar que también hay preguntas cerradas) y «Postularme a oferta» (`form.js-questionnaire-form`). `Questionnaires.js` (público) valida con jQuery Validate y envía por AJAX a `EndQuestionnaire`: `2` muestra `#confirmationSuccessModal` («¡Postulación exitosa!»), `1` lleva a otro cuestionario y `4` muestra `#confirmationSuccessModalAts` («Cuestionario guardado», el empleador sigue en su propio sistema). Los dos modales vienen ocultos en el HTML desde que carga la página. Si `.js-timer-elapsed` trae un número, el cuestionario tiene tiempo límite y al vencer redirige a `DoRedirect`. |
 | Modo del CV | **`perfil_multiple`** (corrige la nota anterior que decía `perfil_unico`): el modal rápido muestra «La hoja de vida que recibirá la empresa es:» con una lista (`select.js-select-file`, `Attachments.SelectedIds`) de los documentos guardados en la hoja de vida, uno ya elegido. Un archivo nuevo (`input#attachment-input[name=File]`, PDF/DOC, máx. 3 MB) se envía con la postulación **y queda guardado en la hoja de vida**; con el máximo de documentos (`data-max-files-allowed`, 5) el campo se desactiva. La variante normal no deja elegir: el empleador recibe la hoja de vida del perfil. |
 | Captcha | Ninguno al postular (la página carga reCAPTCHA solo para «Compartir oferta»). |
 | Páginas que no se tocan | `/co/Account/LogOff`, el cambio de contraseña y de correo de «Mi cuenta», «Compartir oferta» y las alertas de empleo. |
@@ -111,11 +112,39 @@ exigen una versión nueva de la extensión: `motor.js` y los adaptadores no camb
    - una **rápida** (`data-is-quick-offer-application="True"`, con el modal del CV), por ejemplo una de
      las que muestran «Si deseas, a continuación puedes adjuntar nuevos documentos»;
    - una **con video V-Prez**, para comprobar que se omite.
-   Si aparece una oferta VIP (nota de presentación), sirve para probar la pregunta por la card.
+   Si aparece una oferta VIP (nota de presentación), sirve para probar la pregunta por la card. Ninguna
+   marca pública avisa del cuestionario adicional: se ve solo al postular.
 5. **Revisar cada una:** estado `enviada` en Telegram, el banner «Postulación exitosa» en la pestaña (o la
    evidencia en `data/asistente/postulaciones/<id>/`), y en el portal la postulación y el documento
    enviado. «Mis procesos» y el banner «ya postulado» tardan unos minutos en reflejarla.
 6. **Al terminar**, `/plataformas elempleo off` si algo falló, y anotar aquí el resultado.
+
+**Primer intento (2026-10-17): falló en el cuestionario adicional.** La postulación 39 («Consultor ti
+sector corporativo - bogotá», variante normal, sin nota) pasó `aplicar`, `omitir_video`,
+`revisar_postulacion` y `aviso_datos`. El portal respondió al envío con la página «Cuestionario adicional»
+(tres preguntas abiertas obligatorias) y el flujo terminó en `formulario_desconocido` en `cv_subir` («no
+apareció el campo del archivo»), sin responder ni enviar el cuestionario. La postulación no quedó
+finalizada en el portal.
+
+Arreglo (tarea 4.4c, `elempleo.json` versión `2026.10.17-1`, sin versión nueva de la extensión). En la
+variante normal, el cuestionario se lee después de `aviso_datos` (pasos `cuestionario`,
+`cuestionario_enviar` y `revisar_cuestionario`, antes de `cv_subir`). En la rápida se lee después de
+`enviar` (`cuestionario_tras_enviar` y `cuestionario_enviar_tras_enviar`, antes de `confirmar`). Sus
+preguntas pasan por el banco de respuestas como cualquier formulario. Si falta una obligatoria, el bot la
+pregunta por la card y la pestaña se cierra sin pulsar «Postularme a oferta». `#confirmationSuccessModal`
+da `enviada`, y el modal del ATS da `incierta`.
+
+**Qué comprobar al repetir el piloto** (con los selectores nuevos desplegados):
+- Si sale el cuestionario: las respuestas enviadas (pasos `llenado` y la evidencia) y el modal «¡Postulación
+  exitosa!».
+- Si el bot pregunta por la card: al responder, la postulación vuelve a la cola y empieza otra vez desde
+  la oferta. **No se ha visto** qué muestra entonces el portal para una postulación con el cuestionario a
+  medias: puede volver a llevar al cuestionario (lo esperado), responder `4` o mostrar el banner «ya
+  postulado». En ese caso terminaría como `ya_postulada` sin haber completado el cuestionario. Anotar aquí
+  lo que pase y revisar «Mis procesos».
+- Un segundo cuestionario encadenado (respuesta `1` de `EndQuestionnaire`) no está soportado: en la
+  variante normal termina en `formulario_desconocido` en `cv_subir` y en la rápida en `incierta`, los dos
+  con el HTML de la evidencia.
 
 **7.1, si las tres salen bien:** poner `elempleo: {automatica: true}` en `config.yaml`, cambiar
 `verificado.postulacion` a `true` en `elempleo.json` (subir `version`) y actualizar la autorización de datos
@@ -134,6 +163,8 @@ aceptación nueva una sola vez.
 - `incierta` con «no apareció la confirmación»: el portal respondió con una redirección (respuestas 1 o 5)
   a una página que no se vio; el HTML de la evidencia dice cuál es.
 - `formulario_desconocido` en `aplicar`: cambió la clase del botón de postular.
+- `formulario_desconocido` en `cuestionario_enviar` («el portal marcó campos sin responder»): una
+  pregunta del cuestionario quedó vacía (por ejemplo, una cerrada que el motor no supo marcar); no se envió.
 - `bloqueada` con `portal_perfil_incompleto`: la hoja de vida del portal está incompleta.
 - Con autorización para actualizar el CV y 5 documentos ya guardados, el portal desactiva el campo del
   archivo: la postulación sale con el documento elegido aunque el resumen diga que se subió el nuevo.
