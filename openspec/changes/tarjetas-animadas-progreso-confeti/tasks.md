@@ -25,6 +25,6 @@
 
 ## 5. Cierre
 
-- [ ] 5.1 Correr la batería completa (`pytest`) y `ruff`, y dejar todo en verde
+- [x] 5.1 Correr la batería completa (`pytest`) y `ruff`, y dejar todo en verde. Resultado: `ruff` limpio y 1223 pruebas pasan; fallan 7 ajenas al change (no tocan `progreso`, la card, el resumen ni la salida): 4 de `test_extension.py` (elempleo / barra midiendo, del trabajo de extensión que otra sesión tiene sin commitear) y 3 de `tests/radar` (`test_notificador` ×2 por `WinError 193` al ejecutar el script `hermes` en Windows, y `test_punto_entrada_de_la_raiz_muestra_la_ayuda`)
 - [ ] 5.2 👤 Prueba del dueño en Telegram real: ver la barra avanzar en una postulación y confirmar que el confeti aparece al enviar (y ajustar el id del efecto si Telegram lo rechaza)
 - [ ] 5.3 Archivar el change con `/opsx:archive` para que la spec principal quede actualizada
