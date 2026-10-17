@@ -87,7 +87,7 @@ async function tarjeta(p, { habilitada, vinculado, info, cuentaOk, vigilando }) 
     }));
   } else if (vigilando) {
     pill = el("span", "pill pendiente", "Iniciando sesión…");
-    sub.textContent = "Esperando que termines de iniciar sesión en la pestaña abierta";
+    sub.textContent = "Termina de iniciar sesión en la pestaña";
   } else if (vinculado && info && info.estado !== "sin_sesion") {
     // La cuenta queda "confirmada" solo cuando el servidor lo dice explícitamente: ni sin
     // respuesta todavía ni tras cancelar en el bot se debe mostrar como lista
