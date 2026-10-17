@@ -60,8 +60,8 @@ gratuito. La versión con diagramas está en `docs/asistente/guia-asistente-post
 | Plataforma | Cómo se postula |
 |---|---|
 | Computrabajo y Magneto | Sola, con tu sesión |
-| elempleo | Sola, cuando el administrador la activa y tú le das permiso: en el popup de la extensión pulsa *Activar* en elempleo y acepta el permiso para elempleo.com. Mientras tanto, recibes el paquete para copiar |
-| LinkedIn, GetOnBoard, Servicio Público de Empleo y otras | No se postula sola: recibes un paquete listo para copiar (CV adaptado, carta, respuestas y enlace) |
+| elempleo | Sola, cuando el administrador la activa y tú le das permiso: en el popup de la extensión pulsa *Activar* en elempleo y acepta el permiso para elempleo.com. Mientras tanto, el bot te avisa que no puede postularla |
+| LinkedIn, GetOnBoard, Servicio Público de Empleo y otras | No se postula: el bot solo postula de forma automática y te avisa el motivo |
 
 En elempleo, el video de presentación (V-Prez) que piden algunas ofertas se omite; si la oferta
 pide una nota de presentación y no se puede redactar con tu perfil, el bot te la pregunta antes de
@@ -78,7 +78,7 @@ enviar.
 - **Mantén tu computador encendido con el navegador abierto** (puede estar minimizado). La
   extensión revisa cada 30 segundos si hay postulaciones pendientes.
 - Con el navegador abierto suele tardar menos de 2 minutos. Si estaba apagado, la postulación
-  espera en cola; si pasan 24 horas, el bot te envía un paquete listo para copiar.
+  espera en cola; si pasan 24 horas, el bot te avisa que no pudo postularla.
 - Puedes tocar varias vacantes seguidas: se postulan de a una, con pausas. Máximo 15 por día.
 - **Modo automático (opcional):** `/automatico 70` postula solo a las vacantes con 70 % o más de
   afinidad con tu perfil. Se desactiva con el mismo comando.
@@ -103,11 +103,11 @@ ver la versión más reciente.
 
 | Situación | Qué pasa |
 |---|---|
-| Vacante de una plataforma que no se postula sola (ver «Plataformas») | Recibes un paquete listo para copiar (CV adaptado, carta, respuestas y enlace) |
+| Vacante de una plataforma que no se postula sola (ver «Plataformas») | El bot te avisa que no puede postularla; no se envía ningún paquete |
 | Aparece un captcha o verificación | La extensión se detiene y te muestra la pestaña; al completarla, sigue sola. Nunca se evaden captchas |
 | Se cerró tu sesión en el portal | El bot te avisa «Inicia sesión en…» y lo pendiente se retoma solo |
 | La vacante está cerrada o ya te habías postulado | Se te informa y no se envía nada |
-| El portal cambió su página | Se detiene sin enviar, recibes el paquete para copiar y el administrador lo corrige |
+| El portal cambió su página | Se detiene sin enviar, el bot te avisa y el administrador lo corrige |
 | Cerraste el navegador a mitad de camino | Si no se había enviado, se reintenta; si ya se pulsó enviar, el bot te pide verificar en «Mis postulaciones» (nunca se envía dos veces) |
 | No tienes clave de Gemini o se agotó la cuota | Se postula con tu CV base y tus respuestas; lo que requiera redacción se te pregunta |
 | Hay otra cuenta abierta en el portal | No se postula; el bot te muestra tu correo asociado y el encontrado (parcialmente oculto) |

@@ -204,22 +204,6 @@ def test_formulario_con_dato_faltante_pregunta_y_reanuda(mundo):
     assert resultado.cv is not None and resultado.cv.name == "CV_Ana_Perez.pdf"
 
 
-@respx.mock
-def test_paquete_de_respaldo_sin_ia(mundo):
-    respx.get(URL_LI).mock(
-        return_value=httpx.Response(200, text=(FIXTURES / "linkedin.html").read_text("utf-8"))
-    )
-    toque = mundo.nucleo.tocar(mundo.usuario, id_corto("linkedin:1"))
-    paquete = asyncio.run(
-        mundo.nucleo.armar_paquete(mundo.usuario, toque.vacante, toque.postulacion.id, toque.motivo)
-    )
-    assert paquete.cv.is_file() and paquete.cv.read_bytes().startswith(b"%PDF")
-    assert "Practicante de sistemas" in paquete.carta
-    assert paquete.contacto["Correo"] == "ana@gmail.com"
-    textos = {r.pregunta.texto: r.texto for r in paquete.respuestas}
-    assert textos["¿Cuál es tu aspiración salarial?"] == "1300000"
-
-
 def test_clave_gemini_cifrada(mundo):
     mundo.nucleo.guardar_clave_gemini(mundo.usuario.id, "AIzaSecreta1234")
     fila = mundo.base.cx.execute("SELECT gemini_clave, gemini_ult4 FROM usuarios").fetchone()

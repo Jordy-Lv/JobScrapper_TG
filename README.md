@@ -86,7 +86,7 @@ flowchart TD
   2. Banco de preguntas compartidas del sistema.
   3. Respuestas aprendidas de postulaciones anteriores.
   4. Inferencia con la clave de Gemini del propio usuario (plan gratuito).
-- **Paquete de Respaldo:** Si la oferta es de un portal sin postulación automática (LinkedIn, GetOnBoard, el SPE o un sitio externo), entrega un paquete listo para copiar y pegar (respuestas, carta de presentación y PDF adaptado).
+- **Solo postulación automática:** Si la oferta es de un portal sin postulación automática (LinkedIn, GetOnBoard, el SPE o un sitio externo) o la extensión no está conectada, el bot avisa el motivo en la card y no envía paquete.
 
 ### 🛡️ 3. Extensión de Navegador Zero-Trust
 - **Ejecución Local:** La extensión corre en Microsoft Edge, Google Chrome o Brave. La postulación se emite desde la máquina, la IP y la sesión abierta del candidato.

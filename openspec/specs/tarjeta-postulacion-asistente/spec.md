@@ -58,7 +58,7 @@ La card SHALL reflejar en cada momento uno de estos estados: en cola, esperando 
 
 #### Scenario: Respaldo manual
 - **WHEN** la postulación pasa a respaldo manual (plataforma no automática, formulario desconocido, rechazo del portal, sin respuesta del usuario)
-- **THEN** la card explica el motivo, ofrece abrir la vacante y marcar «Ya me postulé» o «No me interesa», y el paquete se envía en mensajes aparte
+- **THEN** la card explica el motivo, ofrece abrir la vacante y marcar «Ya me postulé» o «No me interesa», y no se envía ningún paquete (CV, mensaje ni respuestas) en mensajes aparte
 
 ### Requirement: Preguntas rápidas dentro de la card
 Cuando la postulación necesita un dato del usuario, la card SHALL cambiar a «Pregunta rápida» con la pregunta, el avance si hay más de una y los botones de opciones, o la indicación de escribir la respuesta. Al guardar la respuesta, la card MUST volver al estado anterior y el texto escrito por el usuario SHALL borrarse del chat sin interrumpir el flujo si no se puede.

@@ -113,7 +113,6 @@ def _respaldo(card: Card) -> list[str]:
     if motivo == "sin_navegador":
         lineas.append("Falta vincular tu navegador.")
     lineas.append(f"No puedo postularla sola: {t.e(t.MOTIVOS_RESPALDO.get(motivo, motivo))}.")
-    lineas.append("Te envío el paquete abajo para que la envíes a mano.")
     return lineas
 
 

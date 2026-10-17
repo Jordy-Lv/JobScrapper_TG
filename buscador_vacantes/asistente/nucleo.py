@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -21,7 +21,7 @@ from buscador_vacantes.asistente.campos import CAMPOS, DatosUsuario
 from buscador_vacantes.asistente.cifrado import Cifrador, ClaveInvalida
 from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal
-from buscador_vacantes.asistente.cv_adaptado import adaptar, cv_base, redactar_carta
+from buscador_vacantes.asistente.cv_adaptado import adaptar, cv_base
 from buscador_vacantes.asistente.cv_lectura import PerfilExtraido
 from buscador_vacantes.asistente.cv_pdf import Contacto, generar_pdf, nombre_archivo
 from buscador_vacantes.asistente.datos import BaseAsistente
@@ -65,20 +65,6 @@ class Toque:
     vacante: VacanteIndexada | None = None
     postulacion: Postulacion | None = None
     motivo: str | None = None  # por qué no es automática
-
-
-@dataclass
-class Paquete:
-    """Respaldo para postular a mano: todo listo para copiar."""
-
-    vacante: VacanteIndexada
-    motivo: str
-    afinidad: Afinidad | None
-    cv: Path
-    carta: str
-    respuestas: list[Respuesta] = field(default_factory=list)
-    contacto: dict[str, str] = field(default_factory=dict)
-    detalle_parcial: bool = False
 
 
 class Nucleo:
@@ -430,34 +416,6 @@ class Nucleo:
         if restantes == 0 and fila["postulacion_id"]:
             return self.cola.reanudar(fila["postulacion_id"], ahora, (E.ESPERANDO_USUARIO,))
         return False
-
-    # --- paquete de respaldo -------------------------------------------------------------
-
-    async def armar_paquete(self, usuario: Usuario, vacante: VacanteIndexada, pid: int,
-                            motivo: str) -> Paquete:  # fmt: skip
-        datos = self.datos_usuario(usuario.id)
-        if datos is None:
-            raise RuntimeError("el usuario no tiene perfil")
-        afinidad, cv, parcial = await self.preparar(usuario, vacante, pid)
-        cliente, clave = await self._ia(usuario.id)
-        carta = await redactar_carta(
-            datos, cv_base(datos.perfil), vacante.titulo or "la vacante", vacante.resumen,
-            self.config.carta_max_caracteres, cliente=cliente, clave=clave, usuario_id=usuario.id,
-        )  # fmt: skip
-        tipicas = self.config.preguntas_tipicas.get(
-            vacante.fuente, self.config.preguntas_tipicas.get("otras", [])
-        )
-        ctx = Contexto(self.base, usuario.id, datos, self.ahora(), cliente, clave,
-                       vacante.resumen)  # fmt: skip
-        respuestas = [await resolver(Pregunta(t), ctx) for t in tipicas]
-        self._guardar_respuestas(pid, [r for r in respuestas if not r.falta])
-        c = self.contacto(datos)
-        pares = (
-            ("Nombre", c.nombre), ("Correo", c.correo), ("Teléfono", c.telefono),
-            ("Ciudad", c.ciudad),
-        )  # fmt: skip
-        contacto = {k: v for k, v in pares if v}
-        return Paquete(vacante, motivo, afinidad, cv, carta, respuestas, contacto, parcial)
 
     # --- modo automático por usuario -------------------------------------------------------
 

@@ -188,8 +188,8 @@ def test_alta_desde_el_enlace_retoma_la_vacante(mundo):
     mensajes = "\n".join(mundo.s.de(ANA))
     # con vacante pendiente no hay mensaje de cierre
     assert not any(m[1] == t.ALTA_LISTA for m in mundo.s.mensajes)
-    assert "Practicante de sistemas" in mensajes and "Mensaje de presentación" in mensajes
-    assert any(nombre.startswith("CV_") for _, nombre in mundo.s.documentos)
+    assert "Mensaje de presentación" not in mensajes and "Respuestas típicas" not in mensajes
+    assert not mundo.s.documentos  # LinkedIn no se postula sola y ya no se envía paquete
     datos = mundo.n.datos_usuario(usuario.id)
     assert datos.cuestionario["correo"] == "ana@gmail.com"
     assert datos.perfil.habilidades_tecnicas == ["Python", "SQL", "Excel"]
@@ -560,21 +560,10 @@ def test_dueno_ve_usuarios_con_auditoria(mundo):
     assert mundo.base.cx.execute("SELECT accion FROM auditoria").fetchone()[0] == "listar_usuarios"
 
 
-@respx.mock
 def test_detalle_muestra_pasos_respuestas_y_cv(mundo):
-    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
-    correr(alta_completa(mundo, ANA))
-    usuario = mundo.n.usuarios.obtener(ANA)
-    datos = mundo.n.datos_usuario(usuario.id)
-    mundo.n.guardar_cuestionario(usuario.id, {**datos.cuestionario, "salario": "1300000"})
-
-    async def tocar():
-        await mundo.c.procesar_toque(usuario, id_corto("linkedin:1"))
-        await mundo.c.esperar_tareas()
-
-    correr(tocar())
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
     mundo.s.documentos.clear()
-    correr(mundo.c.al_comando(ANA, "detalle", ["1"]))
+    correr(mundo.c.al_comando(ANA, "detalle", [str(p.id)]))
     texto = mundo.s.de(ANA)[-1]
     assert "Pasos" in texto and "Preguntas y respuestas" in texto
     assert mundo.s.documentos and mundo.s.documentos[0][1].startswith("CV_")
@@ -1208,7 +1197,7 @@ def test_start_con_el_navegador_ya_vinculado_cierra_el_alta_y_retoma_la_vacante(
     mensajes = "\n".join(mundo.s.de(ANA))
     assert "Conexión con tus portales" in mensajes and "✓ Navegador vinculado" in mensajes
     assert "Paso 5 de 5" not in mensajes.split("Conexión con tus portales")[-1]
-    assert "Practicante de sistemas" in mensajes
+    assert "Mensaje de presentación" not in mensajes  # ya no se envía paquete
 
 
 async def vincular_navegador(m, tid):
@@ -1749,7 +1738,7 @@ def test_texto_fuera_de_turno_no_cambia_la_card_ni_responde(mundo):
 
 
 @respx.mock
-def test_respaldo_manual_la_card_resume_y_el_paquete_va_aparte(mundo):
+def test_respaldo_manual_solo_muestra_la_card_sin_paquete(mundo):
     usuario = preparar_toque(mundo, automatico=False)
     pid, enviados = tocar(mundo, usuario)
     cards = [m for m in enviados if "No puedo postularla sola" in m[1]]
@@ -1760,8 +1749,9 @@ def test_respaldo_manual_la_card_resume_y_el_paquete_va_aparte(mundo):
     ]  # fmt: skip
     textos = [m[1] for m in enviados]
     assert not any("Cuando termines" in x or "Te preparo el paquete" in x for x in textos)
-    assert any("Mensaje de presentación" in x for x in textos)  # el paquete sigue llegando
-    assert mundo.s.documentos  # con su CV adaptado
+    assert not any("Mensaje de presentación" in x or "Respuestas típicas" in x for x in textos)
+    assert not mundo.s.documentos  # sin CV adaptado: solo se postula de forma automática
+    assert len(enviados) == 1  # nada más que la card
     assert card_guardada(mundo, pid).fase == tp.RESPALDO
 
 

@@ -37,7 +37,7 @@ from buscador_vacantes.asistente.cv_lectura import (
 from buscador_vacantes.asistente.enlaces import PREFIJO_VACANTE
 from buscador_vacantes.asistente.ia import ClaveInvalida, CuotaAgotada, ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
-from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Paquete, Toque
+from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Toque
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
     ErrorPegado,
@@ -1446,8 +1446,6 @@ class Conversacion:
         await self._pintar_card(usuario, pid, crear=True)
         if toque.camino == Camino.AUTOMATICA:
             self._en_segundo_plano(self._preparar(usuario, toque))
-        else:
-            self._en_segundo_plano(self._enviar_paquete(usuario, pid, toque.motivo))
         return toque
 
     async def al_toque_canal(self, tid: int, id_corto: str) -> RespuestaToque:
@@ -1497,7 +1495,7 @@ class Conversacion:
             return RespuestaToque(f"Ya la tienes: {estado}.", alerta=True)
         if toque.camino == Camino.RESPALDO:
             return RespuestaToque(
-                "📋 Esta no la puedo enviar sola: te mandé al bot el paquete para postularte.",
+                "📋 Esta no la puedo enviar sola: mira el motivo en el bot.",
                 alerta=True,
             )
         return RespuestaToque("Esa vacante ya no está disponible.", alerta=True)
@@ -1522,45 +1520,6 @@ class Conversacion:
             card.afinidad = texto
             self._guardar_card(pid, card)
             await self._pintar_card(usuario, pid)
-
-    async def _enviar_paquete(self, usuario: Usuario, pid: int, motivo: str) -> None:
-        p = self.n.cola.obtener(pid)
-        vacante = self.n.indice.obtener(p.id_corto) if p and p.id_corto else None
-        if vacante is None:
-            return
-        try:
-            paquete = await self.n.armar_paquete(usuario, vacante, pid, motivo)
-        except Exception:  # noqa: BLE001
-            log.exception("No se pudo armar el paquete %s", pid)
-            await self._enviar(usuario, "No pude armar el paquete. Intenta de nuevo más tarde.")
-            return
-        await self._mostrar_paquete(usuario, pid, paquete)
-
-    async def _mostrar_paquete(self, usuario: Usuario, pid: int, paquete: Paquete) -> None:
-        v = paquete.vacante
-        cabecera = f"📋 <b>{t.e(v.titulo)}</b> · {t.e(v.empresa)}"
-        if paquete.afinidad:
-            cabecera += f"\n🎯 Afinidad {paquete.afinidad.porcentaje} %"
-            if paquete.afinidad.faltan:
-                cabecera += f" · te falta: {t.e(', '.join(paquete.afinidad.faltan[:5]))}"
-        if paquete.detalle_parcial:
-            cabecera += "\n(No pude leer la vacante completa: la adaptación es parcial.)"
-        await self._enviar(usuario, cabecera)
-        await self.s.documento(usuario.telegram_id, paquete.cv, "Tu CV adaptado a esta vacante")
-        await self._enviar(usuario, "✉️ <b>Mensaje de presentación</b>\n" + t.bloque(paquete.carta))
-        lineas = []
-        for r in paquete.respuestas:
-            valor = t.bloque(r.texto) if not r.falta else "<i>responde tú</i>"
-            lineas.append(f"<b>{t.e(r.pregunta.texto)}</b>\n{valor}")
-        if lineas:
-            await self._enviar(usuario, "💬 <b>Respuestas típicas</b>\n\n" + "\n\n".join(lineas))
-        if paquete.contacto:
-            await self._enviar(
-                usuario,
-                "👤 <b>Tus datos</b>\n"
-                + "\n".join(f"{k}: {t.bloque(v)}" for k, v in paquete.contacto.items()),
-            )
-        # El cierre («Ya me postulé», «No me interesa», pegar preguntas) está en la card
 
     # --- texto libre ------------------------------------------------------------------
 
@@ -2576,7 +2535,6 @@ class Conversacion:
         elif ev.estado in CON_RESPALDO:
             motivo = ev.detalle if ev.tipo == "respaldo" else str(ev.estado)
             await self._cerrar_card(usuario, p.id, tp.RESPALDO, motivo=motivo)
-            self._en_segundo_plano(self._enviar_paquete(usuario, p.id, motivo))
             if (
                 ev.estado in (E.FORMULARIO_DESCONOCIDO, E.BLOQUEADA)
                 and self.config.dueno_telegram_id
