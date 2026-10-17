@@ -45,6 +45,7 @@ class FuenteFalsa(Fuente):
                 fuente=self.nombre, id_fuente=o["id"], titulo=o["titulo"], empresa=o["empresa"],
                 url=f"https://falsa.test/{o['id']}", keyword=keyword,
                 ubicacion=o.get("ubicacion", "Cartagena, Bolívar"),
+                descripcion=o.get("descripcion"),
                 publicada=ahora - timedelta(days=o.get("dias", 1)),
             )
             for o in respuesta.json()
@@ -733,3 +734,100 @@ def test_vacante_con_condicion_de_modalidad_la_envia_a_la_ia(config, estado):
     [item] = ia.payloads[0]["vacantes"]
     assert item["exige_modalidad"] == "remoto o híbrido"
     assert item["ciudad_base"] == "Cartagena"
+
+
+class FuenteDetalleFalsa(FuenteFalsa):
+    soporta_detalle = True
+
+
+@respx.mock
+def test_descartes_registran_cada_etapa(config, estado):
+    from buscador_vacantes.comun.config import Detalle
+    from buscador_vacantes.comun.estado import vacante_a_json
+    from buscador_vacantes.comun.normalizar import huella
+
+    estado.marcar_inicializada()
+    vencida_ia = Vacante(
+        fuente="falsa", id_fuente="v_ia", titulo="Analista BI", empresa="X",
+        url="https://falsa.test/v_ia", keyword="practicante sistemas",
+    )  # fmt: skip
+    with estado.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO pendientes(huella, vacante_json, desde) VALUES (?, ?, ?)",
+            (
+                huella(vencida_ia.titulo, vencida_ia.empresa, vencida_ia.clave),
+                vacante_a_json(vencida_ia),
+                a_texto(AHORA - timedelta(hours=25)),
+            ),
+        )
+    vencida_det = Vacante(
+        fuente="falsa", id_fuente="v_det", titulo="Practicante TI", empresa="Y",
+        url="https://falsa.test/v_det", keyword="practicante sistemas",
+    )  # fmt: skip
+    estado.encolar_detalle(
+        vencida_det,
+        huella(vencida_det.titulo, vencida_det.empresa, vencida_det.clave),
+        AHORA - timedelta(hours=50),
+    )
+
+    mock_ofertas([
+        {"id": "1", "titulo": "Aprendiz SENA Contable", "empresa": "Éxito", "descripcion": "Causación y archivo contable"},
+        {"id": "2", "titulo": "Analista Junior", "empresa": "Bancolombia"},
+        {"id": "3", "titulo": "Ingeniero de Procesos", "empresa": "Planta"},
+    ])  # fmt: skip
+    ia = IAFalsa(RespuestaIA(True, {"vacantes": [
+        {"id": 0, "aceptar": False, "categoria": None, "motivo": "rol administrativo"},
+        {"id": 1, "aceptar": True, "categoria": "practicas", "motivo": "práctica"},
+    ]}))  # fmt: skip
+    conf = config.model_copy(update={"fuentes": {
+        "falsa": ConfFuente(presupuesto=1, reservado_nucleo=1, detalle=Detalle()),
+    }})  # fmt: skip
+    corrida(conf, estado, ia=ia, fuentes={"falsa": FuenteDetalleFalsa}).ejecutar()
+
+    filas = {f["clave"]: dict(f) for f in estado.cx.execute("SELECT * FROM descartes").fetchall()}
+    assert set(filas) == {"falsa:1", "falsa:2", "falsa:3", "falsa:v_ia", "falsa:v_det"}
+    assert (filas["falsa:1"]["etapa"], filas["falsa:1"]["motivo"], filas["falsa:1"]["keyword"]) == (
+        "reglas", "no_ti", "practicante sistemas",
+    )  # fmt: skip
+    assert (filas["falsa:2"]["etapa"], filas["falsa:2"]["motivo"]) == ("ia", "rol administrativo")
+    assert filas["falsa:3"]["etapa"] == "guardarrail"
+    assert filas["falsa:v_ia"]["etapa"] == "vencida"
+    assert filas["falsa:v_det"]["etapa"] == "vencida"
+    assert all(f["veces"] == 1 for f in filas.values())
+
+
+@respx.mock
+def test_misma_vacante_en_dos_corridas_sube_veces_sin_duplicar(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas([
+        {"id": "1", "titulo": "Aprendiz SENA Contable", "empresa": "Éxito", "descripcion": "Causación y archivo contable"},
+        {"id": "2", "titulo": "Analista Junior", "empresa": "Bancolombia"},
+    ])  # fmt: skip
+    ia = IAFalsa(RespuestaIA(True, {"vacantes": [
+        {"id": 0, "aceptar": False, "categoria": None, "motivo": "no es TI"},
+    ]}))  # fmt: skip
+    reloj = [AHORA]
+    conf = config_una_peticion(config)
+    for delta_h in (0, 2):
+        reloj[0] = AHORA + timedelta(hours=delta_h)
+        Corrida(
+            conf, SECRETOS, estado, Modo(), notificador=NotificadorFalso(), ia=ia,
+            fuentes={"falsa": FuenteFalsa}, reloj=lambda: reloj[0],
+            dormir=lambda s: None, salida=lambda s: None,
+        ).ejecutar()  # fmt: skip
+
+    filas = {f["clave"]: dict(f) for f in estado.cx.execute("SELECT * FROM descartes").fetchall()}
+    assert set(filas) == {"falsa:1", "falsa:2"}
+    for fila in filas.values():
+        assert fila["veces"] == 2
+        assert fila["primera_vez"] == a_texto(AHORA)
+        assert fila["ultima_vez"] == a_texto(AHORA + timedelta(hours=2))
+
+
+@respx.mock
+def test_modos_no_productivos_no_escriben_descartes(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas()
+    for modo in (Modo(dry_run=True), Modo(seed=True), Modo(chat_prueba=True)):
+        corrida(config, estado, modo).ejecutar()
+    assert estado.cx.execute("SELECT COUNT(*) FROM descartes").fetchone()[0] == 0

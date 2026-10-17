@@ -361,6 +361,7 @@ class Incidentes(Modelo):
 class Estado(Modelo):
     dias_vistas: int = Field(90, ge=1)
     dias_intentos: int = Field(30, ge=1)
+    dias_descartes: int = Field(14, ge=1)
 
 
 class Salud(Modelo):

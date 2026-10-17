@@ -45,6 +45,7 @@ class RespuestaClasificador(BaseModel):
 class Dudosa:
     vacante: Vacante
     huella: str
+    motivo: str = ""
 
 
 @dataclass
@@ -94,16 +95,20 @@ class Clasificador:
         with self.estado.transaccion() as cx:
             cx.execute("DELETE FROM pendientes WHERE huella = ?", (huella,))
 
-    def _cache(self, huella: str) -> tuple[bool, Categoria | None] | None:
+    def _cache(self, huella: str) -> tuple[bool, Categoria | None, str] | None:
         fila = self.estado.cx.execute(
-            "SELECT aceptar, categoria FROM clasificaciones "
+            "SELECT aceptar, categoria, motivo FROM clasificaciones "
             "WHERE huella = ? AND version_prompt = ?",
             (huella, self.version_prompt),
         ).fetchone()
         if fila is None:
             return None
         categoria = fila["categoria"]
-        return bool(fila["aceptar"]), Categoria(categoria) if categoria else None
+        return (
+            bool(fila["aceptar"]),
+            Categoria(categoria) if categoria else None,
+            fila["motivo"] or "",
+        )
 
     def _guardar_clasificacion(
         self, huella: str, aceptar: bool, categoria: Categoria | None, motivo: str, ahora: datetime
@@ -163,7 +168,8 @@ class Clasificador:
                 continue
             resultado.desde_cache += 1
             self._quitar_pendiente(dudosa.huella)
-            aceptar, categoria = cache
+            aceptar, categoria, motivo = cache
+            dudosa.motivo = motivo
             if aceptar:
                 self._aceptar(dudosa, categoria, resultado)
             else:
@@ -178,6 +184,7 @@ class Clasificador:
                 if self.config.politica_sin_ia == "aceptar":
                     self._aceptar(dudosa, None, resultado)
                 else:
+                    dudosa.motivo = "politica_sin_ia"
                     resultado.rechazadas.append(dudosa)
             return resultado
 
@@ -245,6 +252,7 @@ class Clasificador:
                     categoria = Categoria(item.categoria)
                 except ValueError:
                     categoria = None  # se usa la categoría por términos
+            dudosa.motivo = item.motivo
             if item.aceptar:
                 self._aceptar(dudosa, categoria, resultado)
                 categoria = dudosa.vacante.categoria

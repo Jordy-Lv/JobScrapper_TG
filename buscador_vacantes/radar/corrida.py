@@ -74,6 +74,7 @@ def chat_admin(secretos: cfg.Secretos, prueba: bool) -> str | None:
     log.warning("TELEGRAM_CHAT_ADMIN sin definir: resúmenes y avisos van al grupo de ofertas")
     return secretos.telegram_chat_id
 
+
 FUENTES: dict[str, type[Fuente]] = {
     "linkedin": LinkedIn,
     "computrabajo": Computrabajo,
@@ -149,6 +150,7 @@ class ResumenCorrida:
     por_detalle: list[Vacante] = field(default_factory=list)
     # Claves recuperadas del detalle que salen de la cola al terminar de publicarse
     cola_resuelta: list[str] = field(default_factory=list)
+    claves_descartadas: set[str] = field(default_factory=set)
     a_publicar: list[Vacante] = field(default_factory=list)
     publicacion: ResultadoPublicacion | None = None
     sembradas: int = 0
@@ -380,6 +382,22 @@ class Corrida:
             self._aplicar(vacante, h, evaluacion, resumen, vistas_corrida)
         return vistas_corrida
 
+    def _registrar_descarte(
+        self,
+        resumen: ResumenCorrida,
+        vacante: Vacante,
+        h: str,
+        etapa: str,
+        motivo: str,
+        detalle: str = "",
+    ) -> None:
+        if self.modo.dry_run or self.modo.seed or self.modo.chat_prueba:
+            return
+        if vacante.clave in resumen.claves_descartadas:
+            return
+        resumen.claves_descartadas.add(vacante.clave)
+        self.estado.registrar_descarte(vacante, h, etapa, str(motivo), detalle, self.reloj())
+
     def _aplicar(
         self,
         vacante: Vacante,
@@ -395,6 +413,9 @@ class Corrida:
         """
         if evaluacion.veredicto == Veredicto.RECHAZAR:
             resumen.descartes[evaluacion.motivo] += 1
+            self._registrar_descarte(
+                resumen, vacante, h, "reglas", evaluacion.motivo.value, evaluacion.detalle
+            )
             return "descartada"
         if (
             vacante.clave in vistas_corrida
@@ -452,6 +473,10 @@ class Corrida:
         ahora = self.reloj()
         for vencida in self.estado.vencer_cola_detalle(ahora, detalle.horas_vencimiento, nombre):
             resumen.detalles_vencidas += 1
+            self._registrar_descarte(
+                resumen, vencida, huella(vencida.titulo, vencida.empresa, vencida.clave),
+                "vencida", "pendiente_detalle", f"{detalle.horas_vencimiento:g} h sin detalle",
+            )  # fmt: skip
             log.warning(
                 "Oferta vencida tras %g h en la cola de detalle de %s: %s (%s)",
                 detalle.horas_vencimiento, nombre, vencida.titulo, vencida.clave,
@@ -566,6 +591,14 @@ class Corrida:
         resumen.ia_llamadas = resultado.llamadas
         resumen.pendientes = len(resultado.pendientes)
         resumen.vencidas = len(resultado.vencidas)
+        for d in resultado.rechazadas:
+            self._registrar_descarte(resumen, d.vacante, d.huella, "ia", d.motivo or "rechazada_ia")
+        horas = self.config.clasificador.horas_vencimiento_pendiente
+        for d in resultado.vencidas:
+            self._registrar_descarte(
+                resumen, d.vacante, d.huella, "vencida", "pendiente_ia",
+                f"{horas:g} h sin clasificar",
+            )  # fmt: skip
         prueba = self.modo.chat_prueba
         return [
             d.vacante for d in resultado.aceptadas
@@ -584,6 +617,10 @@ class Corrida:
                 revisadas.append(vacante)
             elif correccion.rechaza:
                 resumen.practicas_rechazadas += 1
+                self._registrar_descarte(
+                    resumen, vacante, huella(vacante.titulo, vacante.empresa, vacante.clave),
+                    "guardarrail", "sin_evidencia_practica", correccion.detalle,
+                )  # fmt: skip
                 log.info("Guardarraíl de prácticas rechaza: %s (%s)", vacante.titulo, vacante.clave)
             else:
                 resumen.practicas_recategorizadas += 1
@@ -710,6 +747,7 @@ class Corrida:
                 self.config.estado.dias_vistas,
                 self.config.estado.dias_intentos,
                 self.config.filtros.max_dias_publicada,
+                self.config.estado.dias_descartes,
             )
             if any(borrados.values()):
                 log.info("Limpieza: %s", borrados)
