@@ -70,8 +70,8 @@ enviar.
 ## Uso diario
 
 - Toca **⚡ Postularme** en la vacante que te interese (puedes hacerlo desde el celular).
-- **Tienes 5 segundos para arrepentirte.** Al tocar ⚡ Postularme, la tarjeta del bot cuenta
-  «⚡ Postulando en 5 s» con una barra que avanza y un botón **Cancelar**. Si cancelas, no se envía
+- **Tienes 10 segundos para arrepentirte.** Al tocar ⚡ Postularme, la tarjeta del bot cuenta
+  «⚡ Postulando en 10 s» con una barra que avanza y un botón **Cancelar**. Si cancelas, no se envía
   nada y la tarjeta dice «Cancelaste la postulación. No envié nada.» con un botón **Postular** para
   volver a empezar. Si no haces nada, la postulación entra en cola. Si el bot se reinicia a mitad
   de la cuenta, no postula: la tarjeta avisa que se interrumpió y te deja volver a tocar Postular.

@@ -521,7 +521,7 @@ class Asistente(Modelo):
     ejecucion: AsistenteEjecucion = Field(default_factory=AsistenteEjecucion)
     plataformas: dict[str, AsistentePlataforma] = Field(default_factory=dict)
     automatico_usuario: AsistenteAutomatico = Field(default_factory=AsistenteAutomatico)
-    cuenta_regresiva_segundos: int = Field(5, ge=0)  # pausa para cancelar antes de encolar; 0: sin
+    cuenta_regresiva_segundos: int = Field(10, ge=0)  # pausa para cancelar antes de encolar; 0: sin
     carta_max_caracteres: int = Field(1000, ge=100)
     recordatorio_dias: float = Field(2, gt=0)
     inactividad_meses: int = Field(12, ge=1)

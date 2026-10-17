@@ -1114,7 +1114,7 @@ asistente:
     elempleo: {automatica: false}
   automatico_usuario:
     umbral_defecto: 70
-  cuenta_regresiva_segundos: 5   # pausa para cancelar tras tocar «Postular»; 0 la desactiva
+  cuenta_regresiva_segundos: 10  # pausa para cancelar tras tocar «Postular»; 0 la desactiva
   carta_max_caracteres: 1000
   recordatorio_dias: 2
   inactividad_meses: 12
