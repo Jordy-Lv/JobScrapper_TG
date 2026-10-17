@@ -110,7 +110,7 @@ def derivar_del_cv(
 
 class Salida(Protocol):
     async def enviar(
-        self, chat_id: int, texto: str, botones: Botones | None = None
+        self, chat_id: int, texto: str, botones: Botones | None = None, efecto: str | None = None
     ) -> int | None: ...
 
     async def editar(
@@ -186,6 +186,7 @@ class Conversacion:
         self._toques_resumen: dict[int, deque[float]] = defaultdict(deque)
         self.intervalo_animacion = 2.5  # segundos entre cuadros del progreso
         self._etapas: dict[int, int] = {}  # postulación → etapa en curso del progreso
+        self._desde_etapa: dict[int, float] = {}  # postulación → reloj al entrar a la etapa
         self._animaciones: dict[int, asyncio.Task] = {}
         self.intervalo_cuenta = 1.0  # segundos entre cuadros de la cuenta regresiva
         self._cuentas: dict[tuple[int, str], _Cuenta] = {}  # (usuario, vacante) → cuenta en curso
@@ -223,9 +224,13 @@ class Conversacion:
         while self._tareas:
             await asyncio.gather(*list(self._tareas), return_exceptions=True)
 
-    async def _enviar(self, usuario_o_tid, texto: str, botones: Botones | None = None):
+    async def _enviar(
+        self, usuario_o_tid, texto: str, botones: Botones | None = None, efecto: str | None = None
+    ):
         tid = usuario_o_tid if isinstance(usuario_o_tid, int) else usuario_o_tid.telegram_id
         try:
+            if efecto:
+                return await self.s.enviar(tid, texto, botones, efecto=efecto)
             return await self.s.enviar(tid, texto, botones)
         except Bloqueado:
             if usuario := self.n.usuarios.obtener(tid):
@@ -1112,6 +1117,7 @@ class Conversacion:
             pid=pid, titulo=fila["titulo"], empresa=fila["empresa"],
             plataforma=fila["plataforma"], url=fila["url"], seguimiento=fila["seguimiento"],
             etapa=self._etapas.get(pid, 0), cuadro=cuadro,
+            segundos_etapa=self.reloj() - self._desde_etapa.get(pid, self.reloj()),
         )  # fmt: skip
         tj = self._tarjeta(usuario)
         if tj is not None and tj.pid == pid and card.fase not in (tp.CONFIRMADA, tp.INCIERTA):
@@ -1182,11 +1188,38 @@ class Conversacion:
     ) -> None:
         """La postulación dejó de avanzar sola: se detiene el progreso, se suelta la conexión
         (su bloque ya no aplica) y la card pasa a la fase final o de espera."""
+        await self._soltar_progreso(usuario, pid)
+        await self._poner_fase(usuario, pid, fase, motivo=motivo)
+
+    async def _soltar_progreso(self, usuario: Usuario, pid: int) -> None:
         await self._detener_progreso(pid)
         tj = self._tarjeta(usuario)
         if tj is not None and tj.pid == pid:
             self._guardar_tarjeta(usuario, None)
-        await self._poner_fase(usuario, pid, fase, motivo=motivo)
+
+    async def _confirmar_con_confeti(self, usuario: Usuario, pid: int) -> None:
+        """La card pasa a «confirmada» como un mensaje nuevo con el confeti de Telegram (los
+        efectos solo existen al enviar, no al editar) y se borra el mensaje de progreso, así la
+        postulación sigue teniendo una sola card."""
+        await self._soltar_progreso(usuario, pid)
+        card = self._obtener_card(pid, crear=True)
+        anterior = card.mensaje_id
+        card.fase, card.vista, card.motivo, card.pregunta = tp.CONFIRMADA, tp.PRINCIPAL, None, None
+        self._guardar_card(pid, card)
+        d = self._datos_card(usuario, pid, card)
+        nuevo = await self._enviar(
+            usuario, tp.texto(card, d), tp.botones(card, d, cb), efecto=t.EFECTO_CONFETI
+        )
+        if nuevo is None:  # el usuario bloqueó al bot
+            return
+        card.mensaje_id = nuevo
+        self._guardar_card(pid, card)
+        self._anclar(pid, nuevo)
+        if anterior and anterior != nuevo:
+            try:
+                await self.s.borrar(usuario.telegram_id, anterior)
+            except Exception:  # noqa: BLE001 - ya no existe o no se puede borrar: no importa
+                log.info("No se pudo borrar la card anterior de la postulación %s", pid)
 
     # --- toque de ⚡ ----------------------------------------------------------------
 
@@ -2299,6 +2332,7 @@ class Conversacion:
                 await self._poner_fase(usuario, pid, tp.PROGRESO)
             if etapa is not None and etapa > self._etapas[pid]:
                 self._etapas[pid] = etapa
+                self._desde_etapa[pid] = self.reloj()
                 await self._pintar_progreso(usuario, pid, 0)
 
     async def _pintar_progreso(self, usuario: Usuario, pid: int, cuadro: int) -> None:
@@ -2312,6 +2346,7 @@ class Conversacion:
         nueva = pid not in self._animaciones
         if nueva:
             self._etapas[pid] = 0
+            self._desde_etapa[pid] = self.reloj()
         try:
             card = self._obtener_card(pid, crear=False)
             if card is not None:  # sin card (automática que no avisa) no hay nada que mostrar
@@ -2332,6 +2367,7 @@ class Conversacion:
     async def _detener_progreso(self, pid: int) -> None:
         tarea = self._animaciones.pop(pid, None)
         self._etapas.pop(pid, None)
+        self._desde_etapa.pop(pid, None)
         if tarea is not None:
             tarea.cancel()
             await asyncio.gather(tarea, return_exceptions=True)
@@ -2343,7 +2379,7 @@ class Conversacion:
             return None, None
         cx = self.n.base.cx
         fila = cx.execute(
-            "SELECT p.afinidad, p.cv_archivo, p.terminada_en, v.requisitos_json "
+            "SELECT p.afinidad, p.cv_archivo, p.tomada_en, p.terminada_en, v.requisitos_json "
             "FROM postulaciones p LEFT JOIN vacantes v ON v.id_corto = p.id_corto "
             "WHERE p.id = ?",
             (p.id,),
@@ -2366,8 +2402,11 @@ class Conversacion:
             enviada_en=de_texto(fila["terminada_en"]) if fila["terminada_en"] else None,
             afinidad=fila["afinidad"], requisitos=requisitos,
             respuestas=[dict(r) for r in respuestas], pasos=[x["paso"] for x in pasos],
-            cv_adjunto=adjunto, confirmada=confirmada,
+            cv_adjunto=adjunto, confirmada=confirmada, folio=f"P-{p.id}",
         )  # fmt: skip
+        if fila["tomada_en"] and fila["terminada_en"]:
+            tardo = de_texto(fila["terminada_en"]) - de_texto(fila["tomada_en"])
+            datos.duracion_s = round(tardo.total_seconds()) if tardo >= timedelta(0) else None
         usado = adjunto or ("cv_subir" in datos.pasos and "cv_verificar_fallo" not in datos.pasos)
         cv = Path(fila["cv_archivo"]) if usado and fila["cv_archivo"] else None
         return datos, cv if cv and cv.is_file() else None
@@ -2376,7 +2415,10 @@ class Conversacion:
         """La card pasa a «confirmada» (o «incierta»): título, empresa y una cita con el estado,
         con las vistas de respuestas y de qué trata, la oferta y el seguimiento. La hoja de vida
         que recibió el portal sigue yendo como documento aparte."""
-        await self._cerrar_card(usuario, p.id, tp.CONFIRMADA if confirmada else tp.INCIERTA)
+        if confirmada:
+            await self._confirmar_con_confeti(usuario, p.id)
+        else:
+            await self._cerrar_card(usuario, p.id, tp.INCIERTA)
         _, cv = self._datos_resumen(p, confirmada=confirmada)
         if cv is not None:
             await self.s.documento(usuario.telegram_id, cv, "La hoja de vida que recibió el portal")

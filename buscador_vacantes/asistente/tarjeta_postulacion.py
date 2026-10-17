@@ -75,6 +75,7 @@ class Datos:
     seguimiento: str | None = None
     etapa: int = 0
     cuadro: int = 0
+    segundos_etapa: float = 0.0  # progreso: segundos desde que empezó la etapa en curso
     conexion: list[str] = field(default_factory=list)  # bloque «Conexión» (tarjeta.py)
     botones_conexion: Botones = field(default_factory=list)
     pendiente: dict | None = None  # {"id", "pregunta", "opciones"} de la fase PREGUNTA
@@ -198,6 +199,8 @@ def texto(card: Card, d: Datos) -> str:
         lineas += ["", *d.conexion]
     if card.afinidad:
         lineas += ["", card.afinidad]
+    if card.fase == PROGRESO:
+        lineas += ["", progreso.linea_barra(d.etapa, d.segundos_etapa)]
     lineas += ["", "<blockquote>" + "\n".join(_cuerpo(card, d)) + "</blockquote>"]
     return resumen_postulacion.recortar(lineas)
 

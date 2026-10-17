@@ -43,15 +43,28 @@ class SalidaTelegram:
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    async def enviar(self, chat_id: int, texto: str, botones: Botones | None = None) -> int | None:
+    async def enviar(
+        self, chat_id: int, texto: str, botones: Botones | None = None, efecto: str | None = None
+    ) -> int | None:
+        """Envía el mensaje; con ``efecto`` (p. ej. confeti) y, si Telegram lo rechaza, sin él."""
         try:
-            mensaje = await self.bot.send_message(
-                chat_id, texto[:4096], parse_mode=ParseMode.HTML,
-                link_preview_options=SIN_VISTA_PREVIA, reply_markup=teclado(botones),
-            )  # fmt: skip
+            try:
+                mensaje = await self._mandar(chat_id, texto, botones, efecto)
+            except BadRequest:
+                if not efecto:
+                    raise
+                log.info("Telegram rechazó el efecto del mensaje; se envía sin efecto")
+                mensaje = await self._mandar(chat_id, texto, botones, None)
         except Forbidden as exc:
             raise Bloqueado(str(exc)) from exc
         return mensaje.message_id
+
+    async def _mandar(self, chat_id: int, texto: str, botones: Botones | None, efecto: str | None):
+        extra = {"message_effect_id": efecto} if efecto else {}
+        return await self.bot.send_message(
+            chat_id, texto[:4096], parse_mode=ParseMode.HTML,
+            link_preview_options=SIN_VISTA_PREVIA, reply_markup=teclado(botones), **extra,
+        )  # fmt: skip
 
     async def editar(self, chat_id: int, mensaje_id: int, texto: str,
                      botones: Botones | None = None) -> None:  # fmt: skip

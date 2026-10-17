@@ -37,18 +37,41 @@ def test_descripcion_corta_corta_en_un_final_de_frase():
 def test_tarjeta_con_encuesta_titulo_empresa_y_cita():
     d = DatosResumen(vacante(), "computrabajo", CUANDO, respuestas=[resp(i) for i in range(4)])
     lineas = tarjeta(d).split("\n")
-    assert lineas[0] == "✅ <b>Aprendiz &lt;SENA&gt;</b>"
-    assert lineas[1] == "Euro" and lineas[2] == ""
-    assert lineas[3] == "<blockquote>Computrabajo confirmó tu postulación"
-    assert lineas[4].endswith(" · Encuesta de 4 · HdV del perfil</blockquote>")
+    assert lineas[0] == "✅ <b>Postulación enviada</b>"
+    assert lineas[1] == "<b>Aprendiz &lt;SENA&gt;</b>" and lineas[2] == "Euro"
+    assert lineas[3] == "" and lineas[4] == "██████████████  100 %" and lineas[5] == ""
+    assert lineas[6] == "<blockquote>Computrabajo confirmó tu postulación"
+    assert lineas[8] == "Encuesta de 4 · HdV del perfil</blockquote>"
+
+
+def test_tarjeta_confirmada_con_duracion_y_folio():
+    d = DatosResumen(vacante(), "computrabajo", CUANDO, duracion_s=14, folio="P-12")
+    lineas = tarjeta(d).split("\n")
+    assert lineas[7].endswith(" · 14 s · Folio P-12")
+    largo = DatosResumen(vacante(), "computrabajo", CUANDO, duracion_s=75)
+    assert " · 1 min 15 s" in tarjeta(largo)
+
+
+def test_tarjeta_confirmada_omite_duracion_y_folio_si_faltan():
+    texto = tarjeta(DatosResumen(vacante(), "computrabajo", CUANDO))
+    assert "Folio" not in texto and " s" not in texto.split("\n")[7]
+    sin_hora = tarjeta(DatosResumen(vacante(), "computrabajo", None, duracion_s=9))
+    assert "<blockquote>Computrabajo confirmó tu postulación\n9 s\n" in sin_hora
+    nada = tarjeta(DatosResumen(vacante(), "computrabajo", None))
+    assert "confirmó tu postulación\nSin encuesta · HdV del perfil</blockquote>" in nada
 
 
 def test_tarjeta_sin_encuesta_y_sin_confirmacion():
     d = DatosResumen(vacante(), "computrabajo", CUANDO)
     assert tarjeta(d).endswith("Sin encuesta · HdV del perfil</blockquote>")
-    d = DatosResumen(vacante(), "computrabajo", CUANDO, respuestas=[resp(1)], confirmada=False)
+    d = DatosResumen(
+        vacante(), "computrabajo", CUANDO, respuestas=[resp(1)], confirmada=False,
+        duracion_s=14, folio="P-12",
+    )  # fmt: skip
     texto = tarjeta(d)
-    assert texto.startswith("❔") and "no mostró la confirmación" in texto
+    assert texto.startswith("❔ <b>Aprendiz") and "no mostró la confirmación" in texto
+    assert "Postulación enviada" not in texto and "100 %" not in texto
+    assert "Folio" not in texto and "14 s" not in texto
 
 
 def test_hoja_de_vida_segun_los_pasos():

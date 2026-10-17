@@ -144,6 +144,9 @@ ESTADOS = {
     "completado": "✅ Perfil completado",
 }
 
+# Efecto de mensaje de Telegram (🎉 confeti, a pantalla completa); solo funciona en chats privados
+EFECTO_CONFETI = "5046509860389126442"
+
 NOMBRES_PLATAFORMA = {"computrabajo": "Computrabajo", "magneto": "Magneto", "elempleo": "elempleo"}
 # Página de inicio de cada portal (el registro exacto se confirma en el reconocimiento)
 URL_REGISTRO = {

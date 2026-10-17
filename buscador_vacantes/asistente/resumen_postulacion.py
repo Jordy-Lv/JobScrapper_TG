@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from buscador_vacantes.asistente import progreso
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.vacantes import VacanteIndexada
 
@@ -30,6 +31,8 @@ class DatosResumen:
     pasos: list[str] = field(default_factory=list)  # nombres de los pasos registrados
     cv_adjunto: str | None = None  # nombre del PDF que la extensión adjuntó
     confirmada: bool = True  # False: se envió pero el portal no mostró la confirmación
+    duracion_s: int | None = None  # lo que tardó la postulación, de tomada a terminada
+    folio: str | None = None  # identificador de la postulación que ve el usuario
 
     @property
     def con_encuesta(self) -> bool:
@@ -73,24 +76,43 @@ def hoja_de_vida(d: DatosResumen) -> str:
     return "HdV del perfil"
 
 
+def _duracion(segundos: int) -> str:
+    minutos, resto = divmod(max(0, segundos), 60)
+    return f"{minutos} min {resto} s" if minutos else f"{resto} s"
+
+
 def tarjeta(d: DatosResumen) -> str:
-    """El mensaje corto de una postulación: título, empresa y una cita con el estado."""
+    """El mensaje corto de una postulación: título, empresa y una cita con el estado.
+
+    Confirmada: «Postulación enviada» con la barra al 100 %, la hora, la duración y el folio.
+    Incierta: el título con ❔ y el aviso de que el portal no mostró la confirmación."""
     v = d.vacante
     portal = t.e(_portal(d))
     empresa = v.empresa or (v.ficha or {}).get("empresa")
-    icono = "✅" if d.confirmada else "❔"
-    cabecera = [f"{icono} <b>{t.e(v.titulo or 'Vacante')}</b>"]
+    titulo = f"<b>{t.e(v.titulo or 'Vacante')}</b>"
+    cabecera = ["✅ <b>Postulación enviada</b>", titulo] if d.confirmada else [f"❔ {titulo}"]
     if empresa:
         cabecera.append(t.e(empresa))
+    if d.confirmada:
+        cabecera += ["", f"{progreso.barra(100)}  100 %"]
     cuando = d.enviada_en.astimezone().strftime("%d/%m, %H:%M") if d.enviada_en else ""
     if d.confirmada:
         estado = f"{portal} confirmó tu postulación"
     else:
         estado = f"{portal} no mostró la confirmación: revísala en «Mis postulaciones»"
-    detalle = [cuando] if cuando else []
-    detalle.append(f"Encuesta de {len(d.respuestas)}" if d.con_encuesta else "Sin encuesta")
+    marcas = [cuando] if cuando else []
+    if d.confirmada and d.duracion_s is not None:
+        marcas.append(_duracion(d.duracion_s))
+    if d.confirmada and d.folio:
+        marcas.append(f"Folio {t.e(d.folio)}")
+    detalle = [f"Encuesta de {len(d.respuestas)}" if d.con_encuesta else "Sin encuesta"]
     detalle.append(hoja_de_vida(d))
-    return "\n".join([*cabecera, "", f"<blockquote>{estado}\n{' · '.join(detalle)}</blockquote>"])
+    if d.confirmada:
+        lineas = [estado, *([" · ".join(marcas)] if marcas else []), " · ".join(detalle)]
+    else:
+        lineas = [estado, " · ".join([*marcas, *detalle])]
+    cuerpo = "\n".join(lineas)
+    return "\n".join([*cabecera, "", f"<blockquote>{cuerpo}</blockquote>"])
 
 
 def respuestas_lineas(d: DatosResumen) -> list[str]:

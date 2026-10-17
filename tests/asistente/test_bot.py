@@ -1,5 +1,6 @@
 import asyncio
 import io
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -48,11 +49,14 @@ class SalidaFalsa:
         self.botones_editados = {}  # mensaje → botones de su última edición
         self.documentos = []
         self.borrados = []
+        self.efectos = {}  # mensaje → efecto con el que se envió
         self._id = 0
 
-    async def enviar(self, chat_id, texto, botones=None):
+    async def enviar(self, chat_id, texto, botones=None, efecto=None):
         self._id += 1
         self.mensajes.append((chat_id, texto, botones))
+        if efecto:
+            self.efectos[self._id] = efecto
         return self._id
 
     async def editar(self, chat_id, mensaje_id, texto, botones=None):
@@ -577,18 +581,79 @@ def test_borrarme(mundo):
     assert mundo.n.usuarios.obtener(ANA) is None
 
 
-def test_resultado_enviado_edita_la_card_sin_mensajes_nuevos(mundo):
+def encolar_con_card_42(mundo):
     correr(alta_completa(mundo, ANA))
     usuario = mundo.n.usuarios.obtener(ANA)
     mundo.n.indice.indexar(T0)
     p, _ = mundo.n.cola.encolar(usuario.id, id_corto("linkedin:1"), None, T0)
     with mundo.base.transaccion() as cx:
         cx.execute("UPDATE postulaciones SET mensaje_id = 42 WHERE id = ?", (p.id,))
+    return usuario, p
+
+
+def test_resultado_enviado_reemplaza_la_card_por_una_con_confeti(mundo):
+    usuario, p = encolar_con_card_42(mundo)
     enviados = len(mundo.s.mensajes)
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
-    assert any(m == 42 and "confirmó tu postulación" in texto for _, m, texto in mundo.s.ediciones)
-    assert "¿Cómo te fue?" not in mundo.s.ediciones[-1][2]
-    assert len(mundo.s.mensajes) == enviados
+    assert len(mundo.s.mensajes) == enviados + 1  # una sola card nueva, no un aviso aparte
+    nuevo = mundo.s._id
+    texto = mundo.s.ultimo(ANA)[1]
+    assert "✅ <b>Postulación enviada</b>" in texto and "confirmó tu postulación" in texto
+    assert "Folio P-" in texto and "100 %" in texto and "¿Cómo te fue?" not in texto
+    assert mundo.s.efectos == {nuevo: t.EFECTO_CONFETI}
+    assert (ANA, 42) in mundo.s.borrados
+    assert not any(m == 42 for _, m, _ in mundo.s.ediciones)
+    assert f'"mensaje_id": {nuevo}' in mundo.n.base.kv_obtener(f"card:{p.id}")
+    assert mundo.c._mensaje_de(p.id) == nuevo
+
+
+def test_el_confeti_se_entrega_aunque_no_se_pueda_borrar_la_card_vieja(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+
+    async def no_borra(chat, mensaje):
+        raise RuntimeError("message to delete not found")
+
+    mundo.s.borrar = no_borra
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    assert mundo.s.efectos == {mundo.s._id: t.EFECTO_CONFETI}
+    assert f'"mensaje_id": {mundo.s._id}' in mundo.n.base.kv_obtener(f"card:{p.id}")
+
+
+def test_las_vistas_despues_del_confeti_editan_sin_repetir_el_efecto(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENVIADA)))
+    nuevo, enviados = mundo.s._id, len(mundo.s.mensajes)
+    correr(mundo.c.al_boton(ANA, cb("res", p.id, "r")))
+    assert "Tus respuestas" in mundo.s.ediciones[-1][2] and mundo.s.ediciones[-1][1] == nuevo
+    correr(mundo.c.al_boton(ANA, cb("res", p.id, "v")))
+    assert "Postulación enviada" in mundo.s.ediciones[-1][2]
+    assert len(mundo.s.mensajes) == enviados and list(mundo.s.efectos) == [nuevo]
+
+
+def test_resultado_incierto_edita_la_card_en_el_lugar_sin_confeti(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+    enviados = len(mundo.s.mensajes)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.INCIERTA)))
+    assert any(
+        m == 42 and "no mostró la confirmación" in texto for _, m, texto in mundo.s.ediciones
+    )
+    assert len(mundo.s.mensajes) == enviados and not mundo.s.efectos
+    assert (ANA, 42) not in mundo.s.borrados
+
+
+def test_confirmada_calcula_la_duracion_desde_que_se_tomo(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "UPDATE postulaciones SET tomada_en = ?, terminada_en = ? WHERE id = ?",
+            (a_texto(T0), a_texto(T0 + timedelta(seconds=75)), p.id),
+        )
+    datos, _ = mundo.c._datos_resumen(mundo.n.cola.obtener(p.id))
+    assert datos.duracion_s == 75 and datos.folio == f"P-{p.id}"
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET tomada_en = NULL WHERE id = ?", (p.id,))
+    datos, _ = mundo.c._datos_resumen(mundo.n.cola.obtener(p.id))
+    assert datos.duracion_s is None
 
 
 def test_cuenta_por_confirmar_muestra_el_correo_y_botones(mundo):
@@ -1103,8 +1168,12 @@ def test_progreso_un_solo_mensaje_que_avanza_de_etapa_y_se_detiene(mundo):
     assert any("⠋ <b>Abriendo la oferta…</b>" in x for x in textos)
     assert any("✓ Preparando tu hoja de vida" in x and "Respondiendo el formulario…" in x
                for x in textos)  # fmt: skip
-    assert "confirmó tu postulación" in textos[-1]
     assert p.id not in mundo.c._animaciones
+    porcentajes = [int(m.group(1)) for x in textos if (m := re.search(r"(\d+) %", x))]
+    assert porcentajes and porcentajes == sorted(porcentajes) and porcentajes[-1] <= 99
+    assert all("~" in x and "░" in x for x in textos)
+    assert (ANA, 42) in mundo.s.borrados
+    assert "Postulación enviada" in mundo.s.ultimo(ANA)[1] and mundo.s.efectos
 
 
 def test_paso_cv_con_botones_adjuntar_y_desde_cero_proximamente(mundo):

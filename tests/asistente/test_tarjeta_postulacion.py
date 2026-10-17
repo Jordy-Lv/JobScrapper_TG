@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from buscador_vacantes.asistente import progreso
 from buscador_vacantes.asistente import tarjeta_postulacion as tp
 from buscador_vacantes.asistente.resumen_postulacion import DatosResumen, recortar
 from buscador_vacantes.asistente.vacantes import VacanteIndexada
@@ -52,6 +53,19 @@ def test_progreso_marca_las_etapas_dentro_del_blockquote():
     texto = tp.texto(tp.Card(fase=tp.PROGRESO), datos(etapa=1))
     assert "<blockquote>✓ Abriendo la oferta\n⠋ <b>Preparando tu hoja de vida…</b>" in texto
     assert texto.endswith("<i>· Enviando y confirmando</i></blockquote>")
+
+
+def test_progreso_muestra_la_barra_con_porcentaje_y_tiempo_antes_del_estado():
+    texto = tp.texto(tp.Card(fase=tp.PROGRESO), datos(etapa=1, segundos_etapa=5))
+    barra = progreso.linea_barra(1, 5)
+    assert f"\n\n{barra}\n\n<blockquote>" in texto
+    assert "37 %" in barra and "~25 s" in barra
+
+
+def test_la_barra_solo_va_en_el_progreso():
+    assert "%" not in tp.texto(tp.Card(), datos())
+    pregunta = datos(pendiente={"id": 1, "pregunta": "?"})
+    assert "%" not in tp.texto(tp.Card(fase=tp.PREGUNTA), pregunta)
 
 
 def test_el_bloque_de_conexion_va_antes_del_estado_y_sus_botones_primero():
@@ -130,7 +144,8 @@ def test_confirmada_muestra_la_cita_las_vistas_y_el_seguimiento_en_filas_de_a_tr
     card = tp.Card(fase=tp.CONFIRMADA)
     d = datos(resumen=resumen())
     texto = tp.texto(card, d)
-    assert texto.startswith("✅ <b>Aprendiz &lt;SENA&gt;</b>\nEuro\n")
+    assert texto.startswith("✅ <b>Postulación enviada</b>\n<b>Aprendiz &lt;SENA&gt;</b>\nEuro\n")
+    assert "██████████████  100 %" in texto
     assert "Computrabajo confirmó tu postulación" in texto
     assert "Encuesta de 1 · HdV del perfil</blockquote>" in texto
     assert "¿Cómo te fue?" not in texto
