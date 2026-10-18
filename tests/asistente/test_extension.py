@@ -1325,6 +1325,69 @@ def test_magneto_opcion_que_no_queda_marcada_no_se_envia(tmp_path, api):
     assert "enviar" not in [p["paso"] for p in api.de("paso")]
 
 
+# Postulación 51 (2026-10-18): la encuesta mezcla botones con preguntas abiertas (textarea sin
+# maxlength y con el contador «0 de 140»)
+PROGRAMA = "¿Cómo se llama tu programa de formación actual?"
+SEMESTRE = "¿Qué semestre cursas?"
+AUTORIZAS = '"¿Autorizas el tratamiento de tus datos personales?",'
+MIXTA = {AUTORIZAS: f'{{abierta: "{PROGRAMA}"}}, {AUTORIZAS} {{abierta: "{SEMESTRE}"}},'}
+
+
+def respuestas_mg_mixta(campos: list[dict]) -> list[dict]:
+    return [{"indice": i, "valor": None, "opcion": 0} if c["tipo"] == "opciones"
+            else {"indice": i, "valor": f"Respuesta {i}", "opcion": None}
+            for i, c in enumerate(campos)]  # fmt: skip
+
+
+def test_magneto_encuesta_con_preguntas_abiertas_se_escribe_y_se_confirma(tmp_path, api):
+    api.respuestas = respuestas_mg_mixta
+    postular_magneto(tmp_path, api, portales_magneto(reemplazos=MIXTA))
+    campos = api.de("formulario")[0]["campos"]
+    assert [(c["texto"], c["tipo"], c["obligatoria"], c.get("maximo")) for c in campos] == [
+        ("¿Tienes disponibilidad para trabajar de forma presencial?", "opciones", True, None),
+        (PROGRAMA, "texto", True, 140),
+        ("¿Autorizas el tratamiento de tus datos personales?", "opciones", True, None),
+        (SEMESTRE, "texto", True, 140),
+    ]
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "enviada", resultado
+    assert "Se ha enviado tu aplicación" in resultado["confirmacion"]
+
+
+def test_magneto_pregunta_sin_botones_ni_campo_es_formulario_desconocido(tmp_path, api):
+    api.respuestas = respuestas_mg_mixta
+    vacia = {AUTORIZAS: f'{AUTORIZAS} {{vacia: "¿Pregunta sin respuesta posible?"}},'}
+    postular_magneto(tmp_path, api, portales_magneto(reemplazos=vacia))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido", resultado
+    assert "¿Pregunta sin respuesta posible?" in resultado["motivo"]
+    assert not api.de("formulario")
+    assert "enviar" not in [p["paso"] for p in api.de("paso")]
+
+
+def test_magneto_texto_que_el_portal_borra_no_se_envia(tmp_path, api):
+    api.respuestas = respuestas_mg_mixta
+    borra = {**MIXTA, 'campo.addEventListener("input", () => {':
+             'campo.addEventListener("input", () => { campo.value = "";'}  # fmt: skip
+    postular_magneto(tmp_path, api, portales_magneto(reemplazos=borra))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido", resultado
+    assert "no quedó escrita" in resultado["motivo"]
+    assert "enviar" not in [p["paso"] for p in api.de("paso")]
+
+
+def test_magneto_enviar_respuestas_deshabilitado_no_se_pulsa(tmp_path, api):
+    api.respuestas = respuestas_mg_mixta
+    nunca = {
+        **MIXTA,
+        "const revisar = () => (enviar.disabled = !completo());": "const revisar = () => {};",
+    }
+    postular_magneto(tmp_path, api, portales_magneto(reemplazos=nunca), rapido=True)
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido", resultado
+    assert "deshabilitado" in resultado["motivo"]
+
+
 # --- popup: ping y recarga de la conexión ---------------------------------------------------
 
 LEER_PING = "chrome.storage.local.get('ping').then(r => r.ping)"

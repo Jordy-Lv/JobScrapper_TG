@@ -187,6 +187,8 @@ def _hora(valor: str | None) -> str:
 def _espera(card: Card, d: Datos) -> list[str]:
     """«En cola» con la causa concreta de la espera y cómo resolverla."""
     espera = card.espera or {}
+    if d.botones_conexion and espera.get("codigo") in t.ESPERAS_DE_CUENTA:
+        return ["⏳ En cola.", t.ESPERA_CUENTA_EN_CONEXION]  # el bloque «Conexión» ya lo explica
     datos = espera.get("datos") or {}
     plataforma = espera.get("plataforma") or d.plataforma or ""
     hora = _hora(datos.get("cuando"))

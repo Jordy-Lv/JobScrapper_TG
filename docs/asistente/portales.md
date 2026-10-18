@@ -208,7 +208,14 @@ card muestra «Encuesta de N» y el botón «Respuestas», como en Computrabajo.
 mostrar después (la pestaña «Detalle» solo repite la vacante).
 
 **Lo que no se hace.** Las autorizaciones y aceptaciones (tratamiento de datos, términos) no las contesta
-el banco ni la IA: se le preguntan al usuario por la card y se recuerda su respuesta. No se resuelven
-preguntas sin botones de respuesta (texto libre): terminan `formulario_desconocido` con la evidencia.
+el banco ni la IA: se le preguntan al usuario por la card y se recuerda su respuesta.
+
+**Preguntas abiertas (2026-10-18, postulación 51).** La encuesta puede mezclar botones con preguntas de
+texto libre: un `textarea name="text"` («Tu respuesta») sin `maxlength`, con el contador «0 de 140». Se
+leen como preguntas `texto` obligatorias con `maximo` tomado del contador (`preguntas.abierta` y
+`preguntas.limite`), se redactan o se piden al usuario como en Computrabajo, y el motor comprueba que el
+texto quedó escrito. «Enviar respuestas» está `disabled` hasta que todo tiene respuesta: el paso `enviar`
+(`esperar_habilitado`) lo espera y, si no se habilita, termina `formulario_desconocido` sin pulsarlo. Una
+pregunta sin botones ni campo abierto también termina `formulario_desconocido` con la evidencia.
 
 **Estado.** Verificada con una postulación real (2026-10-17, postulación 43, «Auxiliar de Infraestructura TIC para Apartadó», Servicio de Empleo Comfama): terminó `enviada` por el modal «Se ha enviado tu aplicación», con 2 preguntas respondidas y guardadas (el tratamiento de datos lo había decidido el usuario; la otra, de confirmar la participación, la redactó la IA). `verificado.postulacion` pasó a `true` en la versión `2026.10.17-2`. El perfil (`verificado.perfil`) sigue sin verificar.
