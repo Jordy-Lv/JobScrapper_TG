@@ -28,7 +28,7 @@
 
 ## 6. Despliegue y prueba real
 
-- [ ] 6.1 👤 Llevar la rama al Fedora: `git push origin <rama>:main` si corresponde, `git pull --ff-only` en `~/buscador-vacantes` y reiniciar `buscador-asistente`. Verificar que el servicio arranca y que `GET /selectores/magneto` (o el latido de la extensión) reporta la versión `2026.10.17-1`.
+- [x] 6.1 👤 Llevar la rama al Fedora: `git push origin <rama>:main` si corresponde, `git pull --ff-only` en `~/buscador-vacantes` y reiniciar `buscador-asistente`. Verificar que el servicio arranca y que `GET /selectores/magneto` (o el latido de la extensión) reporta la versión `2026.10.17-1`.
 - [ ] 6.2 👤 Recargar la extensión en Chrome (`chrome://extensions`) para que cargue el `motor.js` nuevo y, si se subió `manifest.json`, confirmar que el latido no pide actualizar.
 - [ ] 6.3 👤 Prueba real en Telegram: el dueño nombra una vacante de Magneto que no haya postulado (no repetir Comfama CEID 1626548986-1, Distracom, Aprendiz de sistemas ni la 41), toca ⚡ y decide las respuestas (incluidos los consentimientos). Verificar: la postulación termina `enviada`, la tarjeta muestra «Encuesta de N» y «Respuestas» con lo enviado, y la vacante aparece en «Procesos activos» de `https://web.magneto365.com/profile/processes`.
 - [ ] 6.4 🟢 Con la prueba aprobada, poner `verificado.postulacion: true` y subir la versión de `magneto.json`, anotar el resultado en `docs/asistente/portales.md` y desplegar de nuevo (6.1). Si falla, guardar la evidencia (`data/asistente/postulaciones/<id>/`) y ajustar solo con datos antes de repetir.
