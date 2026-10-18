@@ -10,7 +10,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -19,13 +19,14 @@ from buscador_vacantes.asistente.afinidad import Afinidad, calcular_afinidad, ob
 from buscador_vacantes.asistente.api import ResultadoFormulario
 from buscador_vacantes.asistente.campos import CAMPOS, RESERVADO, DatosUsuario
 from buscador_vacantes.asistente.cifrado import Cifrador, ClaveInvalida
-from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
+from buscador_vacantes.asistente.cola import ESPERANDO, Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal
 from buscador_vacantes.asistente.cv_adaptado import adaptar, cv_base
 from buscador_vacantes.asistente.cv_lectura import PerfilExtraido
 from buscador_vacantes.asistente.cv_pdf import Contacto, generar_pdf, nombre_archivo
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina
+from buscador_vacantes.asistente.espera import Causa, Entrada, NavegadorLatido, causa
 from buscador_vacantes.asistente.ia import ClaveInvalida as ClaveIAInvalida
 from buscador_vacantes.asistente.ia import ClienteIA
 from buscador_vacantes.asistente.preferencias import Preferencias
@@ -45,7 +46,7 @@ from buscador_vacantes.asistente.respuestas import (
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuario, Usuarios
 from buscador_vacantes.asistente.vacantes import Indice, VacanteIndexada
 from buscador_vacantes.comun import config as cfg
-from buscador_vacantes.comun.estado import a_texto, ahora_utc
+from buscador_vacantes.comun.estado import a_texto, ahora_utc, de_texto
 
 log = logging.getLogger(__name__)
 
@@ -212,6 +213,33 @@ class Nucleo:
             "SELECT version, contenido_json FROM selectores WHERE plataforma = ?", (plataforma,)
         ).fetchone()
         return (fila["version"], json.loads(fila["contenido_json"])) if fila else None
+
+    def espera(self, pid: int) -> Causa | None:
+        """Por qué una postulación en cola todavía no sale hacia la extensión (None si nada)."""
+        p = self.cola.obtener(pid)
+        if p is None or p.plataforma is None or p.estado not in ESPERANDO:
+            return None
+        ahora = self.ahora()
+        filas = self.base.cx.execute(
+            "SELECT id, version, ultimo_latido, portales_json FROM navegadores "
+            "WHERE usuario_id = ? AND revocado = 0",
+            (p.usuario_id,),
+        ).fetchall()
+        navegadores = [
+            NavegadorLatido(
+                f["id"], de_texto(f["ultimo_latido"]), f["version"],
+                json.loads(f["portales_json"]) if f["portales_json"] else {},
+            )
+            for f in filas
+        ]  # fmt: skip
+        ajustes = self.config.plataformas.get(p.plataforma)
+        encendida = bool(ajustes and ajustes.automatica and self.selectores(p.plataforma))
+        return causa(Entrada(
+            plataforma=p.plataforma, navegadores=navegadores, ahora=ahora,
+            version_minima=self.config.extension.version_minima,
+            navegador_caido=timedelta(minutes=self.config.extension.navegador_caido_min),
+            plataforma_encendida=encendida, restriccion=self.cola.restriccion(p, ahora),
+        ))  # fmt: skip
 
     # --- toque de ⚡ ------------------------------------------------------------------
 

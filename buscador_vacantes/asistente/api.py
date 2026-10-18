@@ -27,6 +27,7 @@ from buscador_vacantes.asistente import vinculos
 from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal, EstadoCuenta
 from buscador_vacantes.asistente.datos import BaseAsistente
+from buscador_vacantes.asistente.espera import version_tupla
 from buscador_vacantes.asistente.preferencias import Preferencias
 from buscador_vacantes.asistente.respuestas import Pregunta, Respuesta
 from buscador_vacantes.comun import config as cfg
@@ -94,6 +95,7 @@ class Portal(BaseModel):
 class Latido(BaseModel):
     version: str = Field(max_length=20)
     portales: dict[str, Portal] = Field(default_factory=dict)
+    pausado: bool | None = None  # extensión en pausa; las versiones viejas no lo mandan
 
 
 class PreferenciasPortalCuerpo(BaseModel):
@@ -142,13 +144,6 @@ def campos_obligatorios(selectores: tuple[str, dict] | None) -> set[str]:
     elempleo): si la IA no puede responderlos, se le preguntan al usuario por la card.
     """
     return set(selectores[1].get("campos_obligatorios", [])) if selectores else set()
-
-
-def version_tupla(version: str) -> tuple[int, ...]:
-    try:
-        return tuple(int(p) for p in version.split("."))
-    except ValueError:
-        return (0,)
 
 
 _VALOR = re.compile(r"""\s(value|data-value)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""", re.IGNORECASE)
@@ -402,14 +397,22 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         anteriores = _portales_guardados(nucleo.base, nav.id)
         cuentas_ok: dict[str, bool] = {}
         disponibles: set[str] = set()  # cuenta verificada y sesión iniciada
+        visto = a_texto(ahora)
         for plataforma, portal in cuerpo.portales.items():
             if plataforma not in nucleo.config.plataformas:
                 continue
+            previo = anteriores.get(plataforma, {})
+            # Último estado con sesión, para no repetir el aviso al volver de «sin sesión»
+            aviso = previo["aviso"] if "aviso" in previo else previo.get("estado")
             if portal.estado == "sin_sesion":
                 if portal.motivo:
                     log.info("%s sin sesión en el navegador %s: %s", plataforma, nav.id,
                              portal.motivo)  # fmt: skip
                 cuentas_ok[plataforma] = False
+                anteriores[plataforma] = {
+                    "estado": "sin_sesion", "motivo": portal.motivo, "cuenta": previo.get("cuenta"),
+                    "aviso": aviso, "visto": visto,
+                }  # fmt: skip
                 continue
             if portal.pagina_correo:
                 # Solo la ruta, sin el correo: indica qué página fijar en los selectores
@@ -419,7 +422,6 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             )
             ok = verificacion.estado == EstadoCuenta.OK
             cuentas_ok[plataforma] = ok
-            previo = anteriores.get(plataforma, {})
             if verificacion.estado != EstadoCuenta.OK and (
                 verificacion.nuevo or previo.get("cuenta") != verificacion.estado
             ):
@@ -428,7 +430,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
                     "plataforma": plataforma, "asociado": verificacion.asociado,
                     "encontrado": verificacion.encontrado_oculto,
                 })  # fmt: skip
-            elif ok and previo.get("estado") != portal.estado:
+            elif ok and aviso != portal.estado:
                 await nucleo.notificar({
                     "tipo": f"portal_{portal.estado}", "usuario_id": nav.usuario_id,
                     "plataforma": plataforma, "asociado": verificacion.asociado,
@@ -437,7 +439,21 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
                 disponibles.add(plataforma)
                 if portal.estado == "incompleto":
                     nucleo.cola.encolar_completar_perfil(nav.usuario_id, plataforma, ahora)
-            anteriores[plataforma] = {"estado": portal.estado, "cuenta": verificacion.estado}
+            # El correo nunca se guarda: solo el resultado de verificarlo
+            anteriores[plataforma] = {
+                "estado": portal.estado, "motivo": None, "cuenta": verificacion.estado,
+                "aviso": portal.estado, "visto": visto,
+            }  # fmt: skip
+        for plataforma in nucleo.config.plataformas:
+            # Con selectores cargados y ausente del latido: la extensión no tiene su permiso
+            if plataforma not in cuerpo.portales and nucleo.selectores(plataforma):
+                previo = anteriores.get(plataforma, {})
+                aviso = previo["aviso"] if "aviso" in previo else previo.get("estado")
+                anteriores[plataforma] = {
+                    "estado": "sin_permiso", "motivo": None, "cuenta": previo.get("cuenta"),
+                    "aviso": aviso, "visto": visto,
+                }  # fmt: skip
+        anteriores["_pausado"] = bool(cuerpo.pausado)
         with nucleo.base.transaccion() as cx:
             cx.execute(
                 "UPDATE navegadores SET ultimo_latido = ?, version = ?, portales_json = ? "
@@ -446,16 +462,22 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             )
         listos = {p for p in disponibles if cuerpo.portales[p].estado == "listo"}
         nucleo.cola.portales_actualizados(nav.usuario_id, listos, ahora)
+        # Plataforma apagada con /plataformas: no se entregan trabajos nuevos (las que esperan
+        # sesión se reanudan arriba y las que están en curso no se tocan)
+        asignables = {p for p in disponibles if nucleo.config.plataformas[p].automatica}
 
         version_minima = nucleo.config.extension.version_minima
         actualizar = version_tupla(cuerpo.version) < version_tupla(version_minima)
         trabajo = None
         if not actualizar:
-            siguiente = nucleo.cola.siguiente(nav.usuario_id, disponibles, ahora)
+            siguiente = nucleo.cola.siguiente(nav.usuario_id, asignables, ahora)
             if siguiente and (
                 siguiente.tipo == Tipo.COMPLETAR_PERFIL or siguiente.plataforma in listos
             ):
                 trabajo = _trabajo(nucleo, siguiente)
+        if nucleo.cola.en_espera(nav.usuario_id):
+            # Que las cards en cola reflejen lo que acaba de reportar este navegador
+            await nucleo.notificar({"tipo": "esperas", "usuario_id": nav.usuario_id})
         selectores = {p: s[0] for p in nucleo.config.plataformas if (s := nucleo.selectores(p))}
         return {
             "trabajo": trabajo,

@@ -86,7 +86,8 @@ async function latidoUnico({ forzarRevision = false } = {}) {
 }
 
 async function enviarLatido(portales) {
-  const cuerpo = { version: version(), portales: {} };
+  const { pausado } = await ajustes();
+  const cuerpo = { version: version(), portales: {}, pausado: Boolean(pausado) };
   for (const [plataforma, p] of Object.entries(portales)) {
     cuerpo.portales[plataforma] = { estado: p.estado, correo: p.correo || null,
       pagina_correo: p.pagina_correo || null, motivo: p.motivo || null };

@@ -1121,6 +1121,7 @@ class Conversacion:
             plataforma=fila["plataforma"], url=fila["url"], seguimiento=fila["seguimiento"],
             etapa=self._etapas.get(pid, 0), cuadro=cuadro,
             segundos_etapa=self.reloj() - self._desde_etapa.get(pid, self.reloj()),
+            url_tienda=self.config.extension.url_edge,
         )  # fmt: skip
         tj = self._tarjeta(usuario)
         if tj is not None and tj.pid == pid and card.fase not in (tp.CONFIRMADA, tp.INCIERTA):
@@ -1143,6 +1144,29 @@ class Conversacion:
             if p is not None:
                 d.resumen, _ = self._datos_resumen(p, confirmada=card.fase == tp.CONFIRMADA)
         return d
+
+    async def _revisar_esperas(self, usuario: Usuario) -> None:
+        """Recalcula por qué siguen en cola las postulaciones del usuario y edita su card solo
+        si la causa (o la fase) cambió; sin cambios no se toca Telegram."""
+        for p in self.n.cola.en_espera(usuario.id):
+            card = self._obtener_card(p.id, crear=False)  # sin mensaje no avisa (automática)
+            if card is None or card.fase not in (tp.EN_COLA, tp.ESPERANDO_NAVEGADOR):
+                continue
+            causa = self.n.espera(p.id)
+            fase = tp.EN_COLA if p.estado == E.EN_COLA else tp.ESPERANDO_NAVEGADOR
+            espera = causa.a_dict() if causa else None
+            if espera == card.espera and fase == card.fase:
+                continue
+            card.espera, card.fase = espera, fase
+            self._guardar_card(p.id, card)
+            await self._pintar_card(usuario, p.id)
+
+    async def revisar_esperas(self) -> None:
+        """Lo mismo para todos los usuarios con algo en cola (vigilancia y /plataformas)."""
+        for uid in dict.fromkeys(p.usuario_id for p in self.n.cola.en_espera()):
+            usuario = self.n.usuarios.por_id(uid)
+            if usuario is not None:
+                await self._revisar_esperas(usuario)
 
     async def _pintar_card(
         self, usuario: Usuario, pid: int, cuadro: int = 0, *, animacion: bool = False,
@@ -2357,6 +2381,7 @@ class Conversacion:
             self.n.usuarios.auditar(
                 usuario.telegram_id, "plataforma", args[0], self.n.ahora(), args[1]
             )
+            await self.revisar_esperas()
         lineas = ["<b>Plataformas</b> (hasta reiniciar; el valor fijo está en config.yaml)"]
         for nombre, ajustes in self.config.plataformas.items():
             lineas.append(f"• {nombre}: {'automática' if ajustes.automatica else 'solo paquete'}")
@@ -2379,7 +2404,9 @@ class Conversacion:
             return
         tipo = d["tipo"]
         nombre = t.NOMBRES_PLATAFORMA.get(d.get("plataforma", ""), d.get("plataforma", ""))
-        if tipo == "navegador_vinculado":
+        if tipo == "esperas":
+            await self._revisar_esperas(usuario)
+        elif tipo == "navegador_vinculado":
             await self._actualizar_tarjeta(usuario, lambda tj: setattr(tj, "navegador", True))
             if usuario.estado == EstadoUsuario.ALTA:  # vincular era lo último del alta
                 await self._terminar_alta(usuario)

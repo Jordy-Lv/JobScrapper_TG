@@ -228,3 +228,50 @@ def test_reintentar_solo_lo_que_el_portal_no_recibio(cola):
     q, _ = cola.encolar(1, "def", CT, T0)
     ejecutar(cola, q.id, T0, E.INCIERTA)
     assert not cola.reintentar(q.id, T0)
+
+
+# --- restricciones que frenan a una postulación esperando --------------------------------------
+
+
+def test_restriccion_libre_si_nada_la_frena(cola):
+    p, _ = cola.encolar(1, "a", CT, T0)
+    assert cola.restriccion(p, T0) is None
+
+
+def test_restriccion_en_curso(cola):
+    a, _ = cola.encolar(1, "a", CT, T0)
+    b, _ = cola.encolar(1, "b", CT, T0)
+    assert cola.tomar(a.id, 10, T0)
+    restriccion = cola.restriccion(b, T0)
+    assert restriccion.codigo == "en_curso" and restriccion.cuando is None
+
+
+def test_restriccion_tope_diario_dice_cuando_vuelve_el_cupo(cola):
+    cola.config.topes.usuario_dia = 1
+    p, _ = cola.encolar(1, "a", CT, T0)
+    ejecutar(cola, p.id, T0)
+    pendiente, _ = cola.encolar(1, "b", CT, T0)
+    ahora = T0 + timedelta(minutes=5)
+    restriccion = cola.restriccion(pendiente, ahora)
+    assert restriccion.codigo == "tope_diario"
+    # Medianoche de Bogotá del día siguiente
+    assert restriccion.cuando == datetime(2026, 10, 5, 5, 0, tzinfo=UTC)
+    assert cola.restriccion(pendiente, restriccion.cuando) is None
+
+
+def test_restriccion_pausa_dice_cuando_termina(cola):
+    a, _ = cola.encolar(1, "a", CT, T0)
+    b, _ = cola.encolar(1, "b", CT, T0)
+    ejecutar(cola, a.id, T0)
+    restriccion = cola.restriccion(b, T0 + timedelta(seconds=10))
+    assert restriccion.codigo == "pausa"
+    assert T0 + timedelta(seconds=45) <= restriccion.cuando <= T0 + timedelta(seconds=120)
+    assert cola.restriccion(b, restriccion.cuando) is None
+
+
+def test_completar_perfil_ignora_tope_y_pausa(cola):
+    cola.config.topes.usuario_dia = 1
+    p, _ = cola.encolar(1, "a", CT, T0)
+    ejecutar(cola, p.id, T0)
+    perfil = cola.obtener(cola.encolar_completar_perfil(1, CT, T0))
+    assert cola.restriccion(perfil, T0 + timedelta(seconds=5)) is None

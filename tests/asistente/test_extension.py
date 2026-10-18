@@ -440,6 +440,22 @@ def test_codigo_vencido_lo_dice_en_la_pagina(tmp_path, api):
     correr(flujo())
 
 
+def test_latido_informa_si_la_extension_esta_en_pausa(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            await nav.guardar({"pausado": True})
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    cuerpos = [c for r, c in api.llamadas if r == "latido"]
+    assert cuerpos[0]["pausado"] is False
+    assert cuerpos[-1]["pausado"] is True
+
+
 def test_latido_informa_sesion_y_correo_de_cada_portal(tmp_path, api):
     async def flujo():
         nav = await abrir(tmp_path, api.url, portales_listos())

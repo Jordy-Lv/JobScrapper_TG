@@ -11,10 +11,12 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 
 from buscador_vacantes.asistente import progreso, resumen_postulacion
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.resumen_postulacion import DatosResumen
+from buscador_vacantes.comun.fechas import ZONA
 
 EN_COLA = "en_cola"
 ESPERANDO_NAVEGADOR = "esperando_navegador"
@@ -60,6 +62,8 @@ class Card:
     pregunta: dict | None = None
     motivo: str | None = None  # del respaldo, del bloqueo del portal o del cierre
     afinidad: str | None = None  # línea «🎯 Afinidad…» ya escapada, bajo la cabecera
+    # En cola: por qué todavía no sale ({codigo, plataforma, datos} de espera.Causa) o None
+    espera: dict | None = None
 
     def a_texto(self) -> str:
         return json.dumps(self.__dict__, ensure_ascii=False)
@@ -90,6 +94,7 @@ class Datos:
     id_corto: str | None = None  # cuenta / cancelada: aún no hay postulación (pid)
     segundos: int = 0  # cuenta: segundos que faltan
     total: int = 0  # cuenta: duración completa
+    url_tienda: str = ""  # en cola: tienda de la extensión, si hay enlace configurado
 
     @property
     def portal(self) -> str:
@@ -174,8 +179,37 @@ def _cancelada(card: Card) -> list[str]:
             return ["Cancelaste la postulación. No envié nada."]
 
 
+def _hora(valor: str | None) -> str:
+    """Hora local (Bogotá) de un instante guardado en la causa; vacío si no hay."""
+    return datetime.fromisoformat(valor).astimezone(ZONA).strftime("%H:%M") if valor else ""
+
+
+def _espera(card: Card, d: Datos) -> list[str]:
+    """«En cola» con la causa concreta de la espera y cómo resolverla."""
+    espera = card.espera or {}
+    datos = espera.get("datos") or {}
+    plataforma = espera.get("plataforma") or d.plataforma or ""
+    hora = _hora(datos.get("cuando"))
+    ultimo = _hora(datos.get("ultimo"))
+    mensaje = t.ESPERAS[espera["codigo"]].format(
+        portal=t.e(t.NOMBRES_PLATAFORMA.get(plataforma, plataforma or "el portal")),
+        dominio=t.e(t.DOMINIOS.get(plataforma, plataforma)),
+        version=t.e(datos.get("version", "?")),
+        minima=t.e(datos.get("minima", "?")),
+        desde=f" desde las {ultimo}" if ultimo else "",
+        hora=hora,
+    )
+    return ["⏳ En cola.", mensaje]
+
+
+def _con_espera(card: Card) -> bool:
+    return card.fase in (EN_COLA, ESPERANDO_NAVEGADOR) and bool(card.espera)
+
+
 def _cuerpo(card: Card, d: Datos) -> list[str]:
     """Líneas del `<blockquote>` de estado para las fases que no son la confirmación."""
+    if _con_espera(card):
+        return _espera(card, d)
     match card.fase:
         case "cuenta":
             return _cuenta(d)
@@ -296,9 +330,42 @@ def _botones_revision(card: Card, d: Datos, cb: Cb) -> Botones:
     return [[("✅ Enviar", cb("rev", d.pid, "ok")), ("✏️ Corregir", cb("rev", d.pid, "c"))]]
 
 
+def _botones_espera(card: Card, d: Datos, cb: Cb) -> Botones:
+    """La solución de cada causa; solo las que el usuario resuelve con un toque llevan botón."""
+    espera = card.espera or {}
+    plataforma = espera.get("plataforma") or d.plataforma or ""
+    match espera.get("codigo"):
+        case "sin_sesion":
+            ingreso = t.URL_INGRESO.get(plataforma) or t.URL_REGISTRO.get(plataforma)
+            if not ingreso:
+                return []
+            acciones = [("Iniciar sesión", f"url:{ingreso}")]
+            if destino := t.URL_REGISTRO.get(plataforma):
+                acciones.append(("Crear cuenta", f"url:{destino}"))
+            return [acciones]
+        case "sin_navegador":
+            return [[("Vincular navegador", cb("vincular"))]]
+        case "extension_desactualizada" if d.url_tienda:
+            return [[("Actualizar extensión", f"url:{d.url_tienda}")]]
+        case "cuenta_por_confirmar" if not d.botones_conexion:
+            nombre = t.NOMBRES_PLATAFORMA.get(plataforma, plataforma)
+            return [[
+                (f"Confirmar {nombre}", cb("cuenta", plataforma, "si")),
+                ("Cancelar", cb("cuenta", plataforma, "no")),
+            ]]  # fmt: skip
+        case "cuenta_distinta" if not d.botones_conexion:
+            return [[
+                ("Es mi cuenta nueva", cb("cuenta", plataforma, "nueva")),
+                ("No es mía", cb("cuenta", plataforma, "no")),
+            ]]  # fmt: skip
+    return []
+
+
 def botones(card: Card, d: Datos, cb: Cb) -> Botones | None:
     """Botones de la card: acciones del estado, luego vistas y al final el seguimiento."""
     filas: Botones = [*d.botones_conexion]
+    if _con_espera(card):
+        return [*filas, *_botones_espera(card, d, cb)] or None
     match card.fase:
         case "confirmada" | "incierta":
             filas += _botones_confirmacion(card, d, cb)
