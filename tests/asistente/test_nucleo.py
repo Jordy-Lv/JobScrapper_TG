@@ -137,13 +137,14 @@ def publicar(mundo, fuente, id_fuente, url):
     return id_corto(f"{fuente}:{id_fuente}")
 
 
-# Plataformas reconocidas por dominio que aún no postulan solas (automatica: false)
+# Plataformas reconocidas por dominio; las pruebas de respaldo las apagan (automatica: false)
 NUEVAS = {"elempleo": "https://www.elempleo.com/co/ofertas-trabajo/practicante-1886774213"}
 
 
 @pytest.mark.parametrize("plataforma", list(NUEVAS))
 def test_plataforma_nueva_sin_automatica_va_a_respaldo_sin_tarea(mundo, plataforma):
     mundo.vincular()
+    mundo.nucleo.config.plataformas[plataforma].automatica = False
     id_ = publicar(mundo, plataforma, "1", NUEVAS[plataforma])
     toque = mundo.nucleo.tocar(mundo.usuario, id_)
     assert toque.vacante.plataforma == plataforma
@@ -155,6 +156,7 @@ def test_plataforma_nueva_sin_automatica_va_a_respaldo_sin_tarea(mundo, platafor
 
 def test_vacante_indexada_antes_de_reconocer_el_dominio_toma_la_plataforma_del_enlace(mundo):
     mundo.vincular()
+    mundo.nucleo.config.plataformas["elempleo"].automatica = False
     id_ = publicar(mundo, "elempleo", "3", NUEVAS["elempleo"])
     mundo.nucleo.indice.indexar(T0)
     # Así quedaron las filas indexadas cuando elempleo.com aún no estaba en PLATAFORMAS
@@ -170,7 +172,7 @@ def test_vacante_indexada_antes_de_reconocer_el_dominio_toma_la_plataforma_del_e
     [
         ("https://co.computrabajo.com/ofertas-de-trabajo/oferta-2", "computrabajo", None),
         ("https://www.magneto365.com/co/empleos/practicante-1-5-2", "magneto", None),
-        (NUEVAS["elempleo"], "elempleo", "plataforma_no_automatica"),
+        (NUEVAS["elempleo"], "elempleo", None),
         ("https://empleos.cajadecompensacion.example/oferta/2", None, "plataforma_no_soportada"),
     ],
 )

@@ -44,8 +44,8 @@ gratuito. La versión con diagramas está en `docs/asistente/guia-asistente-post
 6. **Vincula tu navegador.** En el bot toca *Vincular mi navegador*: se abre una página que la
    extensión reconoce sola. El bot abre una **tarjeta de conexión** con «✓ Navegador vinculado».
    Esa misma tarjeta se va actualizando sola: no llegan mensajes sueltos por cada paso.
-7. **Inicia sesión en Computrabajo y Magneto** en ese mismo navegador, como siempre (y en
-   elempleo, cuando esté activa: ver «Plataformas»). La extensión lo detecta y, en la misma tarjeta, el bot te muestra el correo de cada cuenta con los botones
+7. **Inicia sesión en Computrabajo, Magneto y elempleo** en ese mismo navegador, como siempre
+   (elempleo pide además su permiso: ver «Plataformas»). La extensión lo detecta y, en la misma tarjeta, el bot te muestra el correo de cada cuenta con los botones
    *Confirmar* y *Cancelar* para que confirmes que es la tuya. Si ya tocaste una vacante, la
    tarjeta sigue con las etapas de esa postulación hasta el resultado.
    - *Si no tienes cuenta:* el bot te da el enlace de registro. La cuenta la creas tú, porque
@@ -60,12 +60,12 @@ gratuito. La versión con diagramas está en `docs/asistente/guia-asistente-post
 | Plataforma | Cómo se postula |
 |---|---|
 | Computrabajo y Magneto | Sola, con tu sesión |
-| elempleo | Sola, cuando el administrador la activa y tú le das permiso: en el popup de la extensión pulsa *Activar* en elempleo y acepta el permiso para elempleo.com. Mientras tanto, el bot te avisa que no puede postularla |
+| elempleo | Sola, con tu sesión, después de darle permiso: en el popup de la extensión pulsa *Activar* en elempleo y acepta el permiso para elempleo.com |
 | LinkedIn, GetOnBoard, Servicio Público de Empleo y otras | No se postula: el bot solo postula de forma automática y te avisa el motivo |
 
 En elempleo, el video de presentación (V-Prez) que piden algunas ofertas se omite; si la oferta
-pide una nota de presentación y no se puede redactar con tu perfil, el bot te la pregunta antes de
-enviar.
+pide una nota de presentación o un cuestionario adicional y no se puede responder con tu perfil,
+el bot te pregunta lo que falta antes de enviar.
 
 ## Uso diario
 

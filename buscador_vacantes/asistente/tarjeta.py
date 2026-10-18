@@ -88,7 +88,7 @@ def lineas(tarjeta: Tarjeta, solo: str | None = None, excepto: str | None = None
         for plataforma, cuenta in cuentas.items():
             salida.append(_linea_cuenta(t.NOMBRES_PLATAFORMA.get(plataforma, plataforma), cuenta))
     elif tarjeta.navegador and excepto is None:
-        salida.append("· Inicia sesión en Computrabajo y Magneto en ese navegador.")
+        salida.append("· Inicia sesión en Computrabajo, Magneto y elempleo en ese navegador.")
     return salida
 
 
