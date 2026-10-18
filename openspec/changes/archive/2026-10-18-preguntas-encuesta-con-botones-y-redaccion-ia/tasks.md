@@ -36,4 +36,4 @@
 ## 6. Cierre
 
 - [x] 6.1 Ejecutar toda la suite de `tests/` y `ruff`, y verificar que quedan en verde
-- [ ] 6.2 👤 Del dueño: reiniciar `buscador-asistente` en Fedora y recargar la extensión. Postular en Computrabajo a una vacante con preguntas abiertas y verificar la pregunta compuesta completa, la pregunta de dato en la card y 🤖 en «Tus respuestas». Repetir con la revisión encendida en ese portal
+- [x] 6.2 👤 Del dueño: reiniciar `buscador-asistente` en Fedora y recargar la extensión. Postular en Computrabajo a una vacante con preguntas abiertas y verificar la pregunta compuesta completa, la pregunta de dato en la card y 🤖 en «Tus respuestas». Repetir con la revisión encendida en ese portal — Hecho el 2026-10-18 en elempleo (postulación 46: dos respuestas redactadas completas con 🤖 y una del perfil; la 48 no traía cuestionario). Computrabajo y la revisión encendida no se probaron con una postulación real; el dueño pidió cerrar.

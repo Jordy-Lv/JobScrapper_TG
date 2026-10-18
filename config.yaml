@@ -1052,7 +1052,7 @@ asistente:
     comprobar_cada_h: 24
     cache_min: 10
   politica:
-    version: 1
+    version: 2
     # Borrador de la tarea 2.2: el administrador debe revisarlo y aprobarlo antes del piloto.
     # Cambiar el texto exige subir la versión: todos los usuarios lo aceptan de nuevo.
     texto: |-
@@ -1065,8 +1065,8 @@ asistente:
       1. Qué datos guardamos: tu id y nombre de Telegram; tu hoja de vida y el perfil que
       se arma con ella (formación, experiencia, proyectos, habilidades, idiomas); tus datos
       de contacto (correo, teléfono y, si lo das, tu documento); tus respuestas al
-      cuestionario; el correo de tus cuentas de Computrabajo y Magneto; tu clave de Gemini
-      (cifrada); y el historial de tus postulaciones con las respuestas enviadas.
+      cuestionario; el correo de tus cuentas de Computrabajo, Magneto y elempleo; tu clave
+      de Gemini (cifrada); y el historial de tus postulaciones con las respuestas enviadas.
 
       2. Para qué: solo para preparar y enviar las postulaciones que tú pidas tocando
       "Postularme" (o las de tu modo automático, si lo activas), adaptar levemente tu hoja
@@ -1110,8 +1110,8 @@ asistente:
   plataformas:
     computrabajo: {automatica: true}
     magneto: {automatica: true}
-    # Reconocida por dominio; va a paquete de respaldo hasta pasar su piloto
-    elempleo: {automatica: false}
+    # Activada el 2026-10-18 (tarea 7.1) tras su primera postulación real enviada
+    elempleo: {automatica: true}
   automatico_usuario:
     umbral_defecto: 70
   cuenta_regresiva_segundos: 10  # pausa para cancelar tras tocar «Postular»; 0 la desactiva

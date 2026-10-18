@@ -34,8 +34,12 @@ def test_las_plataformas_automaticas_de_config_estan_completas():
     assert incompletas(cargar_configuracion().asistente.plataformas) == []
 
 
-def test_las_plataformas_nuevas_arrancan_sin_automatica():
-    assert cargar_configuracion().asistente.plataformas["elempleo"].automatica is False
+def test_elempleo_postula_sola_tras_su_piloto():
+    """Activada el 2026-10-18 (tarea 7.1); la autorización de datos ya nombra su cuenta."""
+    asistente = cargar_configuracion().asistente
+    assert asistente.plataformas["elempleo"].automatica is True
+    assert "Computrabajo, Magneto y elempleo" in asistente.politica.texto
+    assert asistente.politica.version == 2
 
 
 def test_falta_un_nombre():

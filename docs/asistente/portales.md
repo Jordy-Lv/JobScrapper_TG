@@ -146,6 +146,14 @@ da `enviada`, y el modal del ATS da `incierta`.
   variante normal termina en `formulario_desconocido` en `cv_subir` y en la rápida en `incierta`, los dos
   con el HTML de la evidencia.
 
+**Activación (2026-10-18).** El dueño decidió activar elempleo con el piloto en 1 de 3 (postulación 44,
+variante normal, `enviada` y visible en «Mis procesos»), para que quede encendida como Computrabajo y
+Magneto y no dependa de `/plataformas elempleo on`, que se pierde en cada reinicio del servicio. Se hizo la
+7.1 completa: `automatica: true`, `elempleo.json` `2026.10.18-1` con `verificado.postulacion: true` y la
+autorización de datos en la versión 2. La variante rápida y el cuestionario adicional siguen sin verse en
+una postulación real: revisar las primeras de cada tipo con los puntos de «Qué comprobar al repetir el
+piloto».
+
 **7.1, si las tres salen bien:** poner `elempleo: {automatica: true}` en `config.yaml`, cambiar
 `verificado.postulacion` a `true` en `elempleo.json` (subir `version`) y actualizar la autorización de datos
 (ver abajo), commit, `git pull --ff-only` en el Fedora, reinicio del servicio y un ⚡ de prueba que termine

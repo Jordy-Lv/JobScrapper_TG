@@ -12,7 +12,7 @@ def test_con_el_navegador_vinculado_pide_iniciar_sesion_en_los_portales():
     assert texto.split("\n") == [
         "🔗 <b>Conexión con tus portales</b>",
         "✓ Navegador vinculado",
-        "· Inicia sesión en Computrabajo y Magneto en ese navegador.",
+        "· Inicia sesión en Computrabajo, Magneto y elempleo en ese navegador.",
     ]
 
 
@@ -23,7 +23,7 @@ def test_una_linea_por_portal_segun_su_estado():
     lineas = tarjeta.texto(tj).split("\n")
     assert "✓ Computrabajo · ana@gmail.com" in lineas
     assert any(x.startswith("❓ <b>Magneto</b>") and "ana&lt;2&gt;@gmail.com" in x for x in lineas)
-    assert not any("Inicia sesión en Computrabajo y Magneto" in x for x in lineas)
+    assert not any("Inicia sesión en Computrabajo, Magneto" in x for x in lineas)
 
 
 def test_confirmar_conserva_el_correo_ya_mostrado():

@@ -65,11 +65,12 @@ PEDIR_ENFOQUE = (
 )
 NAVEGADOR = (
     "<b>Paso 5 de 5 · Postulación automática</b>\n"
-    "Para que yo postule por ti en Computrabajo y Magneto:\n"
+    "Para que yo postule por ti en Computrabajo, Magneto y elempleo:\n"
     "1. Instala la extensión en <b>Edge</b>{tienda} (o en Chrome/Brave con el paquete que te "
     "envío con /vincular).\n"
     "2. Toca <b>Vincular mi navegador</b>.\n"
-    "3. Inicia sesión en Computrabajo y Magneto en ese navegador.\n"
+    "3. Inicia sesión en esos portales en ese navegador (elempleo se activa también en la "
+    "extensión).\n"
     "Tu PC debe estar encendido con el navegador abierto (puede estar minimizado)."
 )
 YA_VINCULADO = (
