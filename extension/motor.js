@@ -294,10 +294,23 @@
     return salida.slice(0, 80);
   }
 
-  // Encuesta hecha de preguntas con botones de respuesta, sin <form> ni name (Magneto). `def`
-  // declara el bloque de cada pregunta, su título y su botón de respuesta. Cada pregunta es
-  // obligatoria: el portal no deja enviar sin responderlas. Los botones de «Cancelar» y de
-  // enviar quedan fuera porque no son botones de respuesta ni están dentro de una pregunta.
+  // Límite de una pregunta abierta: el maxlength del campo o, si no lo tiene, el número del
+  // contador que muestra el portal («0 de 140», Magneto)
+  function limiteDe(campo, bloque, def) {
+    const propio = maximoDe(campo);
+    if (propio) return propio;
+    for (const el of [].concat(def.limite || []).flatMap((s) => candidatos(s, bloque))) {
+      const m = textoDe(el).match(/de\s+(\d+)/i);
+      if (m) return Number(m[1]);
+    }
+    return null;
+  }
+
+  // Encuesta hecha de preguntas sin <form> ni name (Magneto). `def` declara el bloque de cada
+  // pregunta, su título, su botón de respuesta y, para las preguntas de texto, el campo
+  // abierto (`abierta`) y el contador de caracteres (`limite`). Cada pregunta es obligatoria:
+  // el portal no deja enviar sin responderlas. Los botones de «Cancelar» y de enviar quedan
+  // fuera porque no son botones de respuesta ni están dentro de una pregunta.
   function leerPreguntas(contenedor, def) {
     const titulo = (bloque) => textoDe(buscar(def.titulo, { raiz: bloque }));
     const bloques = candidatos(def.pregunta, contenedor).filter((b) => visible(b) && titulo(b));
@@ -307,7 +320,21 @@
     const salida = [];
     for (const bloque of preguntas) {
       const botones = candidatos(def.respuesta, bloque).filter(visible);
-      if (!botones.length) return { sin_botones: titulo(bloque).slice(0, 200) };
+      const abierta = !botones.length && def.abierta
+        ? buscar(def.abierta, { raiz: bloque }) : null;
+      if (abierta && !abierta.disabled && !abierta.readOnly) {
+        campos.push({ tipo: "abierta", el: abierta });
+        salida.push({
+          texto: titulo(bloque).slice(0, 1000),
+          tipo: "texto",
+          opciones: [],
+          obligatoria: true,
+          nombre: null,
+          maximo: limiteDe(abierta, bloque, def),
+        });
+        continue;
+      }
+      if (!botones.length) return { sin_respuesta: titulo(bloque).slice(0, 200) };
       campos.push({ tipo: "boton", elementos: botones });
       salida.push({
         texto: titulo(bloque).slice(0, 1000),
@@ -386,6 +413,18 @@
         if (r.opcion == null) continue;
         if (!(await pulsarRespuesta(campo.elementos[r.opcion]))) {
           return error({ accion: "llenar" }, "la opción elegida no quedó marcada");
+        }
+      } else if (campo.tipo === "abierta") {
+        // Pregunta abierta de una encuesta (Magneto, React): se comprueba que el portal
+        // aceptó el texto, porque un componente controlado puede descartarlo
+        if (r.valor == null) continue;
+        const valor = String(r.valor);
+        campo.el.scrollIntoView({ block: "center" });
+        asignarValor(campo.el, valor);
+        await dormir(200);
+        const linea = (t) => t.replace(/\r\n?/g, "\n"); // el textarea normaliza los saltos
+        if (linea(campo.el.value) !== linea(valor)) {
+          return error({ accion: "llenar" }, "la respuesta abierta no quedó escrita en el campo");
         }
       } else if (campo.tipo === "casilla") {
         if (r.opcion == null) continue;
@@ -479,6 +518,15 @@
           if (paso.opcional) return { ok: true, encontrado: false };
           return error(paso, "no apareció el botón");
         }
+        if (paso.esperar_habilitado) {
+          // El portal habilita el botón cuando da todo por respondido (Magneto). Pulsar uno
+          // deshabilitado no envía nada: se reporta en vez de esperar una confirmación.
+          const limite = Date.now() + ms;
+          while (el.disabled && Date.now() < limite) await dormir(250);
+          if (el.disabled) {
+            return error(paso, "el botón de enviar sigue deshabilitado: el portal no dio por respondidas todas las preguntas");
+          }
+        }
         await pausa(300, 800);
         el.scrollIntoView({ block: "center" });
         el.click();
@@ -507,8 +555,8 @@
         }
         if (paso.preguntas) {
           const leidas = leerPreguntas(contenedor, paso.preguntas);
-          if (leidas.sin_botones) {
-            return error(paso, `la pregunta «${leidas.sin_botones}» no tiene botones de respuesta`, contenedor);
+          if (leidas.sin_respuesta) {
+            return error(paso, `la pregunta «${leidas.sin_respuesta}» no tiene botones ni campo de respuesta`, contenedor);
           }
           return { campos: leidas.campos };
         }

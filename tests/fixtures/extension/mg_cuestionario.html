@@ -7,7 +7,12 @@
      pregunta es un div ..._job-offer-questionnaire__question con su título y botones de
      respuesta; dentro de cada botón hay un input.ant-radio-input sin name. Al pulsar «Enviar
      respuestas», unos segundos después (~5 s en el portal real) aparece un modal con «Se ha
-     enviado tu aplicación». Con las preguntas sin responder el portal no envía nada. -->
+     enviado tu aplicación». Con las preguntas sin responder el portal no envía nada.
+     Postulación 51 (2026-10-18): la encuesta también trae preguntas abiertas, un textarea
+     name="text" («Tu respuesta») sin maxlength con el contador «0 de 140», y «Enviar
+     respuestas» queda disabled hasta que todas las preguntas tienen respuesta. Las pruebas
+     agregan preguntas abiertas ({abierta: texto}) o sin forma de responder ({vacia: texto})
+     reemplazando la lista PREGUNTAS. -->
 <header>
   <div class="logoutBlock_avatar_7d3k2">
     <img alt="User Avatar" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="32" height="32">
@@ -24,15 +29,33 @@
     "¿Tienes disponibilidad para trabajar de forma presencial?",
     "¿Autorizas el tratamiento de tus datos personales?",
   ];
-  const cuadro = (texto, i) =>
-    '<div class="jobOfferQuestionnaire_job-offer-questionnaire__question_a1b2c">' +
-    '<p class="jobOfferQuestionnaire_job-offer-questionnaire__question-title_d3e4f">' + texto + '</p>' +
+  const LIMITE = 140;
+  const titulo = (texto) =>
+    '<p class="jobOfferQuestionnaire_job-offer-questionnaire__question-title_d3e4f">' + texto + '</p>';
+  const botones = () =>
     '<div class="jobOfferQuestionnaire_job-offer-questionnaire__question-answers_g5h6i">' +
     ["Si", "No"].map((r) =>
       '<button type="button" class="jobOfferQuestionnaire_job-offer-questionnaire__question-possible-answer-button_j7k8l">' +
       '<span class="ant-radio"><input class="ant-radio-input" type="radio" value="' + r + '"></span>' +
       '<span>' + r + '</span></button>').join("") +
+    '</div>';
+  // Como en la evidencia de la postulación 51: sin maxlength, con el contador «0 de 140»
+  const abierta = () =>
+    '<div class="limitInputText_input-limit__4wX4A">' +
+    '<textarea placeholder="Tu respuesta" class="limitInputText_input-limit__input__KSC0C" name="text"></textarea>' +
+    '<div class="limitInputText_input-limit__extra-container__95tBc">' +
+    '<span class="limitInputText_input-limit__limit-error__FyJVH"></span>' +
+    '<span class="limitInputText_input-limit__limit-text__A111D">' +
+    '<span class="limitInputText_input-limit__limit-text--value__cQNnW">0</span> de ' + LIMITE + '</span>' +
     '</div></div>';
+  const cuadro = (p) =>
+    '<div class="jobOfferQuestionnaire_job-offer-questionnaire__question_a1b2c">' +
+    (typeof p === "string" ? titulo(p) + botones()
+      : p.abierta ? titulo(p.abierta) + abierta() : titulo(p.vacia)) +
+    '</div>';
+  const respondida = (p) =>
+    Boolean(p.querySelector("input.ant-radio-input:checked"))
+    || [...p.querySelectorAll("textarea")].some((t) => t.value.trim() && t.value.length <= LIMITE);
 
   document.querySelector(".applyButton_apply-btn__x9p2q").addEventListener("click", () => {
     const encuesta = document.getElementById("encuesta");
@@ -43,20 +66,30 @@
       PREGUNTAS.map(cuadro).join("") +
       '<div class="jobOfferQuestionnaire_job-offer-questionnaire__actions_p1q2r">' +
       '<button type="button" class="jobOfferQuestionnaire_job-offer-questionnaire__cancel_s3t4u">Cancelar</button>' +
-      '<button type="button" class="jobOfferQuestionnaire_job-offer-questionnaire__submit_v5w6x">Enviar respuestas</button>' +
+      '<button type="button" class="jobOfferQuestionnaire_job-offer-questionnaire__submit_v5w6x" disabled>Enviar respuestas</button>' +
       '</div></div>';
+    const enviar = encuesta.querySelector("[class*='questionnaire__submit']");
+    const completo = () => [...encuesta.querySelectorAll("[class*='job-offer-questionnaire__question_']")]
+      .every(respondida);
+    // Como el portal: «Enviar respuestas» se habilita solo con todo respondido
+    const revisar = () => (enviar.disabled = !completo());
     // Como el portal: pulsar un botón marca su input y desmarca el de la otra opción
     encuesta.querySelectorAll("button[class*='question-possible-answer-button']").forEach((boton) => {
       boton.addEventListener("click", () => {
         const pregunta = boton.closest("[class*='job-offer-questionnaire__question_']");
         pregunta.querySelectorAll("input.ant-radio-input").forEach((i) => (i.checked = false));
         boton.querySelector("input.ant-radio-input").checked = true;
+        revisar();
       });
     });
-    encuesta.querySelector("[class*='questionnaire__submit']").addEventListener("click", () => {
-      const completo = [...encuesta.querySelectorAll("[class*='job-offer-questionnaire__question_']")]
-        .every((p) => p.querySelector("input.ant-radio-input:checked"));
-      if (!completo) return;
+    encuesta.querySelectorAll("textarea").forEach((campo) => {
+      campo.addEventListener("input", () => {
+        campo.parentElement.querySelector("[class*='limit-text--value']").textContent = campo.value.length;
+        revisar();
+      });
+    });
+    enviar.addEventListener("click", () => {
+      if (!completo()) return;
       setTimeout(() => {
         encuesta.style.display = "none";
         const modal = document.createElement("div");
