@@ -23,7 +23,7 @@ Todas las plataformas automáticas (Computrabajo y Magneto) pasan por el mismo `
 - Que una falla de IA nunca bloquee la postulación.
 
 **Non-Goals:**
-- Redactar las preguntas con opciones. Se siguen marcando tal cual.
+- Redactar texto para las preguntas con opciones: la IA solo elige una de las opciones del portal (decisión 11).
 - Redactar los datos de contacto o enviárselos a la IA.
 - Editar en el portal una respuesta ya enviada.
 - Cambiar el flujo de elempleo, que sigue en respaldo manual.
@@ -35,7 +35,7 @@ Todas las plataformas automáticas (Computrabajo y Magneto) pasan por el mismo `
    - Es `dato` cuando la pregunta pide **solo** el valor de **un** campo del catálogo y se contesta con ese valor, como «Ciudad de residencia» o «¿Nivel de inglés?».
    - Es `redactar` cuando está formulada para responderse en prosa, pide varios datos o no encaja en el catálogo.
    - El banco guarda `campo=<campo>` para `dato` y `campo="redactar"` para el resto (`parametro` nulo). Así la siguiente vez no hace falta clasificar. Alternativa descartada: no guardar las de redacción, porque obligaría a clasificarlas en cada formulario.
-   - Las preguntas de tipo `opciones`, `numero`, `fecha`, `correo` y `telefono` nunca van al redactor. Si su campo no se conoce, siguen el camino actual: dato faltante de tipo `formulario`.
+   - Las preguntas de tipo `numero`, `fecha`, `correo` y `telefono` nunca van al redactor. Si su campo no se conoce, pasan a dato faltante de tipo `formulario`. Las de `opciones` sin campo conocido van a la misma llamada del redactor para elegir una opción (decisión 11).
 
 2. **Redactor por formulario: `redactar_formulario(preguntas, ctx)` en `respuestas.py`.**
    - `resolver_formulario` se hace en dos fases. Primero resuelve sin redactar todo lo que es dato u opción. Luego junta las preguntas de texto marcadas `redactar` (o sin campo conocido) que no tienen redacción reutilizable y hace **una** llamada con la tarea `responder`.
@@ -90,6 +90,13 @@ Todas las plataformas automáticas (Computrabajo y Magneto) pasan por el mismo `
    - un índice único `(postulacion_id, pregunta_norm)` en `respuestas`. Las filas viejas se completan con `normalizar_pregunta` en Python dentro de la migración.
 
 10. **Orden de entrega.** El servidor (decisiones 1 a 9) no depende de la extensión: sin `maximo`, solo se omite el límite. Los cambios a `motor.js` y al popup van al final y después de cerrar `magneto-confirmar-y-leer-encuesta`, que hoy tiene `motor.js` modificado sin subir.
+
+11. **Opciones en la misma llamada (todos los portales).** La encuesta de Magneto es de botones Si/No y elempleo tiene preguntas cerradas (`[n].IsCloseAnswer`). Antes de este change, `_redactar` elegía la opción de una pregunta fuera del catálogo; quitarlo las mandaba todas a la card. Por eso:
+   - una pregunta con opciones que no resuelven los datos aprendidos, el banco ni el perfil entra a `redactar_formulario` junto con las abiertas, con sus opciones numeradas desde 0;
+   - `RespuestaRedactada` suma `opcion: int | None`. Para una pregunta con opciones solo vale `opcion` dentro del rango; si falta o se sale, la pregunta pasa a la card como pendiente `formulario`;
+   - las autorizaciones y aceptaciones (tratamiento de datos, términos) siguen sin pasar por la IA;
+   - al reutilizar una respuesta guardada, el texto de la opción se vuelve a buscar entre las opciones con `elegir_opcion`; si ya no está, se resuelve de nuevo.
+   - elempleo no necesita nada más: su cuestionario y la nota de presentación VIP ya pasan por `/formulario`. Las preguntas de Magneto sin botones (texto libre) siguen terminando `formulario_desconocido` hasta ver una real.
 
 ## Risks / Trade-offs
 

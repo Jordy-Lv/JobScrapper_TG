@@ -1643,7 +1643,10 @@ class Conversacion:
             valor, origen = r.texto, r.origen
             if r.redactar:
                 redactada = redactadas.get(posicion[id(pregunta)])
-                valor = redactada.valor if redactada and not redactada.faltan else None
+                valor = None
+                if redactada and not redactada.faltan:
+                    elegida = redactada.opcion
+                    valor = pregunta.opciones[elegida] if elegida is not None else redactada.valor
                 origen = Origen.IA
             if valor is None:
                 await self._enviar(

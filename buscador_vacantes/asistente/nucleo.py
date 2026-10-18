@@ -35,6 +35,7 @@ from buscador_vacantes.asistente.respuestas import (
     Pregunta,
     Respuesta,
     aprendida,
+    elegir_opcion,
     normalizar_pregunta,
     recordar,
     recortar_a_limite,
@@ -328,13 +329,13 @@ class Nucleo:
                 respuesta = await resolver(pregunta, ctx)
             if respuesta.redactar:
                 norma = normalizar_pregunta(pregunta.texto)
-                if (previa := previas.get(norma)) is None:
+                previa = previas.get(norma)
+                reutilizada = self._reutilizar(pregunta, previa) if previa else None
+                if reutilizada is None:
                     por_redactar.append(pregunta)
                     continue
                 estados[norma] = previa["estado"]
-                respuesta = Respuesta(pregunta, origen=Origen(previa["origen"]),
-                                      valor=recortar_a_limite(previa["respuesta"],
-                                                              pregunta.maximo))  # fmt: skip
+                respuesta = reutilizada
             resueltas.append(respuesta)
         # Fase 2: una sola llamada para todas las preguntas abiertas que faltan
         resueltas += await self._redactar(por_redactar, ctx)
@@ -400,11 +401,26 @@ class Nucleo:
             ]  # fmt: skip
             if nuevos and pregunta.obligatoria:
                 resultado.append(Respuesta(pregunta, falta=True, datos=nuevos))
-            elif r.valor and not nuevos:
+            elif nuevos:
+                resultado.append(Respuesta(pregunta, falta=True))
+            elif r.opcion is not None:  # pregunta con opciones: la IA eligió una válida
+                resultado.append(Respuesta(pregunta, opcion=r.opcion, origen=Origen.IA))
+            elif r.valor and not pregunta.opciones:
                 resultado.append(Respuesta(pregunta, valor=r.valor, origen=Origen.IA))
             else:
                 resultado.append(Respuesta(pregunta, falta=True))
         return resultado
+
+    @staticmethod
+    def _reutilizar(pregunta: Pregunta, previa: dict) -> Respuesta | None:
+        """La respuesta guardada en una pasada anterior; None si ya no sirve (por ejemplo, la
+        opción elegida ya no está entre las del portal)."""
+        origen = Origen(previa["origen"])
+        if pregunta.opciones:
+            indice = elegir_opcion(previa["respuesta"], pregunta.opciones)
+            return None if indice is None else Respuesta(pregunta, opcion=indice, origen=origen)
+        valor = recortar_a_limite(previa["respuesta"], pregunta.maximo)
+        return Respuesta(pregunta, valor=valor, origen=origen)
 
     def _redacciones_previas(self, pid: int) -> dict[str, dict]:
         """Redacciones de esta postulación que se reutilizan en una pasada nueva del formulario:

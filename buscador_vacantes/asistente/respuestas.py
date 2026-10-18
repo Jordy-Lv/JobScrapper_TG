@@ -31,7 +31,7 @@ from buscador_vacantes.comun.normalizar import normalizar_texto
 
 RUTA_BANCO = RAIZ / "assets" / "asistente" / "banco_preguntas.yaml"
 REDACTAR = "redactar"  # campo del banco: la pregunta se redacta, no es un dato del catálogo
-TIPOS_REDACTABLES = {"texto"}  # opciones, número, fecha, correo y teléfono nunca se redactan
+TIPOS_REDACTABLES = {"texto"}  # número, fecha, correo y teléfono nunca van al redactor
 MAX_APRENDIDOS_IA = 40  # datos aprendidos de formulario (los más recientes) para el redactor
 MAX_SUGERENCIA = 40
 MAX_PREGUNTAS_PEGADAS = 15
@@ -224,6 +224,7 @@ class DatoFaltante(BaseModel):
 class RespuestaRedactada(BaseModel):
     indice: int = Field(description="número de la pregunta")
     respuesta: str | None = Field(None, description="null si falta un dato del usuario")
+    opcion: int | None = Field(None, description="índice de la opción elegida, si hay opciones")
     faltan: list[DatoFaltante] = Field(default_factory=list)
 
 
@@ -260,7 +261,10 @@ INSTRUCCION_REDACTAR_FORMULARIO = (
     "respuesta=null y en faltan pon una pregunta corta en segunda persona por ese dato (por "
     "ejemplo «¿En qué institución estudias?») con 2 a 4 sugerencias cortas y probables.\n"
     "- Un dato marcado «(prefiere no decirlo)» no se vuelve a pedir: redacta sin él.\n"
-    "- Si la pregunta dice «máximo N caracteres», la respuesta no lo supera."
+    "- Si la pregunta dice «máximo N caracteres», la respuesta no lo supera.\n"
+    "- Si la pregunta trae opciones, no redactes: devuelve en opcion el número de la que "
+    "corresponde según los datos y deja respuesta=null; si los datos no alcanzan para elegir "
+    "con verdad, pide el dato en faltan."
 )
 
 
@@ -285,8 +289,8 @@ def _desde_campo(pregunta, campo, parametro, ctx: Contexto, origen: Origen) -> R
         return Respuesta(pregunta, campo=campo, falta=True)
     if pregunta.opciones:
         indice = elegir_opcion(valor, pregunta.opciones)
-        if indice is None:
-            return Respuesta(pregunta, campo=campo, falta=True)
+        if indice is None:  # el dato existe pero no calza con las opciones: elige el redactor
+            return Respuesta(pregunta, campo=campo, redactar=True)
         return Respuesta(pregunta, opcion=indice, origen=origen, campo=campo)
     return Respuesta(pregunta, valor=valor, origen=origen, campo=campo)
 
@@ -354,11 +358,12 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
 
 
 def es_redactable(pregunta: Pregunta) -> bool:
-    return pregunta.tipo in TIPOS_REDACTABLES and not pregunta.opciones
+    """Texto libre que se redacta, o una pregunta con opciones en la que la IA elige una."""
+    return bool(pregunta.opciones) or pregunta.tipo in TIPOS_REDACTABLES
 
 
 def _para_redactar(pregunta: Pregunta) -> Respuesta:
-    """Las de texto van al redactor; las demás (opciones, número…) se le preguntan al usuario."""
+    """Texto y opciones van al redactor; número, fecha, correo y teléfono, al usuario."""
     if es_redactable(pregunta):
         return Respuesta(pregunta, redactar=True)
     return Respuesta(pregunta, falta=True)
@@ -380,6 +385,7 @@ class Redactada:
 
     valor: str | None = None
     faltan: list[DatoFaltante] = field(default_factory=list)
+    opcion: int | None = None  # pregunta con opciones: índice válido de la elegida
 
 
 def recortar_a_limite(texto: str, maximo: int | None) -> str:
@@ -439,10 +445,15 @@ def _texto_aprendidos(aprendidos: list[tuple[str, str]]) -> str:
 
 
 def _texto_preguntas(preguntas: list[Pregunta]) -> str:
-    return "\n".join(
-        f"{n}. {p.texto}" + (f" (máximo {p.maximo} caracteres)" if p.maximo else "")
-        for n, p in enumerate(preguntas, 1)
-    )
+    lineas = []
+    for n, p in enumerate(preguntas, 1):
+        if p.opciones:
+            opciones = " · ".join(f"{i}) {o}" for i, o in enumerate(p.opciones))
+            lineas.append(f"{n}. {p.texto} [opciones: {opciones}]")
+        else:
+            limite = f" (máximo {p.maximo} caracteres)" if p.maximo else ""
+            lineas.append(f"{n}. {p.texto}{limite}")
+    return "\n".join(lineas)
 
 
 def _limpiar_faltantes(faltan: list[DatoFaltante]) -> list[DatoFaltante]:
@@ -493,10 +504,16 @@ async def redactar_formulario(
         posicion = r.indice - 1
         if not 0 <= posicion < len(preguntas) or posicion in resultado:
             continue  # número que no está en el formulario: se ignora
+        pregunta = preguntas[posicion]
+        faltan = _limpiar_faltantes(r.faltan)
+        if pregunta.opciones:  # solo vale una opción del portal, nunca texto inventado
+            valida = r.opcion is not None and 0 <= r.opcion < len(pregunta.opciones)
+            resultado[posicion] = Redactada(faltan=faltan, opcion=r.opcion if valida else None)
+            continue
         valor = " ".join((r.respuesta or "").split()) or None
         if valor:
-            valor = recortar_a_limite(valor, preguntas[posicion].maximo)
-        resultado[posicion] = Redactada(valor, _limpiar_faltantes(r.faltan))
+            valor = recortar_a_limite(valor, pregunta.maximo)
+        resultado[posicion] = Redactada(valor, faltan)
     return resultado
 
 

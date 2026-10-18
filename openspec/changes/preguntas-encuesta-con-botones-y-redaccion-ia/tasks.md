@@ -28,6 +28,11 @@
 - [x] 5.1 En `motor.js`, enviar `maximo` leído de `maxlength` en cada campo de texto. Verificar en `tests/asistente/test_extension.py` con un fixture que tenga `maxlength`
 - [x] 5.2 En `popup.html` y `popup.js`, añadir el interruptor «Revisar respuestas antes de enviar» en la vista del portal, guardado con `preferenciasGuardar`. Verificar en `tests/asistente/test_extension.py`
 
+## 7. Opciones en la misma llamada (Magneto y elempleo)
+
+- [x] 7.1 En `respuestas.py`, mandar al redactor las preguntas con opciones sin dato conocido, con sus opciones numeradas, y aceptar solo una `opcion` válida (decisión 11). Verificar en `tests/asistente/test_respuestas.py`: opción elegida, opción fuera de rango y consentimiento sin IA
+- [x] 7.2 En `nucleo.py`, convertir la opción elegida en respuesta de origen `ia`, reutilizarla en la segunda pasada y mandar a la card las inválidas; en `conversacion.py`, lo mismo para las preguntas pegadas. Verificar en `tests/asistente/test_nucleo.py` con la encuesta de Magneto y el cuestionario de elempleo
+
 ## 6. Cierre
 
 - [x] 6.1 Ejecutar toda la suite de `tests/` y `ruff`, y verificar que quedan en verde
