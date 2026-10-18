@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from buscador_vacantes.asistente.campos import RESERVADO
 from buscador_vacantes.asistente.resumen_postulacion import (
     DatosResumen,
     de_que_trata,
@@ -92,6 +93,18 @@ def test_respuestas_con_iconos_de_origen_y_leyenda():
     assert "1· ¿Pregunta 1 &lt;b&gt;?\n<b>SENA</b> 👤" in texto
     assert "<b>Sí</b> 🤖" in texto and "<b>Sí</b> 💬" in texto
     assert texto.endswith("👤 tu perfil · 🤖 redactada con IA · 💬 lo que me dijiste")
+
+
+def test_redactada_con_un_dato_del_usuario_va_con_ia_y_la_corregida_con_lo_que_dijiste():
+    d = DatosResumen(
+        vacante(), "computrabajo", CUANDO,
+        respuestas=[resp(1, "ia", "Estudio ADSO en el SENA."), resp(2, "usuario", "Me gusta."),
+                    resp(3, "aprendida", RESERVADO)],
+    )  # fmt: skip
+    texto = "\n".join(respuestas(d))
+    assert "<b>Estudio ADSO en el SENA.</b> 🤖" in texto and "redactada con IA" in texto
+    assert "<b>Me gusta.</b> 💬" in texto
+    assert RESERVADO not in texto and "<b>—</b> 💬" in texto
 
 
 def test_respuestas_largas_se_parten_sin_pasar_el_limite_de_telegram():

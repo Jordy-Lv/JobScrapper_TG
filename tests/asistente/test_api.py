@@ -40,6 +40,8 @@ class NucleoFalso:
         self.momento = T0
         self.eventos: list = []
         self.faltan = False
+        self.revisar = False
+        self.preguntas = []
         self.cv = tmp_path / "CV_Ana_Perez.pdf"
         self.cv.write_bytes(b"%PDF-1.4 cv")
         with self.base.transaccion() as cx:
@@ -67,6 +69,9 @@ class NucleoFalso:
         return ("1", {"postular": "#postular"}) if plataforma == CT else None
 
     async def resolver_formulario(self, postulacion, preguntas):
+        self.preguntas = preguntas
+        if self.revisar:
+            return ResultadoFormulario(revisar=True)
         if self.faltan:
             return ResultadoFormulario(faltan=[Respuesta(preguntas[0], falta=True)])
         respuestas = [Respuesta(p, valor="Sí", origen=Origen.PERFIL) for p in preguntas]
@@ -266,6 +271,32 @@ def test_dato_faltante_libera_la_postulacion(entorno):
     assert nucleo.cola.obtener(p.id).estado == E.ESPERANDO_USUARIO
 
 
+def test_formulario_lleva_el_maximo_del_campo(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    r = cliente.post(f"/api/v1/postulaciones/{p.id}/formulario", headers=cab,
+                     json={"campos": [{"texto": "¿Por qué te interesa?", "maximo": 150},
+                                      {"texto": "Ciudad"}]})  # fmt: skip
+    assert r.status_code == 200
+    assert [q.maximo for q in nucleo.preguntas] == [150, None]
+
+
+def test_revision_de_respuestas_libera_la_postulacion(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    nucleo.revisar = True
+    r = cliente.post(f"/api/v1/postulaciones/{p.id}/formulario", headers=cab,
+                     json={"campos": [{"texto": "¿Por qué te interesa?"}]}).json()  # fmt: skip
+    assert r == {"esperar_usuario": True}
+    assert nucleo.cola.obtener(p.id).estado == E.ESPERANDO_USUARIO
+
+
 def test_cuenta_distinta_no_da_trabajo(entorno):
     nucleo, cliente = entorno
     cab = vincular(nucleo, cliente)
@@ -345,6 +376,7 @@ def test_preferencias_por_defecto(entorno):
     assert datos["automatico"] is True
     assert datos["umbral"] is None
     assert datos["avisar"] is True
+    assert datos["revisar_respuestas"] is False  # apagada por defecto
     assert datos["cuenta"] is None
 
 
@@ -353,13 +385,14 @@ def test_guardar_y_leer_preferencias(entorno):
     cab = vincular(nucleo, cliente)
     r = cliente.post(
         f"/api/v1/preferencias/{CT}", headers=cab,
-        json={"automatico": False, "umbral": 85, "avisar": False},
+        json={"automatico": False, "umbral": 85, "avisar": False, "revisar_respuestas": True},
     )  # fmt: skip
     assert r.status_code == 200
     r = cliente.get(f"/api/v1/preferencias/{CT}", headers=cab)
     datos = r.json()
     assert datos == {
-        "automatico": False, "umbral": 85, "avisar": False, "cuenta": None,
+        "automatico": False, "umbral": 85, "avisar": False, "revisar_respuestas": True,
+        "cuenta": None,
     }  # fmt: skip
 
 

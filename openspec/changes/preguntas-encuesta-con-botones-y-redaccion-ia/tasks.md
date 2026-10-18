@@ -1,21 +1,34 @@
-## 1. Respuestas y redacción (respuestas.py)
+## 1. Esquema y configuración
 
-- [ ] 1.1 Añadir `Sugerencias` y `sugerir(pregunta, ctx)` que devuelve 2–4 respuestas cortas, y `[]` si no hay IA o falla; verificar con pruebas en `tests/asistente/test_respuestas.py` (con IA, sin IA, error de IA, tope de 4 y longitud)
-- [ ] 1.2 Hacer que `_redactar` acepte una semilla opcional con la instrucción de mantener su sentido sin inventar datos; verificar con pruebas de semilla «no»/«sí», sin semilla y con falla (devuelve la semilla)
+- [x] 1.1 Migración v4 en `datos.py` (decisión 9): columnas `pendientes_usuario.tipo`, `preferencias_portal.revisar_respuestas`, `respuestas.pregunta_norm` y `respuestas.estado`, índice único, relleno de `pregunta_norm` y borrado del banco con origen `ia`. Verificar en `tests/asistente/test_datos.py` con una base v3 que conserve las entradas sembradas y que pierda las de IA
+- [x] 1.2 Actualizar en `config.yaml` el modelo, la temperatura y `max_tokens` de la tarea `responder` en cada proveedor (decisión 3). Verificar que la configuración carga y que las pruebas de `tests/comun/test_config.py` siguen en verde
 
-## 2. Núcleo y estado
+## 2. Clasificación y redactor (respuestas.py)
 
-- [ ] 2.1 Guardar y leer las sugerencias de cada pendiente en `kv` y generarlas una sola vez; verificar con una prueba de que repintar no vuelve a llamar a la IA
-- [ ] 2.2 Registrar el origen IA de la respuesta redactada en `responder_pendiente` (`nucleo.py`) y que `resumen_postulacion.py` la muestre con 🤖; verificar en `tests/asistente/test_resumen_postulacion.py`
+- [x] 2.1 Sumar `formato` a `Clasificacion` y guardar `redactar` en el banco para preguntas compuestas o de prosa (decisión 1). Verificar en `tests/asistente/test_respuestas.py` con el caso de programa e institución y con un dato simple
+- [x] 2.2 Implementar `redactar_formulario` con el esquema `RedaccionFormulario` y la instrucción nueva, con datos aprendidos, el dato reservado y `maximo` (decisiones 2, 4 y 6). Verificar con IA simulada: pregunta compuesta, varias preguntas en una llamada, dato faltante con sugerencias, dato reservado, respuesta fuera de índice ignorada y falla de IA
+- [x] 2.3 Añadir `recortar_a_limite` y aplicarlo a cada redacción con `maximo`. Verificar los cortes en punto, en espacio y sin límite
+- [x] 2.4 Quitar `_redactar` por pregunta y su uso en `resolver`: una pregunta `redactar` queda marcada para el redactor por formulario. Verificar que las preguntas con opciones y los datos simples no llaman al redactor
 
-## 3. Card y botones
+## 3. Núcleo y API
 
-- [ ] 3.1 En `tarjeta_postulacion.py` pintar para preguntas abiertas los botones de sugerencias, «✍️ Escribir yo» y «🤖 Que la IA decida» (y solo «escribe» sin IA); verificar en `tests/asistente/test_tarjeta_postulacion.py`
-- [ ] 3.2 En `conversacion.py` manejar los callbacks `pend` (`sug`, `esc`, `ia`), activar la espera de texto solo tras «Escribir yo» y mostrar «Redactando…» mientras trabaja la IA; verificar en `tests/asistente/test_bot.py`
-- [ ] 3.3 Redactar con la semilla (toque o texto escrito) antes de llamar a `responder_pendiente`, borrar el texto escrito del chat y usar la semilla tal cual si la IA falla; verificar con pruebas de los cuatro caminos (sugerencia, escribir, que la IA decida, falla de IA)
-- [ ] 3.4 Confirmar que las preguntas con opciones siguen marcándose tal cual sin llamar a la IA; verificar con una prueba
+- [x] 3.1 Reescribir `resolver_formulario` en dos fases, con reutilización de redacciones por postulación y `_guardar_respuestas` con upsert (decisiones 2 y 7). Verificar en `tests/asistente/test_nucleo.py`: una sola llamada para varias preguntas, segunda pasada que redacta solo lo que faltaba, y sin IA las preguntas de texto como pendientes `formulario`
+- [x] 3.2 Crear pendientes de tipo `dato` con sugerencias, deduplicados por `pregunta_norm`, y hacer que `responder_pendiente` guarde el dato corto, incluido `__reservado__` (decisiones 5 y 6). Verificar que la postulación se reencola y que, en la siguiente pasada, el dato llega al redactor y no se vuelve a preguntar
+- [x] 3.3 Sumar `Campo.maximo` y `Pregunta.maximo` en `api.py` y la preferencia `revisar_respuestas` en `preferencias.py` y los endpoints `/preferencias`. Verificar en `tests/asistente/test_api.py`
 
-## 4. Cierre
+## 4. Card: datos faltantes y revisión
 
-- [ ] 4.1 Ejecutar toda la suite de `tests/` y verificar que queda en verde
-- [ ] 4.2 👤 Del dueño: reiniciar `buscador-asistente` en Fedora y probar una postulación con preguntas abiertas viendo botones, redacción y 🤖 en «Tus respuestas»
+- [x] 4.1 En `tarjeta_postulacion.py`, pintar los pendientes `dato` con un botón por sugerencia, «✍️ Escribir yo» y «Prefiero no decirlo», y los `formulario` como hoy. Verificar en `tests/asistente/test_tarjeta_postulacion.py`
+- [x] 4.2 En `conversacion.py`, manejar los toques de sugerencia, escribir y reservado, con la espera de texto solo tras «Escribir yo» cuando hay sugerencias y el borrado del texto escrito. Verificar en `tests/asistente/test_bot.py` los tres caminos y sin IA
+- [x] 4.3 Implementar el modo revisión (decisión 8): `esperar_usuario` con respuestas `propuesta`, aviso `revision_respuestas`, fase `REVISION` con «✅ Enviar» y «✏️ Corregir», corrección con origen `usuario` y reanudación que reutiliza lo aprobado. Verificar en `test_nucleo.py`, `test_tarjeta_postulacion.py` y `test_bot.py`: revisión encendida, apagada, formulario sin redacciones y corrección
+- [x] 4.4 Revisar que `resumen_postulacion.py` marque 🤖 en lo redactado y 💬 en lo corregido o escrito tal cual, y que nunca muestre `__reservado__`. Verificar en `tests/asistente/test_resumen_postulacion.py`
+
+## 5. Extensión (después de cerrar `magneto-confirmar-y-leer-encuesta`)
+
+- [x] 5.1 En `motor.js`, enviar `maximo` leído de `maxlength` en cada campo de texto. Verificar en `tests/asistente/test_extension.py` con un fixture que tenga `maxlength`
+- [x] 5.2 En `popup.html` y `popup.js`, añadir el interruptor «Revisar respuestas antes de enviar» en la vista del portal, guardado con `preferenciasGuardar`. Verificar en `tests/asistente/test_extension.py`
+
+## 6. Cierre
+
+- [x] 6.1 Ejecutar toda la suite de `tests/` y `ruff`, y verificar que quedan en verde
+- [ ] 6.2 👤 Del dueño: reiniciar `buscador-asistente` en Fedora y recargar la extensión. Postular en Computrabajo a una vacante con preguntas abiertas y verificar la pregunta compuesta completa, la pregunta de dato en la card y 🤖 en «Tus respuestas». Repetir con la revisión encendida en ese portal

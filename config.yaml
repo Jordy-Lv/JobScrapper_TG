@@ -1182,7 +1182,7 @@ asistente:
             {modelo: gemini-flash-latest, temperatura: 0.5, max_tokens: 1500,
              respaldo: [gemini-3.5-flash, gemini-flash-lite-latest]}
           responder:
-            {modelo: gemini-flash-lite-latest, temperatura: 0.3, max_tokens: 1000,
+            {modelo: gemini-flash-latest, temperatura: 0.5, max_tokens: 3000,
              respaldo: [gemini-3.1-flash-lite, gemini-3.5-flash-lite]}
           clasificar_pregunta:
             {modelo: gemini-flash-lite-latest, temperatura: 0, max_tokens: 600,
@@ -1214,8 +1214,8 @@ asistente:
             {modelo: llama-3.3-70b-versatile, temperatura: 0.5, max_tokens: 1500,
              respaldo: [llama-3.1-8b-instant]}
           responder:
-            {modelo: llama-3.1-8b-instant, temperatura: 0.3, max_tokens: 1000,
-             respaldo: [llama-3.3-70b-versatile]}
+            {modelo: llama-3.3-70b-versatile, temperatura: 0.5, max_tokens: 3000,
+             respaldo: [llama-3.1-8b-instant]}
           clasificar_pregunta:
             {modelo: llama-3.1-8b-instant, temperatura: 0, max_tokens: 600,
              respaldo: [llama-3.3-70b-versatile]}
@@ -1247,7 +1247,7 @@ asistente:
             {modelo: meta-llama/llama-3.3-70b-instruct:free, temperatura: 0.5, max_tokens: 1500,
              respaldo: []}
           responder:
-            {modelo: meta-llama/llama-3.3-70b-instruct:free, temperatura: 0.3, max_tokens: 1000,
+            {modelo: meta-llama/llama-3.3-70b-instruct:free, temperatura: 0.5, max_tokens: 3000,
              respaldo: []}
           clasificar_pregunta:
             {modelo: meta-llama/llama-3.3-70b-instruct:free, temperatura: 0, max_tokens: 600,
@@ -1280,7 +1280,7 @@ asistente:
             {modelo: gpt-4.1-mini, temperatura: 0.5, max_tokens: 1500,
              respaldo: [gpt-4o-mini]}
           responder:
-            {modelo: gpt-4.1-mini, temperatura: 0.3, max_tokens: 1000,
+            {modelo: gpt-4.1-mini, temperatura: 0.5, max_tokens: 3000,
              respaldo: [gpt-4o-mini]}
           clasificar_pregunta:
             {modelo: gpt-4.1-mini, temperatura: 0, max_tokens: 600,
@@ -1313,7 +1313,7 @@ asistente:
             {modelo: claude-sonnet-5-5, temperatura: 0.5, max_tokens: 1500,
              respaldo: [claude-haiku-4-5-20251001]}
           responder:
-            {modelo: claude-haiku-4-5-20251001, temperatura: 0.3, max_tokens: 1000,
+            {modelo: claude-sonnet-5-5, temperatura: 0.5, max_tokens: 3000,
              respaldo: []}
           clasificar_pregunta:
             {modelo: claude-haiku-4-5-20251001, temperatura: 0, max_tokens: 600,
@@ -1346,7 +1346,7 @@ asistente:
             {modelo: deepseek-chat, temperatura: 0.5, max_tokens: 1500,
              respaldo: []}
           responder:
-            {modelo: deepseek-chat, temperatura: 0.3, max_tokens: 1000,
+            {modelo: deepseek-chat, temperatura: 0.5, max_tokens: 3000,
              respaldo: []}
           clasificar_pregunta:
             {modelo: deepseek-chat, temperatura: 0, max_tokens: 600,

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -11,6 +12,7 @@ pytest.importorskip("cryptography", reason="requiere uv sync --group asistente")
 
 from buscador_vacantes.asistente import tarjeta_postulacion as tp  # noqa: E402
 from buscador_vacantes.asistente import vinculos  # noqa: E402
+from buscador_vacantes.asistente.campos import RESERVADO  # noqa: E402
 from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa: E402
 from buscador_vacantes.asistente.cola import E  # noqa: E402
 from buscador_vacantes.asistente.cv_lectura import Formacion, Idioma, PerfilExtraido  # noqa: E402
@@ -19,7 +21,15 @@ from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
-from buscador_vacantes.asistente.respuestas import Pregunta, recordar, sembrar_banco  # noqa: E402
+from buscador_vacantes.asistente.respuestas import (  # noqa: E402
+    REDACTAR,
+    Origen,
+    Pregunta,
+    guardar_en_banco,
+    normalizar_pregunta,
+    recordar,
+    sembrar_banco,
+)
 from buscador_vacantes.asistente.resumen_postulacion import DatosResumen  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
@@ -354,3 +364,214 @@ ABIERTAS = [
     "Cuéntanos de un proyecto del que estés orgulloso",
 ]
 INSTITUCION = {"pregunta": "¿En qué institución estudias?", "sugerencias": ["SENA", "ITM"]}
+
+
+def gemini(contenido):
+    return httpx.Response(
+        200, json={"candidates": [{"content": {"parts": [{"text": json.dumps(contenido)}]}}]}
+    )
+
+
+def redactadas(*respuestas):
+    return gemini({"respuestas": list(respuestas)})
+
+
+def en_curso(mundo, con_ia=True):
+    """Postulación de Computrabajo con el CV ya preparado y las preguntas abiertas en el banco."""
+    mundo.vincular()
+    if con_ia:
+        mundo.nucleo.guardar_clave_gemini(mundo.usuario.id, "clave")
+    for texto in ABIERTAS:
+        guardar_en_banco(mundo.base, normalizar_pregunta(texto), REDACTAR, None, T0)
+    pid = mundo.nucleo.tocar(mundo.usuario, id_corto("computrabajo:1")).postulacion.id
+    cv = mundo.nucleo.archivos / "cv.pdf"
+    cv.parent.mkdir(parents=True, exist_ok=True)
+    cv.write_bytes(b"%PDF")
+    mundo.base.cx.execute("UPDATE postulaciones SET cv_archivo = ? WHERE id = ?", (str(cv), pid))
+    mundo.base.cx.commit()
+    return pid
+
+
+def tomar(mundo, pid, minutos=0):
+    navegador = mundo.base.cx.execute("SELECT id FROM navegadores").fetchone()[0]
+    momento = T0 + timedelta(minutes=minutos)
+    mundo.nucleo.cola.tomar(pid, navegador, momento)
+    mundo.nucleo.cola.iniciar(pid, navegador, momento)
+    return mundo.nucleo.cola.obtener(pid), navegador
+
+
+def formulario():
+    return [Pregunta(t) for t in ABIERTAS] + [Pregunta("¿Cuál es tu aspiración salarial?")]
+
+
+def filas_respuestas(mundo, pid):
+    return mundo.base.cx.execute(
+        "SELECT pregunta, respuesta, origen, estado FROM respuestas WHERE postulacion_id = ? "
+        "ORDER BY id",
+        (pid,),
+    ).fetchall()
+
+
+@respx.mock
+def test_una_sola_llamada_redacta_todas_las_abiertas(mundo):
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    ruta = respx.post(URL_REDACTAR).mock(return_value=redactadas(
+        {"indice": 1, "respuesta": "Estudio ADSO en el SENA."},
+        {"indice": 2, "respuesta": "Quiero aplicar Python en un equipo real."},
+        {"indice": 3, "respuesta": "Hice un inventario en Django."},
+    ))  # fmt: skip
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert ruta.call_count == 1 and not resultado.faltan and not resultado.revisar
+    assert [(r.valor, r.origen) for r in resultado.respuestas] == [
+        ("Estudio ADSO en el SENA.", Origen.IA),
+        ("Quiero aplicar Python en un equipo real.", Origen.IA),
+        ("Hice un inventario en Django.", Origen.IA),
+        ("1300000", Origen.PERFIL),
+    ]
+    assert {f["estado"] for f in filas_respuestas(mundo, pid)} == {"enviada"}
+    assert "aspiración salarial" not in ruta.calls[0].request.content.decode("utf-8")
+
+
+@respx.mock
+def test_dato_faltante_se_pregunta_y_la_segunda_pasada_solo_redacta_eso(mundo):
+    pid = en_curso(mundo)
+    p, navegador = tomar(mundo, pid)
+    # Dos preguntas piden el mismo dato: se pregunta una sola vez
+    preguntas = formulario() + [Pregunta("Institución y programa que cursas")]
+    guardar_en_banco(mundo.base, normalizar_pregunta(preguntas[-1].texto), REDACTAR, None, T0)
+    ruta = respx.post(URL_REDACTAR).mock(return_value=redactadas(
+        {"indice": 1, "respuesta": None, "faltan": [INSTITUCION]},
+        {"indice": 2, "respuesta": "Quiero aplicar Python."},
+        {"indice": 3, "respuesta": "Hice un inventario."},
+        {"indice": 4, "respuesta": None, "faltan": [INSTITUCION]},
+    ))  # fmt: skip
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    assert len(resultado.faltan) == 2
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert (pendiente["pregunta"], pendiente["tipo"]) == ("¿En qué institución estudias?", "dato")
+    assert json.loads(pendiente["opciones_json"]) == ["SENA", "ITM"]
+    mundo.nucleo.cola.esperar_usuario(pid, navegador, T0)
+    assert mundo.nucleo.responder_pendiente(mundo.usuario.id, pendiente["id"], "SENA")
+    assert mundo.nucleo.cola.obtener(pid).estado == E.EN_COLA
+    # Segunda pasada: se reutiliza lo redactado y solo se redacta lo que faltaba
+    ruta.return_value = redactadas(
+        {"indice": 1, "respuesta": "Estudio ADSO en el SENA."},
+        {"indice": 2, "respuesta": "Curso ADSO en el SENA."},
+    )
+    p, _ = tomar(mundo, pid, 3)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    assert not resultado.faltan and ruta.call_count == 2
+    cuerpo = ruta.calls[-1].request.content.decode("utf-8")
+    assert "¿En qué institución estudias? → SENA" in cuerpo
+    assert ABIERTAS[1] not in cuerpo and ABIERTAS[2] not in cuerpo
+    assert [r.valor for r in resultado.respuestas] == [
+        "Estudio ADSO en el SENA.", "Quiero aplicar Python.", "Hice un inventario.", "1300000",
+        "Curso ADSO en el SENA.",
+    ]  # fmt: skip
+    assert mundo.nucleo.pendientes(mundo.usuario.id) == []
+    assert len(filas_respuestas(mundo, pid)) == 5  # una fila por pregunta, sin duplicados
+
+
+def test_sin_ia_las_preguntas_de_texto_van_a_la_card_como_formulario(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p, _ = tomar(mundo, pid)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert [r.pregunta.texto for r in resultado.faltan] == ABIERTAS
+    pendientes = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert [(x["pregunta"], x["tipo"]) for x in pendientes] == [(t, "formulario") for t in ABIERTAS]
+
+
+@respx.mock
+def test_falla_de_ia_al_redactar_no_pierde_la_postulacion(mundo):
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    respx.post(url__startswith="https://generativelanguage").mock(
+        return_value=gemini({"no": "cumple"})
+    )
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert [r.pregunta.texto for r in resultado.faltan] == ABIERTAS
+    assert {x["tipo"] for x in mundo.nucleo.pendientes(mundo.usuario.id)} == {"formulario"}
+
+
+@respx.mock
+def test_dato_reservado_que_la_ia_vuelve_a_pedir_pasa_a_pregunta_del_formulario(mundo):
+    pid = en_curso(mundo)
+    p, navegador = tomar(mundo, pid)
+    ruta = respx.post(URL_REDACTAR).mock(return_value=redactadas(
+        {"indice": 1, "respuesta": None, "faltan": [INSTITUCION]},
+    ))  # fmt: skip
+    preguntas = [Pregunta(ABIERTAS[0])]
+    asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    mundo.nucleo.cola.esperar_usuario(pid, navegador, T0)
+    assert mundo.nucleo.responder_pendiente(mundo.usuario.id, pendiente["id"], RESERVADO)
+    p, _ = tomar(mundo, pid, 3)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    assert "(prefiere no decirlo)" in ruta.calls[-1].request.content.decode("utf-8")
+    assert [r.pregunta.texto for r in resultado.faltan] == [ABIERTAS[0]]
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert (pendiente["pregunta"], pendiente["tipo"]) == (ABIERTAS[0], "formulario")
+    datos = mundo.nucleo.datos_usuario(mundo.usuario.id)
+    assert RESERVADO not in json.dumps(datos.para_ia(), ensure_ascii=False)
+
+
+# --- revisión antes de enviar ------------------------------------------------------------
+
+
+def revisar_en_computrabajo(mundo, encendida=True):
+    mundo.nucleo.preferencias.guardar(mundo.usuario.id, "computrabajo", T0, automatico=True,
+                                      umbral=None, avisar=True,
+                                      revisar_respuestas=encendida)  # fmt: skip
+
+
+@respx.mock
+def test_revision_encendida_espera_y_lo_aprobado_se_envia_sin_ia(mundo):
+    pid = en_curso(mundo)
+    revisar_en_computrabajo(mundo)
+    p, navegador = tomar(mundo, pid)
+    ruta = respx.post(URL_REDACTAR).mock(return_value=redactadas(
+        {"indice": 1, "respuesta": "Estudio ADSO en el SENA."},
+        {"indice": 2, "respuesta": "Quiero aplicar Python."},
+    ))  # fmt: skip
+    preguntas = [Pregunta(ABIERTAS[0]), Pregunta(ABIERTAS[1]), Pregunta("Aspiración salarial")]
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    assert resultado.revisar and resultado.cv is None
+    assert any(e.get("tipo") == "revision_respuestas" for e in mundo.eventos)
+    revision = mundo.nucleo.respuestas_en_revision(pid)
+    assert [(r["respuesta"], r["estado"]) for r in revision] == [
+        ("Estudio ADSO en el SENA.", "propuesta"), ("Quiero aplicar Python.", "propuesta"),
+    ]  # fmt: skip
+    mundo.nucleo.cola.esperar_usuario(pid, navegador, T0)
+    # Corregir: el texto del usuario reemplaza la redacción tal cual
+    assert mundo.nucleo.corregir_respuesta(mundo.usuario.id, revision[1]["id"], "Me gusta.") == pid
+    assert mundo.nucleo.corregir_respuesta(999, revision[1]["id"], "otro") is None
+    assert mundo.nucleo.aprobar_respuestas(mundo.usuario.id, pid)
+    assert mundo.nucleo.cola.obtener(pid).estado == E.EN_COLA
+    p, _ = tomar(mundo, pid, 3)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    assert ruta.call_count == 1 and not resultado.revisar and resultado.cv is not None
+    assert [(r.valor, r.origen) for r in resultado.respuestas] == [
+        ("Estudio ADSO en el SENA.", Origen.IA), ("Me gusta.", Origen.USUARIO),
+        ("1300000", Origen.PERFIL),
+    ]  # fmt: skip
+
+
+@respx.mock
+def test_revision_apagada_envia_sin_esperar(mundo):
+    pid = en_curso(mundo)
+    revisar_en_computrabajo(mundo, encendida=False)
+    p, _ = tomar(mundo, pid)
+    respx.post(URL_REDACTAR).mock(return_value=redactadas({"indice": 1, "respuesta": "Sí."}))
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, [Pregunta(ABIERTAS[1])]))
+    assert not resultado.revisar and resultado.cv is not None
+    assert not any(e.get("tipo") == "revision_respuestas" for e in mundo.eventos)
+
+
+def test_revision_encendida_sin_redacciones_no_espera(mundo):
+    pid = en_curso(mundo)
+    revisar_en_computrabajo(mundo)
+    p, _ = tomar(mundo, pid)
+    preguntas = [Pregunta("Aspiración salarial"), Pregunta("Ciudad de residencia")]
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    assert not resultado.revisar and not resultado.faltan

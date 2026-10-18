@@ -1,7 +1,8 @@
 """Respuestas a las preguntas de postulación con el mínimo uso de IA.
 
-Orden: banco compartido (campo del perfil) → respuestas aprendidas del usuario → clasificar la
-pregunta nueva con IA (se guarda en el banco para todos) → redactar con IA si es abierta.
+Orden: respuestas aprendidas del usuario → banco compartido (campo del perfil) → clasificar la
+pregunta nueva con IA (se guarda en el banco para todos). Las preguntas de texto compuestas o en
+prosa quedan marcadas para el redactor por formulario, que las redacta todas en una llamada.
 Lo que no se puede sustentar con los datos del usuario no se inventa: queda "falta dato" y se
 le pregunta una sola vez.
 """
@@ -15,19 +16,24 @@ from datetime import datetime
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
 
 from buscador_vacantes.asistente import campos
-from buscador_vacantes.asistente.campos import DatosUsuario
+from buscador_vacantes.asistente.campos import CONTACTO, RESERVADO, DatosUsuario
 from buscador_vacantes.asistente.datos import BaseAsistente
-from buscador_vacantes.asistente.ia import ClienteIA, ErrorIA, Parte, datos
+from buscador_vacantes.asistente.ia import ClaveInvalida, ClienteIA, ErrorIA, Parte, datos
 from buscador_vacantes.comun.config import RAIZ
 from buscador_vacantes.comun.estado import a_texto
 from buscador_vacantes.comun.normalizar import normalizar_texto
 
 RUTA_BANCO = RAIZ / "assets" / "asistente" / "banco_preguntas.yaml"
+REDACTAR = "redactar"  # campo del banco: la pregunta se redacta, no es un dato del catálogo
+TIPOS_REDACTABLES = {"texto"}  # opciones, número, fecha, correo y teléfono nunca se redactan
+MAX_APRENDIDOS_IA = 40  # datos aprendidos de formulario (los más recientes) para el redactor
+MAX_SUGERENCIA = 40
 MAX_PREGUNTAS_PEGADAS = 15
 MAX_CARACTERES_PEGADOS = 4000
 
@@ -50,6 +56,7 @@ class Pregunta:
     opciones: list[str] = field(default_factory=list)
     obligatoria: bool = True
     nombre: str | None = None  # atributo name del campo, si lo envía la extensión
+    maximo: int | None = None  # maxlength del campo, si el portal lo informa
 
 
 @dataclass
@@ -60,6 +67,8 @@ class Respuesta:
     origen: Origen | None = None
     campo: str | None = None
     falta: bool = False  # no se pudo responder con fundamento: hay que preguntarle al usuario
+    redactar: bool = False  # va al redactor por formulario (pregunta de texto compuesta o prosa)
+    datos: list[DatoFaltante] = field(default_factory=list)  # lo que el redactor pide al usuario
 
     @property
     def texto(self) -> str | None:
@@ -199,13 +208,27 @@ def elegir_opcion(valor: str, opciones: list[str]) -> int | None:
 class Clasificacion(BaseModel):
     campo: str | None = Field(None, description="uno de los campos del catálogo o null")
     parametro: str | None = Field(None, description="herramienta o idioma, si aplica")
-    abierta: bool = Field(description="true si la pregunta pide redactar una respuesta propia")
+    formato: Literal["dato", "redactar"] = Field(
+        description="dato: pide solo el valor de un campo; redactar: prosa, varios datos o "
+        "ninguno del catálogo"
+    )
 
 
-class Redaccion(BaseModel):
-    respuesta: str | None = None
-    opcion: int | None = Field(None, description="índice de la opción elegida, si hay opciones")
-    suficiente: bool = Field(description="false si el perfil no basta para responder")
+class DatoFaltante(BaseModel):
+    pregunta: str = Field(description="pregunta corta en segunda persona por el dato que falta")
+    sugerencias: list[str] = Field(
+        default_factory=list, description="de 2 a 4 respuestas probables y cortas"
+    )
+
+
+class RespuestaRedactada(BaseModel):
+    indice: int = Field(description="número de la pregunta")
+    respuesta: str | None = Field(None, description="null si falta un dato del usuario")
+    faltan: list[DatoFaltante] = Field(default_factory=list)
+
+
+class RedaccionFormulario(BaseModel):
+    respuestas: list[RespuestaRedactada] = Field(default_factory=list)
 
 
 def _instruccion_clasificar() -> str:
@@ -213,17 +236,31 @@ def _instruccion_clasificar() -> str:
     lineas += [f"- {c}: {d}" for c, d in campos.CAMPOS_PARAMETRO.items()]
     return (
         "Clasifica la pregunta de un formulario de postulación según el dato que pide. "
-        "Campos posibles:\n" + "\n".join(lineas) + "\nSi pide redactar algo propio (motivación, "
-        "describir un logro, por qué te interesa), responde abierta=true y campo=null. Si no "
-        "corresponde a ningún campo y no es abierta, campo=null y abierta=false."
+        "Campos posibles:\n" + "\n".join(lineas) + "\nResponde formato=dato solo si la pregunta "
+        "pide únicamente el valor de UN campo y se contesta con ese valor (por ejemplo «Ciudad de "
+        "residencia» o «¿Nivel de inglés?»). Responde formato=redactar y campo=null si está "
+        "formulada para responderse en prosa, pide varios datos a la vez (por ejemplo programa "
+        "e institución) o no corresponde a ningún campo."
     )
 
 
-INSTRUCCION_REDACTAR = (
-    "Responde la pregunta del formulario como si fueras el candidato, en primera persona, en "
-    "español, breve (máximo 3 frases) y profesional. Usa solo los datos del perfil; si no "
-    "alcanzan para responder con verdad, responde suficiente=false. Si la pregunta trae "
-    "opciones, elige solo una de ellas por su índice."
+INSTRUCCION_REDACTAR_FORMULARIO = (
+    "Eres el candidato y respondes las preguntas abiertas de un formulario de postulación, "
+    "numeradas en «preguntas». Para cada una devuelve su número en indice y su respuesta.\n"
+    "- Escribe en primera persona, en español, con tono natural y profesional, sin muletillas "
+    "de plantilla («Me apasiona…», «Soy una persona proactiva…») y sin copiar el CV "
+    "literalmente.\n"
+    "- Responde TODO lo que pide cada pregunta: si pide dos datos, los dos.\n"
+    "- La longitud va con la pregunta: una o dos frases para un dato; varias para motivación "
+    "o experiencia.\n"
+    "- Conecta con la vacante cuando aporte.\n"
+    "- Usa solo el perfil, el cuestionario y los datos del usuario; los datos del usuario "
+    "mandan sobre el CV.\n"
+    "- No inventes nada. Si para responder bien falta un dato que solo el usuario sabe, deja "
+    "respuesta=null y en faltan pon una pregunta corta en segunda persona por ese dato (por "
+    "ejemplo «¿En qué institución estudias?») con 2 a 4 sugerencias cortas y probables.\n"
+    "- Un dato marcado «(prefiere no decirlo)» no se vuelve a pedir: redacta sin él.\n"
+    "- Si la pregunta dice «máximo N caracteres», la respuesta no lo supera."
 )
 
 
@@ -283,7 +320,8 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
         return _desde_campo(pregunta, *estandar, ctx, Origen.PERFIL)
     # Lo que el usuario respondió o corrigió manda sobre el banco y el perfil; si no, una
     # pregunta del banco sin dato en el perfil se volvería a preguntar en bucle
-    if (texto := aprendida(ctx.base, ctx.usuario_id, norma)) is not None:
+    texto = aprendida(ctx.base, ctx.usuario_id, norma)
+    if texto is not None and texto != RESERVADO:
         if pregunta.opciones:
             indice = elegir_opcion(texto, pregunta.opciones)
             if indice is not None:
@@ -294,6 +332,8 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
         # Solo vale lo que el usuario respondió: ni el banco ni la IA aceptan por él
         return Respuesta(pregunta, falta=True)
     if encontrada := buscar_en_banco(ctx.base, norma):
+        if encontrada[0] == REDACTAR:
+            return _para_redactar(pregunta)
         return _desde_campo(pregunta, *encontrada, ctx, Origen.PERFIL)
     if not ctx.con_ia:
         return Respuesta(pregunta, falta=True)
@@ -304,13 +344,24 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
         )  # fmt: skip
     except ErrorIA:
         return Respuesta(pregunta, falta=True)
-    if clasificacion.campo and campos.es_campo_valido(clasificacion.campo, clasificacion.parametro):
-        guardar_en_banco(ctx.base, norma, clasificacion.campo, clasificacion.parametro, ctx.ahora)
-        return _desde_campo(
-            pregunta, clasificacion.campo, clasificacion.parametro, ctx, Origen.BANCO
-        )
-    # Fuera del catálogo: se trata como abierta y se redacta con el perfil
-    return await _redactar(pregunta, ctx)
+    campo, parametro = clasificacion.campo, clasificacion.parametro
+    if clasificacion.formato == "dato" and campo and campos.es_campo_valido(campo, parametro):
+        guardar_en_banco(ctx.base, norma, campo, parametro, ctx.ahora)
+        return _desde_campo(pregunta, campo, parametro, ctx, Origen.BANCO)
+    # Compuesta, en prosa o fuera del catálogo: el banco la guarda sin datos personales
+    guardar_en_banco(ctx.base, norma, REDACTAR, None, ctx.ahora)
+    return _para_redactar(pregunta)
+
+
+def es_redactable(pregunta: Pregunta) -> bool:
+    return pregunta.tipo in TIPOS_REDACTABLES and not pregunta.opciones
+
+
+def _para_redactar(pregunta: Pregunta) -> Respuesta:
+    """Las de texto van al redactor; las demás (opciones, número…) se le preguntan al usuario."""
+    if es_redactable(pregunta):
+        return Respuesta(pregunta, redactar=True)
+    return Respuesta(pregunta, falta=True)
 
 
 def _pregunta_con_opciones(pregunta: Pregunta) -> str:
@@ -320,28 +371,133 @@ def _pregunta_con_opciones(pregunta: Pregunta) -> str:
     return f"{pregunta.texto}\nOpciones:\n{opciones}"
 
 
-async def _redactar(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
+# --- redactor por formulario ------------------------------------------------------------
+
+
+@dataclass
+class Redactada:
+    """Lo que devolvió el redactor para una pregunta: la respuesta o los datos que faltan."""
+
+    valor: str | None = None
+    faltan: list[DatoFaltante] = field(default_factory=list)
+
+
+def recortar_a_limite(texto: str, maximo: int | None) -> str:
+    """Corta en el último fin de frase dentro del límite, o en el último espacio si no hay."""
+    if not maximo or len(texto) <= maximo:
+        return texto
+    corte = texto[:maximo]
+    fin = max(corte.rfind("."), corte.rfind("!"), corte.rfind("?"))
+    if fin > 0:
+        return corte[: fin + 1]
+    espacio = texto[: maximo + 1].rfind(" ")  # una palabra que llega justo al límite cabe
+    if espacio > 0:
+        return corte[:espacio].rstrip(" ,;:")
+    return corte
+
+
+def datos_aprendidos(base: BaseAsistente, usuario_id: int) -> list[tuple[str, str]]:
+    """(pregunta, respuesta) que dio el usuario, del más reciente al más viejo: todos los datos
+    cortos y los 40 más recientes del formulario. Nunca van los de contacto."""
+    pendientes = base.cx.execute(
+        "SELECT pregunta_norm, pregunta, tipo, campo FROM pendientes_usuario "
+        "WHERE usuario_id = ? ORDER BY id",
+        (usuario_id,),
+    ).fetchall()
+    textos = {p["pregunta_norm"]: p["pregunta"] for p in pendientes}  # el último gana
+    de_dato = {p["pregunta_norm"] for p in pendientes if p["tipo"] == "dato"}
+    contacto = {p["pregunta_norm"] for p in pendientes if p["campo"] in CONTACTO}
+    contacto |= {
+        f["pregunta_norm"]
+        for f in base.cx.execute("SELECT pregunta_norm, campo FROM banco_preguntas")
+        if f["campo"] in CONTACTO
+    }
+    filas = base.cx.execute(
+        "SELECT pregunta_norm, respuesta FROM respuestas_aprendidas WHERE usuario_id = ? "
+        "ORDER BY actualizada DESC",
+        (usuario_id,),
+    ).fetchall()
+    resultado, otros = [], 0
+    for f in filas:
+        norma = f["pregunta_norm"]
+        if norma in contacto:
+            continue
+        if norma not in de_dato:
+            if otros >= MAX_APRENDIDOS_IA:
+                continue
+            otros += 1
+        resultado.append((textos.get(norma, norma), f["respuesta"]))
+    return resultado
+
+
+def _texto_aprendidos(aprendidos: list[tuple[str, str]]) -> str:
+    lineas = [
+        f"- {pregunta} → {'(prefiere no decirlo)' if respuesta == RESERVADO else respuesta}"
+        for pregunta, respuesta in aprendidos
+    ]
+    return "\n".join(lineas) or "(ninguno)"
+
+
+def _texto_preguntas(preguntas: list[Pregunta]) -> str:
+    return "\n".join(
+        f"{n}. {p.texto}" + (f" (máximo {p.maximo} caracteres)" if p.maximo else "")
+        for n, p in enumerate(preguntas, 1)
+    )
+
+
+def _limpiar_faltantes(faltan: list[DatoFaltante]) -> list[DatoFaltante]:
+    limpios = []
+    for f in faltan:
+        pregunta = " ".join(f.pregunta.split())
+        if not pregunta:
+            continue
+        sugerencias: list[str] = []
+        for s in f.sugerencias:
+            s = " ".join(s.split())[:MAX_SUGERENCIA].strip()
+            if s and s.casefold() not in {x.casefold() for x in sugerencias}:
+                sugerencias.append(s)
+        limpios.append(DatoFaltante(pregunta=pregunta, sugerencias=sugerencias[:4]))
+    return limpios
+
+
+async def redactar_formulario(
+    preguntas: list[Pregunta], ctx: Contexto
+) -> dict[int, Redactada] | None:
+    """Redacta en una sola llamada todas las preguntas abiertas del formulario.
+
+    Devuelve, por posición en ``preguntas``, la respuesta o los datos que faltan; las que la IA
+    no devolvió no aparecen. None sin IA o si la IA falla (ClaveInvalida se propaga).
+    """
+    if not preguntas:
+        return {}
+    if not ctx.con_ia:
+        return None
     try:
         redaccion = await ctx.cliente.generar(
-            "responder", ctx.clave, ctx.usuario_id, INSTRUCCION_REDACTAR,
+            "responder", ctx.clave, ctx.usuario_id, INSTRUCCION_REDACTAR_FORMULARIO,
             [
                 Parte(datos("perfil", json.dumps(ctx.datos.para_ia(), ensure_ascii=False))),
+                Parte(datos("datos_del_usuario",
+                            _texto_aprendidos(datos_aprendidos(ctx.base, ctx.usuario_id)))),
                 Parte(datos("vacante", ctx.vacante)),
-                Parte(datos("pregunta", _pregunta_con_opciones(pregunta))),
+                Parte(datos("preguntas", _texto_preguntas(preguntas))),
             ],
-            Redaccion,
+            RedaccionFormulario,
         )  # fmt: skip
+    except ClaveInvalida:
+        raise
     except ErrorIA:
-        return Respuesta(pregunta, falta=True)
-    if not redaccion.suficiente:
-        return Respuesta(pregunta, falta=True)
-    if pregunta.opciones:
-        if redaccion.opcion is None or not 0 <= redaccion.opcion < len(pregunta.opciones):
-            return Respuesta(pregunta, falta=True)
-        return Respuesta(pregunta, opcion=redaccion.opcion, origen=Origen.IA)
-    if not (redaccion.respuesta or "").strip():
-        return Respuesta(pregunta, falta=True)
-    return Respuesta(pregunta, valor=redaccion.respuesta.strip(), origen=Origen.IA)
+        return None
+    resultado: dict[int, Redactada] = {}
+    for r in redaccion.respuestas:
+        posicion = r.indice - 1
+        if not 0 <= posicion < len(preguntas) or posicion in resultado:
+            continue  # número que no está en el formulario: se ignora
+        valor = " ".join((r.respuesta or "").split()) or None
+        if valor:
+            valor = recortar_a_limite(valor, preguntas[posicion].maximo)
+        resultado[posicion] = Redactada(valor, _limpiar_faltantes(r.faltan))
+    return resultado
 
 
 # --- preguntas pegadas por el usuario -------------------------------------------------------

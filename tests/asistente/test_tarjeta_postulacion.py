@@ -255,3 +255,88 @@ def test_la_cuenta_conserva_el_bloque_de_conexion_del_alta():
               conexion=["🔗 <b>Conexión con tus portales</b>"])  # fmt: skip
     texto = tp.texto(tp.Card(fase=tp.CUENTA), d)
     assert texto.index("Conexión con tus portales") < texto.index("Postulando en 2 s")
+
+
+# --- preguntas de dato y revisión de respuestas ----------------------------------------------
+
+
+def pendiente_dato(opciones=("SENA", "ITM")):
+    return {"id": 4, "pregunta": "¿En qué institución estudias?", "opciones": list(opciones),
+            "tipo": "dato"}  # fmt: skip
+
+
+def test_pregunta_de_dato_con_sugerencias_escribir_y_reservado():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 4, "n": 1, "total": 1})
+    d = datos(pendiente=pendiente_dato())
+    texto = tp.texto(card, d)
+    assert "<b>¿En qué institución estudias?</b>" in texto
+    assert "Elige una opción o escríbela tú." in texto and "Escribe tu respuesta." not in texto
+    assert tp.botones(card, d, cb) == [
+        [("SENA", cb("pend", 4, 0)), ("ITM", cb("pend", 4, 1))],
+        [(tp.BOTON_ESCRIBIR, cb("pesc", 4))],
+        [(tp.BOTON_RESERVADO, cb("pres", 4))],
+    ]
+
+
+def test_pregunta_de_dato_tras_escribir_yo_espera_texto():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 4, "n": 1, "total": 1, "escribir": True})
+    d = datos(pendiente=pendiente_dato())
+    assert "Escribe tu respuesta." in tp.texto(card, d)
+    assert etiquetas(tp.botones(card, d, cb)) == [[tp.BOTON_RESERVADO]]
+
+
+def test_pregunta_de_dato_sin_sugerencias_no_ofrece_escribir_yo():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 4, "n": 1, "total": 1})
+    d = datos(pendiente=pendiente_dato(opciones=()))
+    assert "Escribe tu respuesta." in tp.texto(card, d)
+    assert etiquetas(tp.botones(card, d, cb)) == [[tp.BOTON_RESERVADO]]
+
+
+def test_pregunta_del_formulario_sigue_como_antes():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 5, "n": 1, "total": 1})
+    d = datos(pendiente={"id": 5, "pregunta": "¿Tienes moto?", "opciones": ["Sí", "No"],
+                         "tipo": "formulario"})  # fmt: skip
+    assert tp.botones(card, d, cb) == [[("Sí", cb("pend", 5, 0))], [("No", cb("pend", 5, 1))]]
+    assert "Elige una opción" not in tp.texto(card, d)
+
+
+REVISION = [
+    {"id": 31, "pregunta": "¿Por qué te interesa?", "respuesta": "Quiero <aprender>.",
+     "origen": "ia"},
+    {"id": 32, "pregunta": "¿Qué estudias?", "respuesta": "ADSO en el SENA.", "origen": "usuario"},
+]  # fmt: skip
+
+
+def test_revision_muestra_las_respuestas_y_aclara_que_no_se_envio_nada():
+    card = tp.Card(fase=tp.REVISION)
+    d = datos(revision=REVISION)
+    texto = tp.texto(card, d)
+    assert "Aún no envié nada" in texto
+    assert "1· ¿Por qué te interesa?\n<b>Quiero &lt;aprender&gt;.</b>" in texto
+    assert "<b>ADSO en el SENA.</b> 💬" in texto  # la corregida por el usuario
+    assert tp.botones(card, d, cb) == [
+        [("✅ Enviar", cb("rev", 7, "ok")), ("✏️ Corregir", cb("rev", 7, "c"))]
+    ]
+
+
+def test_revision_corregir_lista_las_respuestas_y_pide_el_texto():
+    d = datos(revision=REVISION)
+    lista = tp.Card(fase=tp.REVISION, vista=tp.CORREGIR)
+    assert "¿Qué respuesta quieres corregir?" in tp.texto(lista, d)
+    assert tp.botones(lista, d, cb) == [
+        [("1", cb("rev", 7, 1)), ("2", cb("rev", 7, 2))],
+        [("Volver", cb("rev", 7, "v"))],
+    ]
+    escribiendo = tp.Card(fase=tp.REVISION, pregunta={"corrigiendo": 32})
+    assert "texto nuevo para la respuesta 2" in tp.texto(escribiendo, d)
+    assert tp.botones(escribiendo, d, cb) == [[("Volver", cb("rev", 7, "v"))]]
+
+
+def test_revision_larga_va_aparte_y_la_card_lo_dice():
+    larga = [{"id": n, "pregunta": f"Pregunta {n}", "respuesta": "x" * 900, "origen": "ia"}
+             for n in range(6)]  # fmt: skip
+    card = tp.Card(fase=tp.REVISION)
+    d = datos(revision=larga)
+    assert not tp.revision_cabe(card, d)
+    texto = tp.texto(card, d)
+    assert len(texto) <= tp.MAX_TEXTO and "mensajes de abajo" in texto and "x" * 900 not in texto

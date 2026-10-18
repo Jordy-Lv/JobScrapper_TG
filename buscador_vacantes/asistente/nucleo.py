@@ -17,7 +17,7 @@ from typing import Any
 
 from buscador_vacantes.asistente.afinidad import Afinidad, calcular_afinidad, obtener_requisitos
 from buscador_vacantes.asistente.api import ResultadoFormulario
-from buscador_vacantes.asistente.campos import CAMPOS, DatosUsuario
+from buscador_vacantes.asistente.campos import CAMPOS, RESERVADO, DatosUsuario
 from buscador_vacantes.asistente.cifrado import Cifrador, ClaveInvalida
 from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal
@@ -31,10 +31,14 @@ from buscador_vacantes.asistente.ia import ClienteIA
 from buscador_vacantes.asistente.preferencias import Preferencias
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
+    Origen,
     Pregunta,
     Respuesta,
+    aprendida,
     normalizar_pregunta,
     recordar,
+    recortar_a_limite,
+    redactar_formulario,
     resolver,
 )
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuario, Usuarios
@@ -308,6 +312,11 @@ class Nucleo:
         ctx = Contexto(self.base, usuario.id, datos, self.ahora(), cliente, clave,
                        vacante.resumen if vacante else "")  # fmt: skip
         resultado = ResultadoFormulario()
+        previas = self._redacciones_previas(postulacion.id)
+        estados: dict[str, str] = {}  # pregunta normalizada → estado de la redacción reutilizada
+        resueltas: list[Respuesta] = []
+        por_redactar: list[Pregunta] = []
+        # Fase 1: datos, opciones y redacciones ya hechas para esta postulación, sin redactar
         for pregunta in preguntas:
             if pregunta.tipo == "archivo":
                 continue  # el CV lo adjunta la extensión
@@ -317,15 +326,36 @@ class Nucleo:
                 self.marcar_clave_invalida(usuario.id)
                 ctx.cliente, ctx.clave = None, None
                 respuesta = await resolver(pregunta, ctx)
+            if respuesta.redactar:
+                norma = normalizar_pregunta(pregunta.texto)
+                if (previa := previas.get(norma)) is None:
+                    por_redactar.append(pregunta)
+                    continue
+                estados[norma] = previa["estado"]
+                respuesta = Respuesta(pregunta, origen=Origen(previa["origen"]),
+                                      valor=recortar_a_limite(previa["respuesta"],
+                                                              pregunta.maximo))  # fmt: skip
+            resueltas.append(respuesta)
+        # Fase 2: una sola llamada para todas las preguntas abiertas que faltan
+        resueltas += await self._redactar(por_redactar, ctx)
+        for respuesta in resueltas:
             if respuesta.falta:
-                if pregunta.obligatoria:
+                if respuesta.pregunta.obligatoria:
                     resultado.faltan.append(respuesta)
             else:
                 resultado.respuestas.append(respuesta)
-        self._guardar_respuestas(postulacion.id, resultado.respuestas)
+        orden = {id(p): i for i, p in enumerate(preguntas)}
+        resultado.respuestas.sort(key=lambda r: orden[id(r.pregunta)])
+        revisar = not resultado.faltan and self._toca_revisar(postulacion, resultado, estados)
+        self._guardar_respuestas(postulacion.id, resultado.respuestas, estados, revisar=revisar)
         if resultado.faltan:
             self._crear_pendientes(usuario.id, postulacion.id, resultado.faltan)
             await self.notificar({"tipo": "preguntas_pendientes", "usuario_id": usuario.id,
+                                  "postulacion_id": postulacion.id})  # fmt: skip
+            return resultado
+        if revisar:
+            resultado.revisar = True
+            await self.notificar({"tipo": "revision_respuestas", "usuario_id": usuario.id,
                                   "postulacion_id": postulacion.id})  # fmt: skip
             return resultado
         if postulacion.tipo == Tipo.POSTULAR:
@@ -346,20 +376,96 @@ class Nucleo:
         archivo.write_bytes(generar_pdf(cv_base(datos.perfil), contacto))
         return archivo
 
-    def _guardar_respuestas(self, pid: int, respuestas: list[Respuesta]) -> None:
+    async def _redactar(self, preguntas: list[Pregunta], ctx: Contexto) -> list[Respuesta]:
+        """Redacta las preguntas abiertas en una llamada. Sin IA, o si falla, cada una se le
+        pregunta al usuario tal cual (pendiente de formulario)."""
+        try:
+            redactadas = await redactar_formulario(preguntas, ctx)
+        except ClaveIAInvalida:
+            self.marcar_clave_invalida(ctx.usuario_id)
+            redactadas = None
+        if redactadas is None:
+            return [Respuesta(p, falta=True) for p in preguntas]
+        resultado = []
+        for i, pregunta in enumerate(preguntas):
+            r = redactadas.get(i)
+            if r is None:
+                resultado.append(Respuesta(pregunta, falta=True))
+                continue
+            # Un dato ya respondido (o reservado) no se vuelve a pedir: si la IA aún lo pide,
+            # la pregunta del portal pasa al usuario para escribirla
+            nuevos = [
+                d for d in r.faltan
+                if aprendida(self.base, ctx.usuario_id, normalizar_pregunta(d.pregunta)) is None
+            ]  # fmt: skip
+            if nuevos and pregunta.obligatoria:
+                resultado.append(Respuesta(pregunta, falta=True, datos=nuevos))
+            elif r.valor and not nuevos:
+                resultado.append(Respuesta(pregunta, valor=r.valor, origen=Origen.IA))
+            else:
+                resultado.append(Respuesta(pregunta, falta=True))
+        return resultado
+
+    def _redacciones_previas(self, pid: int) -> dict[str, dict]:
+        """Redacciones de esta postulación que se reutilizan en una pasada nueva del formulario:
+        las de la IA y las que el usuario corrigió o aprobó."""
+        filas = self.base.cx.execute(
+            "SELECT pregunta_norm, respuesta, origen, estado FROM respuestas "
+            "WHERE postulacion_id = ? AND respuesta IS NOT NULL "
+            "AND (origen IN ('ia', 'usuario') OR estado = 'aprobada')",
+            (pid,),
+        ).fetchall()
+        return {f["pregunta_norm"]: dict(f) for f in filas if f["origen"] in set(Origen)}
+
+    def _toca_revisar(
+        self, postulacion: Postulacion, resultado: ResultadoFormulario, estados: dict[str, str]
+    ) -> bool:
+        """Revisión encendida en el portal y hay redacciones de la IA sin aprobar."""
+        if not postulacion.plataforma:
+            return False
+        pref = self.preferencias.obtener(postulacion.usuario_id, postulacion.plataforma)
+        if not pref.revisar_respuestas:
+            return False
+        return any(
+            r.origen == Origen.IA
+            and estados.get(normalizar_pregunta(r.pregunta.texto)) != "aprobada"
+            for r in resultado.respuestas
+        )
+
+    def _guardar_respuestas(
+        self, pid: int, respuestas: list[Respuesta], estados: dict[str, str], *, revisar: bool
+    ) -> None:
+        """Una fila por pregunta: se actualiza sin borrar las redacciones de otras pasadas."""
         with self.base.transaccion() as cx:
-            cx.execute("DELETE FROM respuestas WHERE postulacion_id = ?", (pid,))
             for r in respuestas:
+                norma = normalizar_pregunta(r.pregunta.texto)
+                estado = estados.get(norma, "enviada")
+                if revisar and r.origen == Origen.IA and estado != "aprobada":
+                    estado = "propuesta"
+                elif not revisar and estado == "propuesta":
+                    estado = "enviada"  # la revisión se apagó mientras esperaba
                 cx.execute(
-                    "INSERT INTO respuestas(postulacion_id, campo, pregunta, respuesta, origen) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (pid, r.campo, r.pregunta.texto, r.texto, r.origen),
+                    "INSERT INTO respuestas(postulacion_id, campo, pregunta, respuesta, origen, "
+                    "pregunta_norm, estado) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(postulacion_id, pregunta_norm) DO UPDATE SET "
+                    "campo = excluded.campo, pregunta = excluded.pregunta, "
+                    "respuesta = excluded.respuesta, origen = excluded.origen, "
+                    "estado = excluded.estado",
+                    (pid, r.campo, r.pregunta.texto, r.texto, r.origen, norma, estado),
                 )
 
     def _crear_pendientes(self, usuario_id: int, pid: int, faltan: list[Respuesta]) -> None:
+        """Una pregunta del portal (tipo formulario) o, si el redactor pidió datos, una por
+        dato con sus sugerencias (tipo dato). No se repite una pregunta ya pendiente."""
+        filas = []
+        for r in faltan:
+            if r.datos:
+                filas += [(d.pregunta, d.sugerencias, None, "dato") for d in r.datos]
+            else:
+                filas.append((r.pregunta.texto, r.pregunta.opciones, r.campo, "formulario"))
         with self.base.transaccion() as cx:
-            for r in faltan:
-                norma = normalizar_pregunta(r.pregunta.texto)
+            for pregunta, opciones, campo, tipo in filas:
+                norma = normalizar_pregunta(pregunta)
                 ya = cx.execute(
                     "SELECT 1 FROM pendientes_usuario WHERE postulacion_id = ? "
                     "AND pregunta_norm = ? AND respondida_en IS NULL",
@@ -369,10 +475,10 @@ class Nucleo:
                     continue
                 cx.execute(
                     "INSERT INTO pendientes_usuario(usuario_id, postulacion_id, pregunta, "
-                    "pregunta_norm, opciones_json, campo, creada) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (usuario_id, pid, r.pregunta.texto, norma,
-                     json.dumps(r.pregunta.opciones, ensure_ascii=False), r.campo,
-                     a_texto(self.ahora())),
+                    "pregunta_norm, opciones_json, campo, tipo, creada) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (usuario_id, pid, pregunta, norma, json.dumps(opciones, ensure_ascii=False),
+                     campo, tipo, a_texto(self.ahora())),
                 )  # fmt: skip
 
     def pendientes(self, usuario_id: int) -> list[dict]:
@@ -386,7 +492,9 @@ class Nucleo:
     def responder_pendiente(self, usuario_id: int, pendiente_id: int, respuesta: str) -> bool:
         """Guarda la respuesta como aprendida; si ya no quedan, la postulación vuelve a la cola.
 
-        Devuelve True si la postulación se reencoló.
+        En un pendiente de dato se guarda el dato corto (o RESERVADO, «Prefiero no decirlo»):
+        la siguiente pasada del formulario lo usa para redactar. Devuelve True si la
+        postulación se reencoló.
         """
         ahora = self.ahora()
         fila = self.base.cx.execute(
@@ -396,26 +504,80 @@ class Nucleo:
         if not fila or fila["respondida_en"]:
             return False
         recordar(self.base, usuario_id, fila["pregunta"], respuesta, ahora)
-        if fila["campo"] in CAMPOS:
+        if fila["campo"] in CAMPOS and respuesta != RESERVADO:
             # Un dato del perfil (salario, disponibilidad…) sirve para cualquier redacción
             datos = self.datos_usuario(usuario_id)
             if datos is not None:
                 datos.cuestionario[fila["campo"]] = respuesta
                 self.guardar_cuestionario(usuario_id, datos.cuestionario)
+        # La misma pregunta pendiente en otras postulaciones queda respondida con este dato
+        afectadas = {
+            f["postulacion_id"]
+            for f in self.base.cx.execute(
+                "SELECT postulacion_id FROM pendientes_usuario WHERE pregunta_norm = ? "
+                "AND usuario_id = ? AND respondida_en IS NULL AND postulacion_id IS NOT NULL",
+                (fila["pregunta_norm"], usuario_id),
+            )
+        }
         with self.base.transaccion() as cx:
             cx.execute(
                 "UPDATE pendientes_usuario SET respondida_en = ?, respuesta = ? "
                 "WHERE pregunta_norm = ? AND usuario_id = ? AND respondida_en IS NULL",
                 (a_texto(ahora), respuesta, fila["pregunta_norm"], usuario_id),
             )
-        restantes = self.base.cx.execute(
-            "SELECT COUNT(*) FROM pendientes_usuario WHERE postulacion_id = ? "
-            "AND respondida_en IS NULL",
-            (fila["postulacion_id"],),
-        ).fetchone()[0]
-        if restantes == 0 and fila["postulacion_id"]:
-            return self.cola.reanudar(fila["postulacion_id"], ahora, (E.ESPERANDO_USUARIO,))
-        return False
+        reencolada = False
+        for pid in afectadas:
+            restantes = self.base.cx.execute(
+                "SELECT COUNT(*) FROM pendientes_usuario WHERE postulacion_id = ? "
+                "AND respondida_en IS NULL",
+                (pid,),
+            ).fetchone()[0]
+            if restantes == 0 and self.cola.reanudar(pid, ahora, (E.ESPERANDO_USUARIO,)):
+                reencolada |= pid == fila["postulacion_id"]
+        return reencolada
+
+    # --- revisión antes de enviar --------------------------------------------------------
+
+    def respuestas_en_revision(self, pid: int) -> list[dict]:
+        """Redacciones de la IA que el usuario revisa antes del envío, en el orden del form."""
+        filas = self.base.cx.execute(
+            "SELECT id, pregunta, respuesta, origen, estado FROM respuestas "
+            "WHERE postulacion_id = ? AND estado IN ('propuesta', 'aprobada') "
+            "AND origen IN ('ia', 'usuario') ORDER BY id",
+            (pid,),
+        ).fetchall()
+        return [dict(f) for f in filas]
+
+    def corregir_respuesta(self, usuario_id: int, respuesta_id: int, texto: str) -> int | None:
+        """El texto del usuario reemplaza la redacción tal cual. Devuelve la postulación."""
+        fila = self.base.cx.execute(
+            "SELECT r.postulacion_id FROM respuestas r JOIN postulaciones p "
+            "ON p.id = r.postulacion_id WHERE r.id = ? AND p.usuario_id = ?",
+            (respuesta_id, usuario_id),
+        ).fetchone()
+        if fila is None or not texto.strip():
+            return None
+        with self.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE respuestas SET respuesta = ?, origen = 'usuario', estado = 'aprobada' "
+                "WHERE id = ?",
+                (texto.strip(), respuesta_id),
+            )
+        return fila["postulacion_id"]
+
+    def aprobar_respuestas(self, usuario_id: int, pid: int) -> bool:
+        """«✅ Enviar»: todo lo propuesto queda aprobado y la postulación vuelve a la cola; la
+        pasada siguiente lo reutiliza sin llamar a la IA. True si se reencoló."""
+        p = self.cola.obtener(pid)
+        if p is None or p.usuario_id != usuario_id:
+            return False
+        with self.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE respuestas SET estado = 'aprobada' "
+                "WHERE postulacion_id = ? AND estado = 'propuesta'",
+                (pid,),
+            )
+        return self.cola.reanudar(pid, self.ahora(), (E.ESPERANDO_USUARIO,))
 
     # --- modo automático por usuario -------------------------------------------------------
 

@@ -39,6 +39,7 @@ CAMPOS_PARAMETRO = {
     "idioma": "nivel en un idioma distinto del inglés (parámetro: cuál)",
 }
 CONTACTO = {"nombre", "correo", "telefono", "documento"}  # nunca van a la IA
+RESERVADO = "__reservado__"  # «Prefiero no decirlo»: nunca se muestra ni se envía como valor
 
 
 def es_campo_valido(campo: str, parametro: str | None) -> bool:
@@ -55,6 +56,8 @@ class DatosUsuario:
     def valor(self, campo: str, parametro: str | None = None) -> str | None:
         """Valor del campo para este usuario, o None si no se conoce (nunca se inventa)."""
         directo = self.cuestionario.get(campo)
+        if directo == RESERVADO:
+            return None
         if directo not in (None, ""):
             return str(directo)
         p = self.perfil
@@ -113,6 +116,6 @@ class DatosUsuario:
         cuestionario = {
             k: v
             for k, v in self.cuestionario.items()
-            if k not in CONTACTO and not k.startswith(("_", "sugerido_"))
+            if k not in CONTACTO and not k.startswith(("_", "sugerido_")) and v != RESERVADO
         }
         return {"perfil": perfil, "cuestionario": cuestionario}

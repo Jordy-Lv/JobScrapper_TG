@@ -23,6 +23,7 @@ from buscador_vacantes.asistente import preguntas_tarjeta as pt
 from buscador_vacantes.asistente import progreso, resumen_postulacion, tarjeta, vinculos
 from buscador_vacantes.asistente import tarjeta_postulacion as tp
 from buscador_vacantes.asistente import textos as t
+from buscador_vacantes.asistente.campos import RESERVADO
 from buscador_vacantes.asistente.cola import CON_RESPALDO, E, Evento
 from buscador_vacantes.asistente.cv_lectura import (
     CVInvalido,
@@ -41,7 +42,9 @@ from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Toque
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
     ErrorPegado,
+    Origen,
     recordar,
+    redactar_formulario,
     resolver,
     separar_preguntas,
 )
@@ -1131,7 +1134,10 @@ class Conversacion:
                 d.pendiente = {
                     "id": pendiente["id"], "pregunta": pendiente["pregunta"],
                     "opciones": json.loads(pendiente["opciones_json"] or "[]"),
+                    "tipo": pendiente["tipo"],
                 }  # fmt: skip
+        if card.fase == tp.REVISION:
+            d.revision = self.n.respuestas_en_revision(pid)
         if card.fase in (tp.CONFIRMADA, tp.INCIERTA):
             p = self.n.cola.obtener(pid)
             if p is not None:
@@ -1149,6 +1155,8 @@ class Conversacion:
             return
         if card.fase == tp.PREGUNTA and self._datos_card(usuario, pid, card).pendiente is None:
             card.fase, card.pregunta = tp.EN_COLA, None  # la pregunta ya se respondió
+        if card.fase == tp.REVISION and not self.n.respuestas_en_revision(pid):
+            card.fase, card.vista, card.pregunta = tp.EN_COLA, tp.PRINCIPAL, None
         d = self._datos_card(usuario, pid, card, cuadro)
         texto, botones = tp.texto(card, d), tp.botones(card, d, cb)
         if card.mensaje_id:
@@ -1588,7 +1596,10 @@ class Conversacion:
         elif tipo == "cuestionario":
             await self._texto_cuestionario(usuario, texto, mensaje_id)
         elif tipo == "pendiente":
-            await self._texto_pendiente(usuario, esperando["id"], texto.strip(), mensaje_id)
+            await self._texto_pendiente(usuario, esperando["id"], texto.strip(), mensaje_id,
+                                        escribir=bool(esperando.get("escribir")))  # fmt: skip
+        elif tipo == "revision":
+            await self._texto_revision(usuario, esperando["id"], texto, mensaje_id)
         elif tipo == "pegar":
             await self._responder_pegadas(usuario, esperando["pid"], texto)
         elif tipo == "editar":
@@ -1620,9 +1631,21 @@ class Conversacion:
             vacante.resumen if vacante else "",
         )
         self._esperar(usuario, None)
-        for pregunta in preguntas:
-            r = await resolver(pregunta, ctx)
-            if r.falta:
+        resueltas = [(pregunta, await resolver(pregunta, ctx)) for pregunta in preguntas]
+        # Las abiertas se redactan juntas, en una sola llamada
+        abiertas = [r.pregunta for _, r in resueltas if r.redactar]
+        try:
+            redactadas = await redactar_formulario(abiertas, ctx) or {}
+        except ErrorIA:
+            redactadas = {}
+        posicion = {id(p): i for i, p in enumerate(abiertas)}
+        for pregunta, r in resueltas:
+            valor, origen = r.texto, r.origen
+            if r.redactar:
+                redactada = redactadas.get(posicion[id(pregunta)])
+                valor = redactada.valor if redactada and not redactada.faltan else None
+                origen = Origen.IA
+            if valor is None:
                 await self._enviar(
                     usuario,
                     f"<b>{t.e(pregunta.texto)}</b>\n<i>No tengo ese dato: respóndela tú.</i>",
@@ -1630,24 +1653,93 @@ class Conversacion:
             else:
                 await self._enviar(
                     usuario,
-                    f"<b>{t.e(pregunta.texto)}</b>\n{t.bloque(r.texto)}\n<i>origen: {r.origen}</i>",
+                    f"<b>{t.e(pregunta.texto)}</b>\n{t.bloque(valor)}\n<i>origen: {origen}</i>",
                     [[("✏️ Corregir y recordar", cb("editar", pid))]],
                 )
                 self.n.base.kv_guardar(f"ultima_pregunta:{usuario.id}", pregunta.texto)
 
     async def _texto_pendiente(
-        self, usuario: Usuario, pendiente_id: int, texto: str, mensaje_id: int | None
-    ) -> None:
-        """Texto escrito mientras la card hace una pregunta: solo vale si ella espera texto."""
+        self, usuario: Usuario, pendiente_id: int, texto: str, mensaje_id: int | None,
+        *, escribir: bool = False,
+    ) -> None:  # fmt: skip
+        """Texto escrito mientras la card hace una pregunta: solo vale si ella espera texto (sin
+        opciones, o tras «✍️ Escribir yo» en una pregunta de dato con sugerencias)."""
         pendiente = next(
             (p for p in self.n.pendientes(usuario.id) if p["id"] == pendiente_id), None
         )
         if pendiente is None:  # ya se respondió: no se espera nada
             self._esperar(usuario, None)
-        if pendiente is None or not texto or json.loads(pendiente["opciones_json"] or "[]"):
+        espera_texto = pendiente is not None and (
+            escribir or not json.loads(pendiente["opciones_json"] or "[]")
+        )
+        if not espera_texto or not texto:
             await self._borrar_texto_usuario(usuario, mensaje_id)  # fuera de turno: sin guardarse
             return
         await self._responder_pendiente(usuario, pendiente_id, texto, mensaje_id)
+
+    async def _escribir_pendiente(self, usuario: Usuario, pendiente_id: int) -> None:
+        """«✍️ Escribir yo»: la card deja de ofrecer sugerencias y espera el texto."""
+        pendiente = next(
+            (p for p in self.n.pendientes(usuario.id) if p["id"] == pendiente_id), None
+        )
+        if pendiente is None:
+            return
+        self._esperar(usuario, {"tipo": "pendiente", "id": pendiente_id, "escribir": True})
+        pid = pendiente["postulacion_id"]
+        card = self._card(pid) if pid else None
+        if card is None or card.fase != tp.PREGUNTA:
+            await self._enviar(usuario, "Escríbeme la respuesta.")
+            return
+        card.pregunta = {**(card.pregunta or {}), "escribir": True}
+        self._guardar_card(pid, card)
+        await self._pintar_card(usuario, pid)
+
+    # --- revisión de lo redactado antes de enviar -------------------------------------------
+
+    async def _mandar_revision_completa(self, usuario: Usuario, pid: int) -> None:
+        """Si las respuestas no caben en la card, van completas en mensajes aparte."""
+        card = self._card(pid)
+        if card is None:
+            return
+        d = self._datos_card(usuario, pid, card)
+        if not tp.revision_cabe(card, d):
+            for parte in resumen_postulacion.partir(tp.lineas_revision(d)):
+                await self._enviar(usuario, parte)
+
+    async def _boton_revision(self, usuario: Usuario, pid: int, accion: str) -> None:
+        card = self._card(pid)
+        if card is None or card.fase != tp.REVISION:
+            await self._pintar_card(usuario, pid)  # toque viejo: se repinta lo vigente
+            return
+        if (self._esperando(usuario) or {}).get("tipo") == "revision":
+            self._esperar(usuario, None)
+        if accion == "ok":
+            if self.n.aprobar_respuestas(usuario.id, pid):
+                await self._poner_fase(usuario, pid, tp.EN_COLA)
+            else:
+                await self._pintar_card(usuario, pid)
+            return
+        card.pregunta = None
+        card.vista = tp.CORREGIR if accion == "c" else tp.PRINCIPAL
+        if accion.isdigit():
+            filas = self.n.respuestas_en_revision(pid)
+            if 1 <= int(accion) <= len(filas):
+                elegida = filas[int(accion) - 1]["id"]
+                card.vista, card.pregunta = tp.PRINCIPAL, {"corrigiendo": elegida}
+                self._esperar(usuario, {"tipo": "revision", "id": elegida})
+        self._guardar_card(pid, card)
+        await self._pintar_card(usuario, pid)
+
+    async def _texto_revision(
+        self, usuario: Usuario, respuesta_id: int, texto: str, mensaje_id: int | None
+    ) -> None:
+        """El texto nuevo reemplaza la redacción tal cual y la card vuelve a la revisión."""
+        pid = self.n.corregir_respuesta(usuario.id, respuesta_id, texto)
+        await self._borrar_texto_usuario(usuario, mensaje_id)
+        if pid is None:
+            return  # texto vacío: se sigue esperando
+        self._esperar(usuario, None)
+        await self._poner_fase(usuario, pid, tp.REVISION)
 
     async def _responder_pendiente(
         self, usuario: Usuario, pendiente_id: int, respuesta: str, mensaje_id: int | None = None
@@ -1824,6 +1916,13 @@ class Conversacion:
                     await self._responder_pendiente(
                         usuario, pendiente["id"], opciones[int(args[1])]
                     )
+            case "pesc":  # «✍️ Escribir yo» en una pregunta de dato
+                await self._escribir_pendiente(usuario, int(args[0]))
+            case "pres":  # «Prefiero no decirlo»: el redactor escribe sin ese dato
+                if any(p["id"] == int(args[0]) for p in self.n.pendientes(usuario.id)):
+                    await self._responder_pendiente(usuario, int(args[0]), RESERVADO)
+            case "rev":
+                await self._boton_revision(usuario, int(args[0]), args[1])
             case "pegar":
                 self._esperar(usuario, {"tipo": "pegar", "pid": int(args[0])})
                 await self._enviar(
@@ -2315,6 +2414,9 @@ class Conversacion:
             pendientes = self.n.pendientes(usuario.id)
             if pendientes:
                 await self._preguntar_pendiente(usuario, pendientes[0])
+        elif tipo == "revision_respuestas":
+            await self._cerrar_card(usuario, d["postulacion_id"], tp.REVISION)
+            await self._mandar_revision_completa(usuario, d["postulacion_id"])
         elif tipo == "clave_invalida":
             await self._enviar(
                 usuario,

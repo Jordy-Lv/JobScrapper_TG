@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-ESQUEMA_VERSION = 3
+ESQUEMA_VERSION = 4
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS esquema_version (version INTEGER NOT NULL);
@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS preferencias_portal (
     automatico INTEGER NOT NULL DEFAULT 1,     -- participa del modo automático del usuario
     umbral INTEGER,                            -- afinidad mínima propia; NULL: la del usuario
     avisar INTEGER NOT NULL DEFAULT 1,         -- avisar por Telegram las postulaciones solas
+    revisar_respuestas INTEGER NOT NULL DEFAULT 0,  -- mostrar lo redactado antes de enviar (4)
     actualizada TEXT,
     PRIMARY KEY (usuario_id, plataforma)
 );
@@ -147,7 +148,9 @@ CREATE TABLE IF NOT EXISTS respuestas (
     campo TEXT,
     pregunta TEXT NOT NULL,
     respuesta TEXT,
-    origen TEXT NOT NULL                       -- perfil | banco | aprendida | ia | usuario
+    origen TEXT NOT NULL,                      -- perfil | banco | aprendida | ia | usuario
+    pregunta_norm TEXT,                        -- esquema 4: una fila por pregunta
+    estado TEXT NOT NULL DEFAULT 'enviada'     -- enviada | propuesta | aprobada
 );
 
 -- Mensajes del bot que se borran solos (esquema 3); sobreviven a un reinicio del servicio
@@ -169,7 +172,8 @@ CREATE TABLE IF NOT EXISTS evidencia (
     archivo TEXT NOT NULL
 );
 
--- Qué dato pide cada pregunta: compartido entre usuarios, sin respuestas personales.
+-- Qué dato pide cada pregunta: compartido entre usuarios, sin respuestas personales. El campo
+-- «redactar» marca las preguntas compuestas o de prosa, que van al redactor por formulario.
 CREATE TABLE IF NOT EXISTS banco_preguntas (
     pregunta_norm TEXT PRIMARY KEY,
     campo TEXT NOT NULL,
@@ -193,8 +197,9 @@ CREATE TABLE IF NOT EXISTS pendientes_usuario (
     postulacion_id INTEGER REFERENCES postulaciones(id) ON DELETE CASCADE,
     pregunta TEXT NOT NULL,
     pregunta_norm TEXT NOT NULL,
-    opciones_json TEXT,
+    opciones_json TEXT,                        -- opciones del portal, o sugerencias si es dato
     campo TEXT,
+    tipo TEXT NOT NULL DEFAULT 'formulario',   -- formulario | dato (esquema 4)
     creada TEXT NOT NULL,
     respondida_en TEXT,
     respuesta TEXT
@@ -232,6 +237,11 @@ CREATE TABLE IF NOT EXISTS bajas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL
 );
+"""
+
+# Se crea después de migrar: en una base v3 la columna aún no existe al correr ESQUEMA
+INDICES_V4 = """
+CREATE UNIQUE INDEX IF NOT EXISTS respuestas_pregunta ON respuestas(postulacion_id, pregunta_norm);
 """
 
 
@@ -272,6 +282,7 @@ class BaseAsistente:
             elif fila["version"] < ESQUEMA_VERSION:
                 self._actualizar_desde(fila["version"])
                 self.cx.execute("UPDATE esquema_version SET version = ?", (ESQUEMA_VERSION,))
+            self.cx.executescript(INDICES_V4)
 
     def _actualizar_desde(self, version: int) -> None:
         """Cambios a una base existente (CREATE TABLE IF NOT EXISTS no agrega columnas)."""
@@ -279,6 +290,44 @@ class BaseAsistente:
             columnas = {f["name"] for f in self.cx.execute("PRAGMA table_info(vacantes)")}
             if "ficha_json" not in columnas:
                 self.cx.execute("ALTER TABLE vacantes ADD COLUMN ficha_json TEXT")
+        if version < 4:
+            self._a_v4()
+
+    def _columnas(self, tabla: str) -> set[str]:
+        return {f["name"] for f in self.cx.execute(f"PRAGMA table_info({tabla})")}
+
+    def _a_v4(self) -> None:
+        """Redactor por formulario: tipos de pendiente, revisión por portal y una respuesta por
+        pregunta. Las clasificaciones de la IA se borran para reclasificarse con el formato."""
+        from buscador_vacantes.asistente.respuestas import normalizar_pregunta
+
+        nuevas = {
+            "pendientes_usuario": ("tipo", "TEXT NOT NULL DEFAULT 'formulario'"),
+            "preferencias_portal": ("revisar_respuestas", "INTEGER NOT NULL DEFAULT 0"),
+        }
+        for tabla, (columna, definicion) in nuevas.items():
+            if columna not in self._columnas(tabla):
+                self.cx.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}")
+        columnas = self._columnas("respuestas")
+        if "pregunta_norm" not in columnas:
+            self.cx.execute("ALTER TABLE respuestas ADD COLUMN pregunta_norm TEXT")
+        if "estado" not in columnas:
+            self.cx.execute(
+                "ALTER TABLE respuestas ADD COLUMN estado TEXT NOT NULL DEFAULT 'enviada'"
+            )
+        vistas: set[tuple[int, str]] = set()
+        filas = self.cx.execute("SELECT id, postulacion_id, pregunta FROM respuestas ORDER BY id")
+        for fila in filas.fetchall():
+            norma = normalizar_pregunta(fila["pregunta"])
+            if (fila["postulacion_id"], norma) in vistas:
+                # Una pregunta repetida en la misma postulación: el índice único no la admite
+                self.cx.execute("DELETE FROM respuestas WHERE id = ?", (fila["id"],))
+                continue
+            vistas.add((fila["postulacion_id"], norma))
+            self.cx.execute(
+                "UPDATE respuestas SET pregunta_norm = ? WHERE id = ?", (norma, fila["id"])
+            )
+        self.cx.execute("DELETE FROM banco_preguntas WHERE origen = 'ia'")
 
     @contextmanager
     def transaccion(self) -> Iterator[sqlite3.Connection]:
