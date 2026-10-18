@@ -19,6 +19,7 @@ from buscador_vacantes.asistente.resumen_postulacion import DatosResumen
 EN_COLA = "en_cola"
 ESPERANDO_NAVEGADOR = "esperando_navegador"
 PREGUNTA = "pregunta"
+REVISION = "revision"  # el usuario revisa lo redactado antes del envío
 PROGRESO = "progreso"
 SESION = "sesion"
 VERIFICACION = "verificacion"
@@ -33,12 +34,15 @@ CANCELADA = "cancelada"
 PRINCIPAL = "principal"
 RESPUESTAS = "respuestas"
 DE_QUE_TRATA = "de_que_trata"
+CORREGIR = "corregir"  # revisión: lista para elegir la respuesta a corregir
 
 MAX_TEXTO = 4000  # Telegram corta en 4096; se deja margen para las etiquetas HTML
 POR_FILA = 3  # botones por fila
 
 SEGUIMIENTO_RESPALDO = (("postulada", "Ya me postulé"), ("descartada", "No me interesa"))
 BOTON_GUIA = "Generar guía para entrevista"
+BOTON_ESCRIBIR = "✍️ Escribir yo"
+BOTON_RESERVADO = "Prefiero no decirlo"
 
 Botones = list[list[tuple[str, str]]]
 Cb = Callable[..., str]
@@ -51,7 +55,9 @@ class Card:
     mensaje_id: int | None = None
     fase: str = EN_COLA
     vista: str = PRINCIPAL
-    pregunta: dict | None = None  # {"id": pendiente, "n": avance, "total": cuántas}
+    # Pregunta: {"id": pendiente, "n": avance, "total": cuántas, "escribir": tocó «Escribir
+    # yo»}. Revisión: {"corrigiendo": id de la respuesta que el usuario reescribe}
+    pregunta: dict | None = None
     motivo: str | None = None  # del respaldo, del bloqueo del portal o del cierre
     afinidad: str | None = None  # línea «🎯 Afinidad…» ya escapada, bajo la cabecera
 
@@ -78,7 +84,8 @@ class Datos:
     segundos_etapa: float = 0.0  # progreso: segundos desde que empezó la etapa en curso
     conexion: list[str] = field(default_factory=list)  # bloque «Conexión» (tarjeta.py)
     botones_conexion: Botones = field(default_factory=list)
-    pendiente: dict | None = None  # {"id", "pregunta", "opciones"} de la fase PREGUNTA
+    pendiente: dict | None = None  # {"id", "pregunta", "opciones", "tipo"} de la fase PREGUNTA
+    revision: list[dict] = field(default_factory=list)  # {id, pregunta, respuesta, origen}
     resumen: DatosResumen | None = None  # confirmada / incierta
     id_corto: str | None = None  # cuenta / cancelada: aún no hay postulación (pid)
     segundos: int = 0  # cuenta: segundos que faltan
@@ -103,9 +110,38 @@ def _pregunta(card: Card, d: Datos) -> list[str]:
         titulo += f" ({avance.get('n', 1)} de {avance['total']})"
     pendiente = d.pendiente or {}
     lineas = [titulo, f"<b>{t.e(pendiente.get('pregunta'))}</b>"]
-    if not pendiente.get("opciones"):
+    if not pendiente.get("opciones") or avance.get("escribir"):
         lineas.append("Escribe tu respuesta.")
+    elif pendiente.get("tipo") == "dato":
+        lineas.append("Elige una opción o escríbela tú.")
     return lineas
+
+
+def lineas_revision(d: Datos) -> list[str]:
+    """Cada pregunta con la respuesta redactada, completa (la corrigió el usuario: 💬)."""
+    lineas: list[str] = []
+    for n, r in enumerate(d.revision, 1):
+        icono = " 💬" if r.get("origen") == "usuario" else ""
+        respuesta = t.e(r.get("respuesta") or "—")
+        lineas += ["", f"{n}· {t.e(r['pregunta'])}", f"<b>{respuesta}</b>{icono}"]
+    return lineas
+
+
+def _revision(card: Card, d: Datos) -> list[str]:
+    corrigiendo = (card.pregunta or {}).get("corrigiendo")
+    if corrigiendo is not None:
+        n = next((i for i, r in enumerate(d.revision, 1) if r["id"] == corrigiendo), None)
+        if n is not None:
+            return [f"✏️ Escribe el texto nuevo para la respuesta {n}; lo enviaré tal cual."]
+    if card.vista == CORREGIR:
+        return ["✏️ ¿Qué respuesta quieres corregir?"]
+    return ["✍️ Revisa lo que redacté antes de enviarlo. Aún no envié nada."]
+
+
+def revision_cabe(card: Card, d: Datos) -> bool:
+    """Las respuestas completas caben en la card; si no, van aparte con partir()."""
+    completo = "\n".join([*_cabecera(d), "", *_revision(card, d), *lineas_revision(d)])
+    return len(completo) <= MAX_TEXTO
 
 
 def _respaldo(card: Card) -> list[str]:
@@ -149,6 +185,10 @@ def _cuerpo(card: Card, d: Datos) -> list[str]:
             return ["Se enviará cuando abras tu navegador."]
         case "pregunta":
             return _pregunta(card, d)
+        case "revision":
+            if revision_cabe(card, d):
+                return [*_revision(card, d), *lineas_revision(d)]
+            return [*_revision(card, d), "", "Te las mando completas en los mensajes de abajo."]
         case "progreso":
             return progreso.etapas(d.etapa, d.cuadro)
         case "sesion":
@@ -231,6 +271,31 @@ def _botones_confirmacion(card: Card, d: Datos, cb: Cb) -> Botones:
     return [*_filas(vistas), [(BOTON_GUIA, cb("guia", d.pid))]]
 
 
+def _botones_pregunta(card: Card, d: Datos, cb: Cb) -> Botones:
+    """Formulario: una opción del portal por fila. Dato: las sugerencias del redactor, «✍️
+    Escribir yo» (solo si hay sugerencias) y «Prefiero no decirlo»."""
+    pendiente = d.pendiente or {}
+    opciones = pendiente.get("opciones", [])[:8]
+    if pendiente.get("tipo") != "dato":
+        return [[(opcion, cb("pend", pendiente["id"], n))] for n, opcion in enumerate(opciones)]
+    filas: Botones = []
+    if not (card.pregunta or {}).get("escribir"):
+        filas += _filas([(o, cb("pend", pendiente["id"], n)) for n, o in enumerate(opciones)])
+        if opciones:
+            filas.append([(BOTON_ESCRIBIR, cb("pesc", pendiente["id"]))])
+    filas.append([(BOTON_RESERVADO, cb("pres", pendiente["id"]))])
+    return filas
+
+
+def _botones_revision(card: Card, d: Datos, cb: Cb) -> Botones:
+    if (card.pregunta or {}).get("corrigiendo") is not None:
+        return [[("Volver", cb("rev", d.pid, "v"))]]
+    if card.vista == CORREGIR:
+        numeros = [(str(n), cb("rev", d.pid, n)) for n in range(1, len(d.revision) + 1)]
+        return [*_filas(numeros), [("Volver", cb("rev", d.pid, "v"))]]
+    return [[("✅ Enviar", cb("rev", d.pid, "ok")), ("✏️ Corregir", cb("rev", d.pid, "c"))]]
+
+
 def botones(card: Card, d: Datos, cb: Cb) -> Botones | None:
     """Botones de la card: acciones del estado, luego vistas y al final el seguimiento."""
     filas: Botones = [*d.botones_conexion]
@@ -242,8 +307,9 @@ def botones(card: Card, d: Datos, cb: Cb) -> Botones | None:
         case "cancelada":
             filas.append([("Postular", cb("post", d.id_corto))])
         case "pregunta":
-            for n, opcion in enumerate((d.pendiente or {}).get("opciones", [])[:8]):
-                filas.append([(opcion, cb("pend", d.pendiente["id"], n))])
+            filas += _botones_pregunta(card, d, cb)
+        case "revision":
+            filas += _botones_revision(card, d, cb)
         case "sesion":
             if destino := t.URL_REGISTRO.get(d.plataforma or ""):
                 filas.append([("Crear cuenta", f"url:{destino}")])

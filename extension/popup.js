@@ -300,7 +300,8 @@ async function abrirVistaPortal(p) {
   $("vp-nombre").textContent = NOMBRES[p];
   $("vp-mensaje").textContent = "";
   $("vp-detalle-cuerpo").textContent = "Cargando…";
-  for (const id of ["vp-pausar", "vp-olvidar", "vp-automatico", "vp-umbral", "vp-avisar"]) {
+  for (const id of ["vp-pausar", "vp-olvidar", "vp-automatico", "vp-umbral", "vp-avisar",
+    "vp-revisar"]) {
     $(id).disabled = true;
   }
   $("vista-portal").dataset.plataforma = p;
@@ -323,6 +324,7 @@ async function abrirVistaPortal(p) {
   $("vp-automatico").checked = d.automatico;
   $("vp-umbral").value = d.umbral == null ? "" : String(d.umbral);
   $("vp-avisar").checked = d.avisar;
+  $("vp-revisar").checked = Boolean(d.revisar_respuestas);
   $("vp-pausar").textContent = d.automatico ? "Pausar" : "Reanudar";
   $("vp-pausar").classList.toggle("pausado", !d.automatico);
   if (d.cuenta) {
@@ -335,7 +337,9 @@ async function abrirVistaPortal(p) {
     $("vp-detalle-cuerpo").textContent = "Todavía no hay una cuenta asociada en este portal.";
     $("vp-olvidar").disabled = true;
   }
-  for (const id of ["vp-pausar", "vp-automatico", "vp-umbral", "vp-avisar"]) $(id).disabled = false;
+  for (const id of ["vp-pausar", "vp-automatico", "vp-umbral", "vp-avisar", "vp-revisar"]) {
+    $(id).disabled = false;
+  }
 }
 
 function cerrarVistaPortal() {
@@ -347,9 +351,11 @@ async function guardarPreferenciasVista() {
   const automatico = $("vp-automatico").checked;
   const umbral = $("vp-umbral").value === "" ? null : Number($("vp-umbral").value);
   const avisar = $("vp-avisar").checked;
+  const revisar_respuestas = $("vp-revisar").checked;
   $("vp-mensaje").textContent = "Guardando…";
   const r = await chrome.runtime.sendMessage({
-    tipo: "preferenciasGuardar", plataforma: p, datos: { automatico, umbral, avisar },
+    tipo: "preferenciasGuardar", plataforma: p,
+    datos: { automatico, umbral, avisar, revisar_respuestas },
   });
   $("vp-mensaje").textContent = r.ok ? "" : "No se pudo guardar; inténtalo de nuevo.";
   $("vp-pausar").textContent = automatico ? "Pausar" : "Reanudar";
@@ -360,6 +366,7 @@ $("vp-volver").addEventListener("click", cerrarVistaPortal);
 $("vp-automatico").addEventListener("change", guardarPreferenciasVista);
 $("vp-umbral").addEventListener("change", guardarPreferenciasVista);
 $("vp-avisar").addEventListener("change", guardarPreferenciasVista);
+$("vp-revisar").addEventListener("change", guardarPreferenciasVista);
 $("vp-pausar").addEventListener("click", () => {
   $("vp-automatico").checked = !$("vp-automatico").checked;
   guardarPreferenciasVista();

@@ -15,6 +15,7 @@ fpdf = pytest.importorskip("fpdf", reason="requiere uv sync --group asistente")
 from buscador_vacantes.asistente import preguntas_tarjeta as pt  # noqa: E402
 from buscador_vacantes.asistente import tarjeta_postulacion as tp  # noqa: E402
 from buscador_vacantes.asistente import textos as t  # noqa: E402
+from buscador_vacantes.asistente.campos import RESERVADO  # noqa: E402
 from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa: E402
 from buscador_vacantes.asistente.cola import E, Evento  # noqa: E402
 from buscador_vacantes.asistente.conversacion import Conversacion, cb  # noqa: E402
@@ -24,7 +25,11 @@ from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.membresia import Comprobador  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
-from buscador_vacantes.asistente.respuestas import sembrar_banco  # noqa: E402
+from buscador_vacantes.asistente.respuestas import (  # noqa: E402
+    aprendida,
+    normalizar_pregunta,
+    sembrar_banco,
+)
 from buscador_vacantes.asistente.usuarios import EstadoUsuario  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
@@ -2200,3 +2205,144 @@ def test_el_reinicio_descarta_la_cuenta_y_deja_la_card_interrumpida(mundo):
     assert "La cuenta se interrumpió; no envié nada." in ultimo_texto(mundo, mensaje)
     assert botones_de(mundo, mensaje) == ["Postular"]
     assert '"cancelada": true' in mundo.base.kv_obtener(f"cuenta:{usuario.id}:{corta}")
+
+
+# --- preguntas de dato del redactor y revisión de respuestas ------------------------------------
+
+DATO = "¿En qué institución estudias?"
+
+
+def pendiente_dato(mundo, usuario, pid, sugerencias='["SENA", "ITM"]'):
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO pendientes_usuario(usuario_id, postulacion_id, pregunta, pregunta_norm, "
+            "opciones_json, tipo, creada) VALUES (?, ?, ?, ?, ?, 'dato', 'x')",
+            (usuario.id, pid, DATO, normalizar_pregunta(DATO), sugerencias),
+        )
+
+
+def con_dato_pendiente(mundo, sugerencias='["SENA", "ITM"]'):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    esperando_usuario(mundo, pid)
+    pendiente_dato(mundo, usuario, pid, sugerencias)
+    preguntar(mundo, usuario)
+    return usuario, pid, mensaje
+
+
+@respx.mock
+def test_dato_con_sugerencia_se_guarda_y_la_postulacion_vuelve_a_la_cola(mundo):
+    usuario, pid, mensaje = con_dato_pendiente(mundo)
+    texto, botones = card_de(mundo, mensaje)
+    assert DATO in texto and "Elige una opción o escríbela tú." in texto
+    assert [b for fila in botones for b, _ in fila] == [
+        "SENA", "ITM", tp.BOTON_ESCRIBIR, tp.BOTON_RESERVADO,
+    ]  # fmt: skip
+    correr(mundo.c.al_texto(ANA, "Otra cosa", 80))  # con sugerencias, el texto espera al botón
+    assert (ANA, 80) in mundo.s.borrados and aprendida(
+        mundo.base, usuario.id, normalizar_pregunta(DATO)
+    ) is None
+    correr(mundo.c.al_boton(ANA, botones[0][0][1]))
+    assert aprendida(mundo.base, usuario.id, normalizar_pregunta(DATO)) == "SENA"
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    assert card_guardada(mundo, pid).fase == tp.EN_COLA
+
+
+@respx.mock
+def test_escribir_yo_espera_el_texto_y_lo_borra_del_chat(mundo):
+    usuario, pid, mensaje = con_dato_pendiente(mundo)
+    pendiente_id = mundo.n.pendientes(usuario.id)[0]["id"]
+    correr(mundo.c.al_boton(ANA, cb("pesc", pendiente_id)))
+    texto, botones = card_de(mundo, mensaje)
+    assert "Escribe tu respuesta." in texto
+    assert [b for fila in botones for b, _ in fila] == [tp.BOTON_RESERVADO]
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.al_texto(ANA, "Politécnico Grancolombiano", 81))
+    assert (ANA, 81) in mundo.s.borrados and len(mundo.s.mensajes) == antes
+    guardado = aprendida(mundo.base, usuario.id, normalizar_pregunta(DATO))
+    assert guardado == "Politécnico Grancolombiano"
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+
+
+@respx.mock
+def test_prefiero_no_decirlo_guarda_el_dato_reservado(mundo):
+    usuario, pid, _ = con_dato_pendiente(mundo)
+    pendiente_id = mundo.n.pendientes(usuario.id)[0]["id"]
+    correr(mundo.c.al_boton(ANA, cb("pres", pendiente_id)))
+    assert aprendida(mundo.base, usuario.id, normalizar_pregunta(DATO)) == RESERVADO
+    assert mundo.n.pendientes(usuario.id) == []
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    assert RESERVADO not in "\n".join(mundo.s.de(ANA) + [e[2] for e in mundo.s.ediciones])
+
+
+@respx.mock
+def test_dato_sin_sugerencias_acepta_texto_directo(mundo):
+    usuario, pid, _ = con_dato_pendiente(mundo, sugerencias="[]")
+    correr(mundo.c.al_texto(ANA, "SENA", 82))
+    assert aprendida(mundo.base, usuario.id, normalizar_pregunta(DATO)) == "SENA"
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+
+
+@respx.mock
+def test_sin_ia_la_pregunta_del_formulario_no_ofrece_botones_de_dato(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    esperando_usuario(mundo, pid)
+    pendiente(mundo, usuario, pid, "¿Por qué te interesa?", "por que te interesa")
+    preguntar(mundo, usuario)
+    texto, botones = card_de(mundo, mensaje)
+    assert "Escribe tu respuesta." in texto and botones is None
+    correr(mundo.c.al_texto(ANA, "Quiero aprender", 83))
+    assert aprendida(mundo.base, usuario.id, "por que te interesa") == "Quiero aprender"
+
+
+def propuestas(mundo, pid):
+    with mundo.base.transaccion() as cx:
+        for n, (pregunta, respuesta) in enumerate(
+            [("¿Por qué te interesa?", "Quiero aplicar Python."), ("¿Qué estudias?", "ADSO.")]
+        ):
+            cx.execute(
+                "INSERT INTO respuestas(postulacion_id, pregunta, respuesta, origen, "
+                "pregunta_norm, estado) VALUES (?, ?, ?, 'ia', ?, 'propuesta')",
+                (pid, pregunta, respuesta, f"p{n}"),
+            )
+
+
+@respx.mock
+def test_revision_corregir_y_enviar(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    esperando_usuario(mundo, pid)
+    propuestas(mundo, pid)
+    correr(mundo.c.notificar({"tipo": "revision_respuestas", "usuario_id": usuario.id,
+                              "postulacion_id": pid}))  # fmt: skip
+    texto, botones = card_de(mundo, mensaje)
+    assert card_guardada(mundo, pid).fase == tp.REVISION
+    assert "Aún no envié nada" in texto and "<b>Quiero aplicar Python.</b>" in texto
+    assert [b for fila in botones for b, _ in fila] == ["✅ Enviar", "✏️ Corregir"]
+    correr(mundo.c.al_boton(ANA, cb("rev", pid, "c")))
+    assert [b for fila in card_de(mundo, mensaje)[1] for b, _ in fila] == ["1", "2", "Volver"]
+    correr(mundo.c.al_boton(ANA, cb("rev", pid, 2)))
+    assert "texto nuevo para la respuesta 2" in card_de(mundo, mensaje)[0]
+    correr(mundo.c.al_texto(ANA, "Tecnología en ADSO en el SENA.", 84))
+    assert (ANA, 84) in mundo.s.borrados
+    texto, _ = card_de(mundo, mensaje)
+    assert "<b>Tecnología en ADSO en el SENA.</b> 💬" in texto and "Aún no envié nada" in texto
+    assert mundo.n.cola.obtener(pid).estado == E.ESPERANDO_USUARIO  # nada se envía aún
+    correr(mundo.c.al_boton(ANA, cb("rev", pid, "ok")))
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    assert card_guardada(mundo, pid).fase == tp.EN_COLA
+    filas = mundo.base.cx.execute(
+        "SELECT respuesta, origen, estado FROM respuestas WHERE postulacion_id = ? ORDER BY id",
+        (pid,),
+    ).fetchall()
+    assert [tuple(f) for f in filas] == [
+        ("Quiero aplicar Python.", "ia", "aprobada"),
+        ("Tecnología en ADSO en el SENA.", "usuario", "aprobada"),
+    ]
+    # Un toque viejo de la revisión ya no hace nada: se repinta la card vigente
+    correr(mundo.c.al_boton(ANA, cb("rev", pid, "c")))
+    assert card_guardada(mundo, pid).fase == tp.EN_COLA

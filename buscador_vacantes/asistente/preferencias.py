@@ -1,8 +1,8 @@
 """Preferencias del usuario por portal: el engranaje de cada plataforma en la extensión.
 
 Sin fila guardada rigen los valores por defecto: participa del modo automático del usuario, sin
-afinidad mínima propia (usa la del usuario) y avisa por Telegram las postulaciones que se
-enviaron solas.
+afinidad mínima propia (usa la del usuario), avisa por Telegram las postulaciones que se
+enviaron solas y no pide revisar las respuestas redactadas antes de enviarlas.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ class PreferenciasPortal:
     automatico: bool = True
     umbral: int | None = None
     avisar: bool = True
+    revisar_respuestas: bool = False
 
 
 class Preferencias:
@@ -27,13 +28,16 @@ class Preferencias:
 
     def obtener(self, usuario_id: int, plataforma: str) -> PreferenciasPortal:
         fila = self.base.cx.execute(
-            "SELECT automatico, umbral, avisar FROM preferencias_portal "
+            "SELECT automatico, umbral, avisar, revisar_respuestas FROM preferencias_portal "
             "WHERE usuario_id = ? AND plataforma = ?",
             (usuario_id, plataforma),
         ).fetchone()
         if fila is None:
             return PreferenciasPortal()
-        return PreferenciasPortal(bool(fila["automatico"]), fila["umbral"], bool(fila["avisar"]))
+        return PreferenciasPortal(
+            bool(fila["automatico"]), fila["umbral"], bool(fila["avisar"]),
+            bool(fila["revisar_respuestas"]),
+        )  # fmt: skip
 
     def guardar(
         self,
@@ -44,13 +48,23 @@ class Preferencias:
         automatico: bool,
         umbral: int | None,
         avisar: bool,
+        revisar_respuestas: bool = False,
     ) -> None:
         with self.base.transaccion() as cx:
             cx.execute(
                 "INSERT INTO preferencias_portal(usuario_id, plataforma, automatico, umbral, "
-                "avisar, actualizada) VALUES (?, ?, ?, ?, ?, ?) "
+                "avisar, revisar_respuestas, actualizada) VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(usuario_id, plataforma) DO UPDATE SET "
                 "automatico = excluded.automatico, umbral = excluded.umbral, "
-                "avisar = excluded.avisar, actualizada = excluded.actualizada",
-                (usuario_id, plataforma, int(automatico), umbral, int(avisar), a_texto(ahora)),
+                "avisar = excluded.avisar, revisar_respuestas = excluded.revisar_respuestas, "
+                "actualizada = excluded.actualizada",
+                (
+                    usuario_id,
+                    plataforma,
+                    int(automatico),
+                    umbral,
+                    int(avisar),
+                    int(revisar_respuestas),
+                    a_texto(ahora),
+                ),  # fmt: skip
             )

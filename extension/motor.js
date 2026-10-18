@@ -193,6 +193,14 @@
       || el.hasAttribute("data-val-required") || el.hasAttribute("data-val-requiredif");
   }
 
+  // maxlength de un campo de texto, para que la redacción quepa. Sin atributo (-1) o con uno
+  // enorme, que no limita nada, no se envía.
+  function maximoDe(el) {
+    if (el.tagName === "SELECT") return null;
+    const maximo = el.maxLength;
+    return maximo > 0 && maximo <= 100000 ? maximo : null;
+  }
+
   function obligatoria(el) {
     if (requerido(el)) return true;
     const lab = etiqueta(el);
@@ -280,6 +288,7 @@
         opciones: opciones.slice(0, 100),
         obligatoria: obligatoria(el),
         nombre: el.name || el.id || null,
+        maximo: maximoDe(el),
       });
     }
     return salida.slice(0, 80);

@@ -103,6 +103,7 @@ class ApiPrueba:
                 return JSONResponse({"detail": "token"}, status_code=401)
             api.llamadas.append(("preferencias_ver", {"plataforma": plataforma}))
             datos = {"automatico": True, "umbral": None, "avisar": True,
+                     "revisar_respuestas": False,
                      "cuenta": api.cuentas.get(plataforma)}  # fmt: skip
             datos.update(api.preferencias.get(plataforma, {}))
             return datos
@@ -667,6 +668,8 @@ def test_preguntas_de_seleccion_reales_se_leen_llenan_y_confirman(tmp_path, api)
         ("¿Ya finalizó su etapa lectiva?", True),
     ]
     assert campos[0]["opciones"] == ["si", "no"]
+    # El maxlength de las preguntas abiertas llega al servidor; sin atributo, no hay límite
+    assert [c.get("maximo") for c in campos] == [None, 500, 500]
     enviado = portales.recibido[0].decode("utf-8")
     assert "KillerQuestions%5B0%5D.ClosedQuestion=12" in enviado
     assert "SENA" in enviado and "junio" in enviado
@@ -1104,7 +1107,51 @@ def test_engranaje_lee_y_guarda_las_preferencias_del_portal(tmp_path, api):
     assert automatico_inicial is True
     guardados = api.de("preferencias_guardar")
     assert guardados[-1] == {"plataforma": "computrabajo", "automatico": False, "umbral": 85,
-                             "avisar": True}  # fmt: skip
+                             "avisar": True, "revisar_respuestas": False}  # fmt: skip
+
+
+def abrir_vista_portal(nav, plataforma="computrabajo"):
+    async def abrir_vista():
+        id_extension = nav.worker.url.split("/")[2]
+        pagina = await nav.contexto.new_page()
+        await pagina.goto(f"chrome-extension://{id_extension}/popup.html")
+        await pagina.wait_for_timeout(300)
+        await pagina.click(f".tarjeta.{plataforma} .abrir")
+        # Con selector y no con wait_for_function: la CSP del popup no deja evaluar texto
+        await pagina.wait_for_selector("#vp-revisar:not([disabled])", state="attached")
+        return pagina
+
+    return abrir_vista()
+
+
+def test_revisar_respuestas_viene_apagado_y_se_guarda_al_encenderlo(tmp_path, api):
+    api.preferencias.clear()  # la API falsa la comparten las pruebas del módulo
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            pagina = await abrir_vista_portal(nav)
+            inicial = await pagina.is_checked("#vp-revisar")
+            texto = await pagina.inner_text("label:has(#vp-revisar)")
+            await pagina.click("label:has(#vp-revisar) .pista")
+            await pagina.wait_for_timeout(300)
+            await pagina.close()
+            # Al volver a abrir la vista, refleja lo que guardó el servidor
+            pagina = await abrir_vista_portal(nav)
+            despues = await pagina.is_checked("#vp-revisar")
+            await pagina.close()
+            return inicial, texto, despues
+        finally:
+            await cerrar(nav)
+
+    inicial, texto, despues = correr(flujo())
+    assert inicial is False and despues is True
+    assert "Revisar respuestas antes de enviar" in texto
+    assert api.de("preferencias_guardar")[-1] == {
+        "plataforma": "computrabajo", "automatico": True, "umbral": None, "avisar": True,
+        "revisar_respuestas": True,
+    }  # fmt: skip
 
 
 def test_olvidar_cuenta_pide_confirmar_dos_veces(tmp_path, api):

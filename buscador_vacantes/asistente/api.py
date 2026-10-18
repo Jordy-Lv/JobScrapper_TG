@@ -51,6 +51,7 @@ class ResultadoFormulario:
     respuestas: list[Respuesta] = field(default_factory=list)
     faltan: list[Respuesta] = field(default_factory=list)
     cv: Path | None = None  # PDF a adjuntar o subir al perfil del portal
+    revisar: bool = False  # el usuario revisa lo redactado antes del envío
 
 
 class Nucleo(Protocol):
@@ -99,6 +100,7 @@ class PreferenciasPortalCuerpo(BaseModel):
     automatico: bool = True
     umbral: int | None = Field(None, ge=0, le=100)
     avisar: bool = True
+    revisar_respuestas: bool = False
 
 
 class Campo(BaseModel):
@@ -107,6 +109,7 @@ class Campo(BaseModel):
     opciones: list[str] = Field(default_factory=list, max_length=100)
     obligatoria: bool = True
     nombre: str | None = Field(None, max_length=200)
+    maximo: int | None = Field(None, ge=1, le=100000)  # maxlength del campo, si lo tiene
 
 
 class Formulario(BaseModel):
@@ -491,6 +494,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             "automatico": pref.automatico,
             "umbral": pref.umbral,
             "avisar": pref.avisar,
+            "revisar_respuestas": pref.revisar_respuestas,
             "cuenta": nucleo.cuentas.detalle(nav.usuario_id, plataforma),
         }
 
@@ -505,6 +509,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         nucleo.preferencias.guardar(
             nav.usuario_id, plataforma, nucleo.ahora(),
             automatico=cuerpo.automatico, umbral=cuerpo.umbral, avisar=cuerpo.avisar,
+            revisar_respuestas=cuerpo.revisar_respuestas,
         )  # fmt: skip
         return {"ok": True}
 
@@ -543,11 +548,18 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             raise HTTPException(409, "la postulación no está en curso en este navegador")
         forzadas = campos_obligatorios(nucleo.selectores(p.plataforma))
         preguntas = [
-            Pregunta(c.texto, c.tipo, c.opciones, c.obligatoria or c.nombre in forzadas, c.nombre)
+            Pregunta(
+                c.texto,
+                c.tipo,
+                c.opciones,
+                c.obligatoria or c.nombre in forzadas,
+                c.nombre,
+                c.maximo,
+            )
             for c in cuerpo.campos
         ]
         resultado = await nucleo.resolver_formulario(p, preguntas)
-        if any(r.pregunta.obligatoria for r in resultado.faltan):
+        if resultado.revisar or any(r.pregunta.obligatoria for r in resultado.faltan):
             nucleo.cola.esperar_usuario(pid, nav.id, nucleo.ahora())
             return {"esperar_usuario": True}
         respuestas = []

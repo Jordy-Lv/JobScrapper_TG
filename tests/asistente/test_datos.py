@@ -127,3 +127,62 @@ def test_base_del_esquema_1_gana_la_ficha_de_la_vacante(tmp_path):
     assert "ficha_json" in columnas
     assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == ESQUEMA_VERSION
     base.cerrar()
+
+
+ESQUEMA_V3 = """
+CREATE TABLE esquema_version (version INTEGER NOT NULL);
+INSERT INTO esquema_version VALUES (3);
+CREATE TABLE preferencias_portal (
+    usuario_id INTEGER NOT NULL, plataforma TEXT NOT NULL,
+    automatico INTEGER NOT NULL DEFAULT 1, umbral INTEGER, avisar INTEGER NOT NULL DEFAULT 1,
+    actualizada TEXT, PRIMARY KEY (usuario_id, plataforma)
+);
+CREATE TABLE respuestas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, postulacion_id INTEGER NOT NULL, campo TEXT,
+    pregunta TEXT NOT NULL, respuesta TEXT, origen TEXT NOT NULL
+);
+CREATE TABLE banco_preguntas (
+    pregunta_norm TEXT PRIMARY KEY, campo TEXT NOT NULL, parametro TEXT, origen TEXT NOT NULL,
+    usos INTEGER NOT NULL DEFAULT 0, creada TEXT NOT NULL
+);
+CREATE TABLE pendientes_usuario (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL, postulacion_id INTEGER,
+    pregunta TEXT NOT NULL, pregunta_norm TEXT NOT NULL, opciones_json TEXT, campo TEXT,
+    creada TEXT NOT NULL, respondida_en TEXT, respuesta TEXT
+);
+INSERT INTO banco_preguntas VALUES ('aspiracion salarial', 'salario', NULL, 'semilla', 3, 'x');
+INSERT INTO banco_preguntas VALUES
+    ('que programa estudias y en que institucion', 'programa', NULL, 'ia', 1, 'x');
+INSERT INTO respuestas(postulacion_id, campo, pregunta, respuesta, origen)
+    VALUES (7, 'salario', '¿Aspiración salarial?', '1300000', 'perfil');
+INSERT INTO respuestas(postulacion_id, campo, pregunta, respuesta, origen)
+    VALUES (7, 'salario', 'Aspiración salarial', '1300000', 'perfil');
+INSERT INTO pendientes_usuario(usuario_id, postulacion_id, pregunta, pregunta_norm, creada)
+    VALUES (1, 7, '¿Ciudad?', 'ciudad', 'x');
+INSERT INTO preferencias_portal(usuario_id, plataforma) VALUES (1, 'computrabajo');
+"""
+
+
+def test_migracion_v4_desde_una_base_v3(tmp_path):
+    ruta = tmp_path / "v3.db"
+    cx = sqlite3.connect(ruta)
+    cx.executescript(ESQUEMA_V3)
+    cx.close()
+    base = BaseAsistente.abrir(ruta)
+    assert ESQUEMA_VERSION == 4
+    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 4
+    banco = base.cx.execute("SELECT pregunta_norm, origen FROM banco_preguntas").fetchall()
+    assert [tuple(f) for f in banco] == [("aspiracion salarial", "semilla")]  # sin las de IA
+    filas = base.cx.execute("SELECT pregunta_norm, estado FROM respuestas").fetchall()
+    assert [tuple(f) for f in filas] == [("aspiracion salarial", "enviada")]  # sin repetidas
+    pendiente = base.cx.execute("SELECT tipo FROM pendientes_usuario").fetchone()
+    assert pendiente["tipo"] == "formulario"
+    pref = base.cx.execute("SELECT revisar_respuestas FROM preferencias_portal").fetchone()
+    assert pref["revisar_respuestas"] == 0
+    with pytest.raises(sqlite3.IntegrityError), base.transaccion() as c:
+        c.execute(
+            "INSERT INTO respuestas(postulacion_id, pregunta, origen, pregunta_norm) "
+            "VALUES (7, 'Aspiración salarial', 'perfil', 'aspiracion salarial')"
+        )
+    base.cerrar()
+    BaseAsistente.abrir(ruta).cerrar()  # reabrir no vuelve a migrar ni falla

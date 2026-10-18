@@ -14,6 +14,7 @@ from datetime import datetime
 
 from buscador_vacantes.asistente import progreso
 from buscador_vacantes.asistente import textos as t
+from buscador_vacantes.asistente.campos import RESERVADO
 from buscador_vacantes.asistente.vacantes import VacanteIndexada
 
 MAX_MENSAJE = 4000  # Telegram corta en 4096; se deja margen para las etiquetas HTML
@@ -123,7 +124,8 @@ def respuestas_lineas(d: DatosResumen) -> list[str]:
         icono = ICONOS_ORIGEN.get(resp.get("origen") or "", "")
         if icono and icono not in usados:
             usados.append(icono)
-        respuesta = t.e(resp.get("respuesta") or "—")
+        valor = resp.get("respuesta")
+        respuesta = t.e(valor if valor and valor != RESERVADO else "—")  # el reservado no se ve
         lineas += ["", f"{n}· {t.e(resp['pregunta'])}", f"<b>{respuesta}</b> {icono}"]
     if usados:
         lineas += ["", " · ".join(f"{i} {LEYENDA_ORIGEN[i]}" for i in usados)]
