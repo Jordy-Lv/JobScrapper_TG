@@ -488,3 +488,12 @@ def test_cada_causa_del_diagnostico_tiene_texto_sin_motivos_internos():
         assert t.ESPERAS[codigo].strip()
         for interno in ("enlace_ingresar", "fuera_del_portal", "sin_sesion:", "{", "}"):
             assert interno not in texto
+
+
+def test_con_el_bloque_de_conexion_la_cuenta_no_se_explica_dos_veces():
+    existente = [[("Confirmar Magneto", "cb:cuenta:magneto:si")]]
+    d = datos(plataforma="magneto", botones_conexion=existente, conexion=["🔗 Conexión"])
+    for codigo in ("cuenta_por_confirmar", "cuenta_distinta"):
+        texto = tp.texto(con_espera(codigo), d)
+        assert "Hay una sesión abierta" not in texto and "no es la que me diste" not in texto
+        assert "Sale en cuanto resuelvas la cuenta de arriba." in texto

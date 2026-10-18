@@ -170,6 +170,10 @@ DOMINIOS = {
     "elempleo": "elempleo.com",
 }
 
+# Causas de espera que el bloque «Conexión» de la card ya explica con sus botones
+ESPERAS_DE_CUENTA = ("cuenta_por_confirmar", "cuenta_distinta")
+ESPERA_CUENTA_EN_CONEXION = "Sale en cuanto resuelvas la cuenta de arriba."
+
 # Por qué una postulación sigue en cola (una por causa de espera.py). Valores disponibles:
 # {portal}, {dominio}, {version}, {minima}, {desde} (« desde las 10:42» o vacío) y {hora}.
 # Nunca llevan motivos internos del latido ni el correo de una cuenta ajena
