@@ -192,14 +192,21 @@ def test_opcion_exacta(base):
 
 @respx.mock
 @pytest.mark.parametrize("pregunta", [
-    Pregunta("¿Qué área prefieres?", "opciones", ["Backend", "Frontend"]),
     Pregunta("¿Cuántos proyectos personales tienes?", "numero"),
     Pregunta("¿Desde cuándo puedes empezar?", "fecha"),
 ])  # fmt: skip
-def test_opciones_y_datos_no_texto_nunca_van_al_redactor(base, pregunta):
+def test_numero_y_fecha_sin_dato_nunca_van_al_redactor(base, pregunta):
     respx.post(URL_LITE).mock(return_value=gemini({"campo": None, "formato": "redactar"}))
     r = asyncio.run(resolver(pregunta, contexto(base)))
     assert r.falta and not r.redactar and r.opcion is None
+
+
+@respx.mock
+def test_opciones_sin_dato_conocido_van_al_redactor_para_elegir(base):
+    respx.post(URL_LITE).mock(return_value=gemini({"campo": None, "formato": "redactar"}))
+    pregunta = Pregunta("¿Confirmas tu participación en el proceso?", "opciones", ["Si", "No"])
+    r = asyncio.run(resolver(pregunta, contexto(base)))
+    assert r.redactar and not r.falta and r.opcion is None
 
 
 @respx.mock
@@ -241,7 +248,7 @@ def test_aprendida_gana_a_una_pregunta_del_banco_sin_dato(base):
     )
     guardar_en_banco(base, normalizar_pregunta(pregunta.texto), "conoce", "UiPath", AHORA)
     antes = asyncio.run(resolver(pregunta, contexto(base, con_ia=False)))
-    assert antes.falta
+    assert antes.redactar and antes.opcion is None  # el dato no calza: lo decidiría el redactor
     recordar(base, 1, pregunta.texto, "Tengo conocimiento en todas las anteriores", AHORA)
     r = asyncio.run(resolver(pregunta, contexto(base, con_ia=False)))
     assert not r.falta and (r.opcion, r.origen) == (2, Origen.APRENDIDA)
@@ -466,3 +473,23 @@ def test_recortar_a_limite():
     assert recortar_a_limite("sinespacios", 4) == "sine"
     assert recortar_a_limite("Texto corto", None) == "Texto corto"
     assert recortar_a_limite("Texto corto", 100) == "Texto corto"
+
+
+@respx.mock
+def test_redactor_elige_opciones_en_la_misma_llamada(base):
+    preguntas = [
+        Pregunta("¿Confirmas tu participación en el proceso?", "opciones", ["Si", "No"]),
+        Pregunta("¿Por qué te interesa?"),
+        Pregunta("¿Prefieres trabajo en equipo?", "opciones", ["Si", "No"]),
+    ]
+    ruta = respx.post(URL_REDACTAR).mock(return_value=gemini({"respuestas": [
+        {"indice": 1, "opcion": 0, "respuesta": "Sí, confirmo"},
+        {"indice": 2, "respuesta": "Quiero crecer en desarrollo."},
+        {"indice": 3, "opcion": 5},
+    ]}))  # fmt: skip
+    r = asyncio.run(redactar_formulario(preguntas, contexto(base)))
+    assert ruta.call_count == 1
+    assert (r[0].opcion, r[0].valor) == (0, None)  # en opciones nunca se envía texto
+    assert r[1].valor == "Quiero crecer en desarrollo." and r[1].opcion is None
+    assert r[2].opcion is None  # fuera de rango: se ignora
+    assert "[opciones: 0) Si · 1) No]" in enviado(ruta)

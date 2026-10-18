@@ -30,7 +30,7 @@ La IA MUST NOT inventar datos que no estén en el perfil, el cuestionario o los 
 - **THEN** la redacción usa la que dio el usuario
 
 ### Requirement: Datos simples sin redacción
-Las preguntas de correo, teléfono, número, fecha y las de opciones SHALL resolverse como hoy, con el banco, los datos aprendidos y el perfil, y sin pasar por el redactor. Una pregunta de texto que el banco clasifica como dato simple, como «Ciudad de residencia», SHALL enviarse con el valor exacto. La opción elegida en una pregunta con opciones MUST enviarse tal cual.
+Las preguntas de correo, teléfono, número y fecha, y las de opciones que el banco, los datos aprendidos o el perfil resuelven, SHALL resolverse sin pasar por el redactor. Una pregunta de texto que el banco clasifica como dato simple, como «Ciudad de residencia», SHALL enviarse con el valor exacto. La opción elegida en una pregunta con opciones MUST enviarse tal cual.
 
 #### Scenario: Campo de dato simple
 - **WHEN** el formulario trae «Aspiración salarial» como campo numérico
@@ -39,6 +39,21 @@ Las preguntas de correo, teléfono, número, fecha y las de opciones SHALL resol
 #### Scenario: Pregunta con opciones
 - **WHEN** el formulario pregunta «¿Nivel de inglés?» con las opciones Básico, Intermedio y Avanzado
 - **THEN** se marca la opción que corresponde al perfil, sin redacción
+
+### Requirement: Opciones elegidas en la misma llamada
+En cualquier portal, una pregunta con opciones que no se resuelve con los datos aprendidos, el banco ni el perfil SHALL ir a la misma llamada del redactor, que MUST elegir una de las opciones del portal sin redactar texto. Una opción fuera de rango o ausente MUST llevar la pregunta a la card. Las autorizaciones y aceptaciones MUST NOT pasar por la IA.
+
+#### Scenario: Encuesta de Magneto
+- **WHEN** la encuesta de Magneto pregunta «¿Confirmas tu participación en el proceso?» con «Si» y «No», y no hay dato guardado
+- **THEN** la IA elige la opción en la misma llamada que redacta las preguntas abiertas y la card no la pregunta
+
+#### Scenario: Opción inválida
+- **WHEN** la IA devuelve una opción que no existe
+- **THEN** la pregunta se pregunta en la card con sus opciones
+
+#### Scenario: Tratamiento de datos
+- **WHEN** la encuesta pide autorizar el tratamiento de datos y el usuario no lo ha decidido
+- **THEN** se pregunta en la card y no se le envía a la IA
 
 ### Requirement: Límite de caracteres del campo
 Si la extensión informa el máximo de caracteres de un campo, la redacción MUST respetarlo. El asistente SHALL recortar en el último límite de frase cualquier respuesta que aun así lo supere.

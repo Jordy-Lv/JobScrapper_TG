@@ -575,3 +575,95 @@ def test_revision_encendida_sin_redacciones_no_espera(mundo):
     preguntas = [Pregunta("Aspiración salarial"), Pregunta("Ciudad de residencia")]
     resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
     assert not resultado.revisar and not resultado.faltan
+
+
+# --- opciones en la misma llamada: Magneto y elempleo -------------------------------------------
+
+URL_CLASIFICAR = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "gemini-flash-lite-latest:generateContent"
+)
+
+
+def con_cv(mundo, pid):
+    cv = mundo.nucleo.archivos / f"cv{pid}.pdf"
+    cv.parent.mkdir(parents=True, exist_ok=True)
+    cv.write_bytes(b"%PDF")
+    mundo.base.cx.execute("UPDATE postulaciones SET cv_archivo = ? WHERE id = ?", (str(cv), pid))
+    mundo.base.cx.commit()
+
+
+@respx.mock
+def test_encuesta_de_magneto_la_elige_el_redactor_y_el_consentimiento_va_a_la_card(mundo):
+    p, _ = postulacion_magneto(mundo)
+    mundo.nucleo.guardar_clave_gemini(mundo.usuario.id, "clave")
+    con_cv(mundo, p.id)
+    respx.post(URL_CLASIFICAR).mock(return_value=gemini({"campo": None, "formato": "redactar"}))
+    ruta = respx.post(URL_REDACTAR).mock(return_value=redactadas({"indice": 1, "opcion": 0}))
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas_magneto()))
+    assert ruta.call_count == 1
+    assert [(r.pregunta.texto, r.texto, r.origen) for r in resultado.respuestas] == [
+        (ENCUESTA_MG[0], "Si", Origen.IA)
+    ]
+    assert "tratamiento" not in ruta.calls[0].request.content.decode("utf-8")
+    assert [r.pregunta.texto for r in resultado.faltan] == [ENCUESTA_MG[1]]  # la decide el usuario
+    # Con el consentimiento respondido, la segunda pasada reutiliza la opción sin llamar a la IA
+    navegador = mundo.base.cx.execute("SELECT id FROM navegadores").fetchone()[0]
+    mundo.nucleo.cola.esperar_usuario(p.id, navegador, T0)
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert mundo.nucleo.responder_pendiente(mundo.usuario.id, pendiente["id"], "Si")
+    p, _ = tomar(mundo, p.id, 3)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas_magneto()))
+    assert ruta.call_count == 1 and not resultado.faltan
+    assert [(r.opcion, r.origen) for r in resultado.respuestas] == [
+        (0, Origen.IA), (0, Origen.APRENDIDA),
+    ]  # fmt: skip
+
+
+@respx.mock
+def test_opcion_invalida_de_la_ia_va_a_la_card_con_sus_opciones(mundo):
+    p, _ = postulacion_magneto(mundo)
+    mundo.nucleo.guardar_clave_gemini(mundo.usuario.id, "clave")
+    respx.post(URL_CLASIFICAR).mock(return_value=gemini({"campo": None, "formato": "redactar"}))
+    respx.post(URL_REDACTAR).mock(return_value=redactadas({"indice": 1, "opcion": 9}))
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas_magneto()[:1]))
+    assert [r.pregunta.texto for r in resultado.faltan] == [ENCUESTA_MG[0]]
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert pendiente["tipo"] == "formulario"
+    assert json.loads(pendiente["opciones_json"]) == ["Si", "No"]
+
+
+URL_EE = NUEVAS["elempleo"]
+
+
+@respx.mock
+def test_cuestionario_de_elempleo_se_redacta_en_una_sola_llamada(mundo):
+    mundo.vincular()
+    mundo.nucleo.guardar_clave_gemini(mundo.usuario.id, "clave")
+    id_ = publicar(mundo, "elempleo", "9", URL_EE)
+    mundo.nucleo.indice.indexar(T0)
+    pid = mundo.nucleo.tocar(mundo.usuario, id_).postulacion.id
+    con_cv(mundo, pid)
+    p, _ = tomar(mundo, pid)
+    abiertas = ["¿Por qué quieres trabajar con nosotros?", "Describe tu experiencia con SQL"]
+    for texto in abiertas:
+        guardar_en_banco(mundo.base, normalizar_pregunta(texto), REDACTAR, None, T0)
+    cerrada = "¿Cuentas con disponibilidad inmediata?"
+    guardar_en_banco(mundo.base, normalizar_pregunta(cerrada), REDACTAR, None, T0)
+    # Como las lee la extensión en /co/JobOffers/Questionnaires: textarea [n].OpenAnswer
+    preguntas = [Pregunta(t, nombre=f"[{n}].OpenAnswer", maximo=2000)
+                 for n, t in enumerate(abiertas)]  # fmt: skip
+    preguntas.append(Pregunta(cerrada, "opciones", ["Sí", "No"], nombre="[2].IsCloseAnswer"))
+    ruta = respx.post(URL_REDACTAR).mock(return_value=redactadas(
+        {"indice": 1, "respuesta": "Me interesa su equipo de datos."},
+        {"indice": 2, "respuesta": "Uso SQL en proyectos del SENA."},
+        {"indice": 3, "opcion": 0},
+    ))  # fmt: skip
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    assert ruta.call_count == 1 and not resultado.faltan and resultado.cv is not None
+    assert [(r.texto, r.origen) for r in resultado.respuestas] == [
+        ("Me interesa su equipo de datos.", Origen.IA),
+        ("Uso SQL en proyectos del SENA.", Origen.IA),
+        ("Sí", Origen.IA),
+    ]
+    assert "(máximo 2000 caracteres)" in ruta.calls[0].request.content.decode("utf-8")
