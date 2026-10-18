@@ -203,6 +203,4 @@ mostrar después (la pestaña «Detalle» solo repite la vacante).
 el banco ni la IA: se le preguntan al usuario por la card y se recuerda su respuesta. No se resuelven
 preguntas sin botones de respuesta (texto libre): terminan `formulario_desconocido` con la evidencia.
 
-**Estado.** `verificado.postulacion` sigue en `false` hasta la prueba real en Telegram (tarea 6.3) con una
-vacante que el dueño nombre y que no sea una ya postulada (Comfama CEID `1626548986-1`, Distracom,
-«Aprendiz de sistemas» ni la 41).
+**Estado.** Verificada con una postulación real (2026-10-17, postulación 43, «Auxiliar de Infraestructura TIC para Apartadó», Servicio de Empleo Comfama): terminó `enviada` por el modal «Se ha enviado tu aplicación», con 2 preguntas respondidas y guardadas (el tratamiento de datos lo había decidido el usuario; la otra, de confirmar la participación, la redactó la IA). `verificado.postulacion` pasó a `true` en la versión `2026.10.17-2`. El perfil (`verificado.perfil`) sigue sin verificar.
