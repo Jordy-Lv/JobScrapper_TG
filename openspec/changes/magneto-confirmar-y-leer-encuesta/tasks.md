@@ -23,7 +23,7 @@
 ## 5. Documentación y cierre local
 
 - [x] 5.1 🟢 Actualizar la sección de Magneto de `docs/asistente/portales.md` (flujo con encuesta en página, modal con retraso, indicador `/profile/processes`, qué no se hace) y la memoria `reconocimiento-magneto` con el estado. Verificar leyendo el texto y con `grep` de «revisar_postulacion» sin resultados en la doc de Magneto.
-- [ ] 5.2 🔴 Correr la suite completa y `ruff check` / `ruff format --check`: en segundo plano (~11 min), sin tocar archivos mientras corre; la prueba intermitente de `test_extension.py` por tiempos es la única excepción conocida. Verificar con todo en verde. Recomendar sesión nueva antes de empezarla si el contexto ya está cargado.
+- [x] 5.2 🔴 Correr la suite completa y `ruff check` / `ruff format --check`: en segundo plano (~11 min), sin tocar archivos mientras corre; la prueba intermitente de `test_extension.py` por tiempos es la única excepción conocida. Verificar con todo en verde. Recomendar sesión nueva antes de empezarla si el contexto ya está cargado.
 - [x] 5.3 🟢 Hacer commit de lo del change (solo los archivos propios; el working tree puede traer cambios de otros changes), en español y sin atribuciones a la IA. Verificar con `git show --stat` y `git log -1 --format=%B`.
 
 ## 6. Despliegue y prueba real
