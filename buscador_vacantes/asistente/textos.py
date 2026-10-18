@@ -156,6 +156,72 @@ URL_REGISTRO = {
     "elempleo": "https://www.elempleo.com/co/",
 }
 
+# Página para iniciar sesión en cada portal. La de elempleo se confirma en el reconocimiento;
+# mientras tanto abre la portada
+URL_INGRESO = {
+    "computrabajo": "https://candidato.co.computrabajo.com/acceso/",
+    "magneto": "https://web.magneto365.com/sign-in",
+    "elempleo": "https://www.elempleo.com/co/",
+}
+# Dominio que la extensión pide como permiso para operar en cada portal
+DOMINIOS = {
+    "computrabajo": "computrabajo.com",
+    "magneto": "magneto365.com",
+    "elempleo": "elempleo.com",
+}
+
+# Por qué una postulación sigue en cola (una por causa de espera.py). Valores disponibles:
+# {portal}, {dominio}, {version}, {minima}, {desde} (« desde las 10:42» o vacío) y {hora}.
+# Nunca llevan motivos internos del latido ni el correo de una cuenta ajena
+ESPERAS = {
+    "sin_navegador": (
+        "Falta vincular tu navegador para postular en {portal}. Cuando lo vincules, la "
+        "postulación sale sola."
+    ),
+    "sin_latido": (
+        "Tu navegador no responde{desde}. Ábrelo con la extensión activa y la postulación en "
+        "{portal} sigue sola."
+    ),
+    "extension_desactualizada": (
+        "Tu extensión está en la versión {version} y necesito la {minima} o una más nueva. "
+        "Actualízala y la postulación sale sola."
+    ),
+    "extension_en_pausa": (
+        "Tus postulaciones están en pausa en la extensión. Se reanudan solas al quitar la "
+        "pausa desde su ventana."
+    ),
+    "plataforma_apagada": (
+        "La postulación automática en {portal} está pausada por ahora. Tu postulación sigue en "
+        "cola y sale sola cuando se reactive."
+    ),
+    "sin_permiso": (
+        "Abre la ventana de la extensión y activa el permiso de {dominio}; después la "
+        "postulación en {portal} sale sola."
+    ),
+    "sin_sesion": (
+        "🔒 Inicia sesión en {portal} en tu navegador vinculado; la postulación sale sola después."
+    ),
+    "cuenta_por_confirmar": (
+        "Hay una sesión abierta en {portal}. Confirma que esa cuenta es tuya para que pueda "
+        "postular con ella."
+    ),
+    "cuenta_distinta": (
+        "La cuenta abierta en {portal} no es la que me diste y no postularé con ella. Dime si "
+        "es tu cuenta nueva o vuelve a iniciar sesión con la tuya."
+    ),
+    "correo_ilegible": (
+        "No pude leer el correo de tu cuenta de {portal}. Lo intento de nuevo en la próxima "
+        "revisión y no postulo hasta comprobar que la cuenta es tuya."
+    ),
+    "perfil_incompleto": (
+        "Estoy completando tu perfil en {portal} con tus datos y tu CV; en cuanto termine "
+        "sigue tu postulación."
+    ),
+    "otra_en_curso": "Primero termino otra postulación tuya; esta sigue después.",
+    "tope_diario": "Llegaste al tope de postulaciones de hoy; esta saldrá mañana.",
+    "pausa": "Hago una pausa entre postulaciones; esta saldrá hacia las {hora}.",
+}
+
 
 def e(texto: object) -> str:
     return html.escape(str(texto or ""), quote=False)

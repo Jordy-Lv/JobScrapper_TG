@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,6 +16,7 @@ fpdf = pytest.importorskip("fpdf", reason="requiere uv sync --group asistente")
 from buscador_vacantes.asistente import preguntas_tarjeta as pt  # noqa: E402
 from buscador_vacantes.asistente import tarjeta_postulacion as tp  # noqa: E402
 from buscador_vacantes.asistente import textos as t  # noqa: E402
+from buscador_vacantes.asistente import vinculos  # noqa: E402
 from buscador_vacantes.asistente.campos import RESERVADO  # noqa: E402
 from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa: E402
 from buscador_vacantes.asistente.cola import E, Evento  # noqa: E402
@@ -2346,3 +2348,145 @@ def test_revision_corregir_y_enviar(mundo):
     # Un toque viejo de la revisión ya no hace nada: se repinta la card vigente
     correr(mundo.c.al_boton(ANA, cb("rev", pid, "c")))
     assert card_guardada(mundo, pid).fase == tp.EN_COLA
+
+
+# --- la card en cola explica por qué espera y se actualiza sola -----------------------------
+
+
+def en_cola_con_card(mundo, plataforma="magneto", *, vinculado=True):
+    """Usuario con un navegador vinculado y una postulación en cola con su card (mensaje 42)."""
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    mundo.n.config.extension.version_minima = "1.0.0"
+    mundo.n.cargar_selectores()
+    mundo.n.indice.indexar(T0)
+    if vinculado:
+        codigo = vinculos.crear_codigo(mundo.base, usuario.id, T0)
+        vinculos.canjear(mundo.base, codigo, "Edge", "1.4.0", T0)
+    p, _ = mundo.n.cola.encolar(usuario.id, id_corto("linkedin:1"), plataforma, T0)
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET mensaje_id = 42 WHERE id = ?", (p.id,))
+    return usuario, p
+
+
+def latido_del_navegador(mundo, portales):
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "UPDATE navegadores SET ultimo_latido = ?, version = '1.4.0', portales_json = ?",
+            (a_texto(T0), json.dumps({"_pausado": False, **portales})),
+        )
+
+
+def revisar(mundo, usuario):
+    correr(mundo.c.notificar({"tipo": "esperas", "usuario_id": usuario.id}))
+
+
+def ultima_edicion(mundo, mensaje=42):
+    return [texto for _, m, texto in mundo.s.ediciones if m == mensaje][-1]
+
+
+def test_sin_sesion_se_explica_en_la_card_y_no_se_repite(mundo):
+    usuario, p = en_cola_con_card(mundo)
+    latido_del_navegador(
+        mundo, {"magneto": {"estado": "sin_sesion", "motivo": "enlace_ingresar", "cuenta": "ok"}}
+    )
+    revisar(mundo, usuario)
+    assert "Inicia sesión en Magneto" in ultima_edicion(mundo)
+    assert "enlace_ingresar" not in ultima_edicion(mundo)
+    assert _etiquetas(mundo.s.botones_editados[42]) == ["Iniciar sesión", "Crear cuenta"]
+    ediciones = len(mundo.s.ediciones)
+    for _ in range(3):  # latidos cada 30 s con la misma causa
+        revisar(mundo, usuario)
+    assert len(mundo.s.ediciones) == ediciones
+
+
+def test_al_iniciar_sesion_la_card_vuelve_a_en_cola(mundo):
+    usuario, p = en_cola_con_card(mundo)
+    latido_del_navegador(mundo, {"magneto": {"estado": "sin_sesion", "cuenta": "ok"}})
+    revisar(mundo, usuario)
+    latido_del_navegador(mundo, {"magneto": {"estado": "listo", "cuenta": "ok"}})
+    revisar(mundo, usuario)
+    assert "En cola. Te aviso el resultado." in ultima_edicion(mundo)
+    assert not mundo.s.botones_editados[42]
+    assert tp.Card.de_texto(mundo.base.kv_obtener(f"card:{p.id}")).espera is None
+
+
+def test_la_card_pasa_de_esperando_navegador_a_en_cola_al_volver_el_navegador(mundo):
+    usuario, p = en_cola_con_card(mundo)
+    latido_del_navegador(mundo, {"magneto": {"estado": "listo", "cuenta": "ok"}})
+    correr(mundo.c._cerrar_card(usuario, p.id, tp.ESPERANDO_NAVEGADOR))
+    assert "Se enviará cuando abras tu navegador." in ultima_edicion(mundo)
+    revisar(mundo, usuario)
+    assert "En cola. Te aviso el resultado." in ultima_edicion(mundo)
+
+
+def test_las_postulaciones_en_otras_fases_no_se_tocan(mundo):
+    usuario, p = en_cola_con_card(mundo)
+    correr(mundo.c._poner_fase(usuario, p.id, tp.SESION))
+    ediciones = len(mundo.s.ediciones)
+    latido_del_navegador(mundo, {"magneto": {"estado": "sin_sesion", "cuenta": "ok"}})
+    revisar(mundo, usuario)
+    assert len(mundo.s.ediciones) == ediciones
+
+
+def test_plataformas_off_y_on_cambian_la_card_en_cola(mundo):
+    usuario, p = en_cola_con_card(mundo)
+    latido_del_navegador(mundo, {"magneto": {"estado": "listo", "cuenta": "ok"}})
+    revisar(mundo, usuario)
+    correr(mundo.c._a_plataformas(usuario, ["magneto", "off"]))
+    assert "automática en Magneto está pausada" in ultima_edicion(mundo)
+    assert not mundo.s.botones_editados[42]
+    correr(mundo.c._a_plataformas(usuario, ["magneto", "on"]))
+    assert "En cola. Te aviso el resultado." in ultima_edicion(mundo)
+
+
+def test_la_vigilancia_de_cada_minuto_actualiza_las_cards_en_cola(mundo):
+    usuario, p = en_cola_con_card(mundo)
+    latido_del_navegador(mundo, {"magneto": {"estado": "sin_sesion", "cuenta": "ok"}})
+    correr(mundo.c.revisar_esperas())
+    assert "Inicia sesión en Magneto" in ultima_edicion(mundo)
+
+
+def api_con_navegador(mundo, usuario):
+    """La API real sobre el mismo núcleo y un navegador vinculado por su ruta pública."""
+    from fastapi.testclient import TestClient
+
+    from buscador_vacantes.asistente.api import crear_app
+
+    cliente = TestClient(crear_app(mundo.n))
+    codigo = vinculos.mostrar_codigo(vinculos.crear_codigo(mundo.base, usuario.id, T0))
+    r = cliente.post("/api/v1/vincular", json={"codigo": codigo, "version": "1.4.0"})
+    return cliente, {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def test_punta_a_punta_magneto_sin_sesion_como_la_postulacion_43(mundo):
+    pytest.importorskip("fastapi", reason="requiere uv sync --group asistente")
+    usuario, p = en_cola_con_card(mundo, "magneto", vinculado=False)
+    cliente, cab = api_con_navegador(mundo, usuario)
+    cuerpo = {
+        "version": "1.4.0",
+        "portales": {"magneto": {"estado": "sin_sesion", "motivo": "enlace_ingresar"}},
+    }
+    assert cliente.post("/api/v1/latido", headers=cab, json=cuerpo).json()["trabajo"] is None
+    assert "Inicia sesión en Magneto" in ultima_edicion(mundo)
+    assert _etiquetas(mundo.s.botones_editados[42]) == ["Iniciar sesión", "Crear cuenta"]
+
+
+def test_punta_a_punta_de_sin_permiso_a_sin_sesion_en_el_mismo_mensaje(mundo):
+    pytest.importorskip("fastapi", reason="requiere uv sync --group asistente")
+    usuario, p = en_cola_con_card(mundo, "elempleo", vinculado=False)
+    cliente, cab = api_con_navegador(mundo, usuario)
+
+    def latido(portales):
+        cuerpo = {"version": "1.4.0", "portales": portales}
+        assert cliente.post("/api/v1/latido", headers=cab, json=cuerpo).status_code == 200
+
+    # Al permiso de elempleo.com todavía le falta activarse: el portal no viene en el latido
+    latido({"computrabajo": {"estado": "listo", "correo": "ana@gmail.com"}})
+    assert "activa el permiso de elempleo.com" in ultima_edicion(mundo)
+    # Lo concede pero aún no tiene sesión: cambia el motivo, en el mismo mensaje
+    mensajes = len(mundo.s.mensajes)
+    latido({"elempleo": {"estado": "sin_sesion", "motivo": "enlace_ingresar"}})
+    assert "Inicia sesión en elempleo" in ultima_edicion(mundo)
+    assert _etiquetas(mundo.s.botones_editados[42])[0] == "Iniciar sesión"
+    assert len(mundo.s.mensajes) == mensajes  # solo se editó la card, no hubo mensajes nuevos

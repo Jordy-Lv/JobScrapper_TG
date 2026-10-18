@@ -120,6 +120,7 @@ class Servicio:
                     ultimo_indice = asyncio.get_running_loop().time()
                 for evento in self.nucleo.cola.vigilar(ahora):
                     await conversacion.notificar(evento)
+                await conversacion.revisar_esperas()
                 await conversacion.recordatorios(ahora)
                 await conversacion.borrar_vencidos(ahora)
                 await self._tareas_diarias(conversacion, ahora)

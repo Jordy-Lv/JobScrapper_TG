@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
 
-from buscador_vacantes.asistente import progreso
+from buscador_vacantes.asistente import espera, progreso
 from buscador_vacantes.asistente import tarjeta_postulacion as tp
+from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.resumen_postulacion import DatosResumen, recortar
 from buscador_vacantes.asistente.vacantes import VacanteIndexada
 
@@ -340,3 +341,150 @@ def test_revision_larga_va_aparte_y_la_card_lo_dice():
     assert not tp.revision_cabe(card, d)
     texto = tp.texto(card, d)
     assert len(texto) <= tp.MAX_TEXTO and "mensajes de abajo" in texto and "x" * 900 not in texto
+
+
+# --- motivo de la espera en la card en cola ------------------------------------------------------
+
+
+def con_espera(codigo, plataforma="magneto", fase=tp.EN_COLA, **datos_causa):
+    espera_ = {"codigo": codigo, "plataforma": plataforma, "datos": datos_causa}
+    return tp.Card(fase=fase, espera=espera_)
+
+
+def cuerpo(card, **cambios):
+    return tp.texto(card, datos(plataforma=card.espera["plataforma"], **cambios))
+
+
+def test_sin_sesion_en_magneto_ofrece_iniciar_sesion_y_crear_cuenta():
+    card = con_espera("sin_sesion")
+    texto = cuerpo(card)
+    assert "<blockquote>⏳ En cola.\n🔒 Inicia sesión en Magneto" in texto
+    assert "la postulación sale sola" in texto
+    botones = tp.botones(card, datos(plataforma="magneto"), cb)
+    assert etiquetas(botones) == [["Iniciar sesión", "Crear cuenta"]]
+    assert botones[0][0][1] == "url:https://web.magneto365.com/sign-in"
+    assert botones[0][1][1] == "url:https://www.magneto365.com/co"
+
+
+def test_sin_sesion_en_elempleo_abre_la_portada_mientras_no_se_confirma_su_ingreso():
+    botones = tp.botones(con_espera("sin_sesion", "elempleo"), datos(plataforma="elempleo"), cb)
+    assert botones[0][0] == ("Iniciar sesión", "url:https://www.elempleo.com/co/")
+
+
+def test_sin_navegador_ofrece_vincular():
+    card = con_espera("sin_navegador", "computrabajo")
+    assert "Falta vincular tu navegador" in cuerpo(card)
+    assert tp.botones(card, datos(), cb) == [[("Vincular navegador", "cb:vincular")]]
+
+
+def test_sin_latido_dice_desde_cuando_en_hora_de_bogota():
+    card = con_espera("sin_latido", ultimo="2026-10-17T15:42:00+00:00")
+    assert "Tu navegador no responde desde las 10:42" in cuerpo(card)
+    assert tp.botones(card, datos(plataforma="magneto"), cb) is None
+
+
+def test_sin_latido_sin_hora_conocida():
+    texto = cuerpo(con_espera("sin_latido"))
+    assert "Tu navegador no responde." in texto
+
+
+def test_extension_desactualizada_lleva_versiones_y_boton_solo_con_tienda():
+    card = con_espera("extension_desactualizada", version="1.3.0", minima="1.4.0")
+    assert "versión 1.3.0" in cuerpo(card) and "la 1.4.0" in cuerpo(card)
+    assert tp.botones(card, datos(plataforma="magneto"), cb) is None
+    con_tienda = datos(plataforma="magneto", url_tienda="https://tienda.example/ext")
+    assert tp.botones(card, con_tienda, cb) == [
+        [("Actualizar extensión", "url:https://tienda.example/ext")]
+    ]
+
+
+def test_extension_en_pausa_no_lleva_botones():
+    card = con_espera("extension_en_pausa")
+    assert "en pausa en la extensión" in cuerpo(card)
+    assert tp.botones(card, datos(plataforma="magneto"), cb) is None
+
+
+def test_plataforma_apagada_sigue_en_cola_y_sin_botones():
+    card = con_espera("plataforma_apagada")
+    texto = cuerpo(card)
+    assert "automática en Magneto está pausada" in texto and "sigue en cola" in texto
+    assert "sale sola cuando se reactive" in texto
+    assert tp.botones(card, datos(plataforma="magneto"), cb) is None
+
+
+def test_sin_permiso_pide_activarlo_en_la_extension():
+    card = con_espera("sin_permiso", "elempleo")
+    assert "activa el permiso de elempleo.com" in cuerpo(card)
+    assert "ventana de la extensión" in cuerpo(card)
+
+
+def test_cuenta_por_confirmar_repite_los_botones_de_la_conexion():
+    card = con_espera("cuenta_por_confirmar")
+    botones = tp.botones(card, datos(plataforma="magneto"), cb)
+    assert etiquetas(botones) == [["Confirmar Magneto", "Cancelar"]]
+    assert botones[0][0][1] == "cb:cuenta:magneto:si"
+
+
+def test_cuenta_distinta_ofrece_cuenta_nueva_o_no_es_mia():
+    card = con_espera("cuenta_distinta")
+    botones = tp.botones(card, datos(plataforma="magneto"), cb)
+    assert etiquetas(botones) == [["Es mi cuenta nueva", "No es mía"]]
+    assert botones[0][1][1] == "cb:cuenta:magneto:no"
+
+
+def test_los_botones_de_cuenta_no_se_duplican_con_la_conexion():
+    existente = [[("Confirmar Magneto", "cb:cuenta:magneto:si")]]
+    d = datos(plataforma="magneto", botones_conexion=existente)
+    for codigo in ("cuenta_por_confirmar", "cuenta_distinta"):
+        assert tp.botones(con_espera(codigo), d, cb) == existente
+
+
+def test_correo_ilegible_explica_sin_botones():
+    card = con_espera("correo_ilegible")
+    texto = cuerpo(card)
+    assert "No pude leer el correo" in texto and "no postulo hasta comprobar" in texto
+    assert tp.botones(card, datos(plataforma="magneto"), cb) is None
+
+
+def test_esperas_normales_de_la_cola_sin_botones():
+    assert "otra postulación tuya" in cuerpo(con_espera("otra_en_curso"))
+    assert "tope de postulaciones de hoy" in cuerpo(con_espera("tope_diario"))
+    pausa = con_espera("pausa", cuando="2026-10-17T15:42:00+00:00")
+    assert "saldrá hacia las 10:42" in cuerpo(pausa)
+    for codigo in ("otra_en_curso", "tope_diario", "pausa"):
+        assert tp.botones(con_espera(codigo), datos(plataforma="magneto"), cb) is None
+
+
+def test_esperando_navegador_tambien_explica_la_causa():
+    card = con_espera("sin_latido", fase=tp.ESPERANDO_NAVEGADOR, ultimo="2026-10-17T15:42:00+00:00")
+    assert "Tu navegador no responde" in cuerpo(card)
+    assert "Se enviará cuando abras" not in cuerpo(card)
+
+
+def test_sin_espera_la_card_en_cola_conserva_su_texto():
+    assert "En cola. Te aviso el resultado." in tp.texto(tp.Card(), datos())
+    esperando = tp.texto(tp.Card(fase=tp.ESPERANDO_NAVEGADOR), datos())
+    assert "Se enviará cuando abras tu navegador." in esperando
+
+
+def test_la_espera_solo_se_pinta_en_las_fases_de_cola():
+    card = con_espera("sin_sesion", fase=tp.PROGRESO)
+    assert "Inicia sesión" not in cuerpo(card, etapa=0)
+
+
+def test_card_guardada_antes_de_la_espera_carga_igual():
+    antigua = '{"mensaje_id": 5, "fase": "en_cola", "vista": "principal", "pregunta": null, '
+    antigua += '"motivo": null, "afinidad": null}'
+    card = tp.Card.de_texto(antigua)
+    assert card.espera is None and card.mensaje_id == 5
+    assert "En cola. Te aviso el resultado." in tp.texto(card, datos())
+    assert tp.Card.de_texto(con_espera("sin_sesion").a_texto()).espera["codigo"] == "sin_sesion"
+
+
+def test_cada_causa_del_diagnostico_tiene_texto_sin_motivos_internos():
+    assert set(t.ESPERAS) == set(espera.CAUSAS)
+    for codigo in espera.CAUSAS:
+        texto = cuerpo(con_espera(codigo))
+        assert t.ESPERAS[codigo].strip()
+        for interno in ("enlace_ingresar", "fuera_del_portal", "sin_sesion:", "{", "}"):
+            assert interno not in texto

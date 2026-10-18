@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
 from buscador_vacantes.asistente.preferencias import Preferencias  # noqa: E402
 from buscador_vacantes.asistente.respuestas import Origen, Respuesta  # noqa: E402
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
+from buscador_vacantes.comun.estado import a_texto  # noqa: E402
 
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 CT = "computrabajo"
@@ -39,6 +41,7 @@ class NucleoFalso:
         self.archivos = tmp_path / "archivos"
         self.momento = T0
         self.eventos: list = []
+        self.con_selectores = {CT}
         self.faltan = False
         self.revisar = False
         self.preguntas = []
@@ -66,7 +69,7 @@ class NucleoFalso:
         return dict(fila) if fila else None
 
     def selectores(self, plataforma):
-        return ("1", {"postular": "#postular"}) if plataforma == CT else None
+        return ("1", {"postular": "#postular"}) if plataforma in self.con_selectores else None
 
     async def resolver_formulario(self, postulacion, preguntas):
         self.preguntas = preguntas
@@ -103,6 +106,21 @@ def latido(cliente, cabeceras, estado="listo", correo=CORREO, version="1.0.0"):
         headers=cabeceras,
         json={"version": version, "portales": {CT: {"estado": estado, "correo": correo}}},
     ).json()
+
+
+def latido_con(cliente, cabeceras, portales, **extra):
+    return cliente.post(
+        "/api/v1/latido",
+        headers=cabeceras,
+        json={"version": "1.0.0", "portales": portales, **extra},
+    ).json()
+
+
+def portales_guardados(nucleo, navegador_id=1):
+    fila = nucleo.base.cx.execute(
+        "SELECT portales_json FROM navegadores WHERE id = ?", (navegador_id,)
+    ).fetchone()
+    return json.loads(fila[0])
 
 
 def preparar_cuenta(nucleo, cliente, cab):
@@ -434,3 +452,107 @@ def test_olvidar_cuenta(entorno):
 def test_preferencias_sin_token_401(entorno):
     _, cliente = entorno
     assert cliente.get(f"/api/v1/preferencias/{CT}").status_code == 401
+
+
+# --- estado de los portales guardado en el latido ---------------------------------------------
+
+
+def test_latido_guarda_magneto_sin_sesion_con_su_motivo(entorno):
+    nucleo, cliente = entorno
+    nucleo.con_selectores = {CT, "magneto"}
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    latido_con(cliente, cab, {
+        CT: {"estado": "listo", "correo": CORREO},
+        "magneto": {"estado": "sin_sesion", "motivo": "enlace_ingresar"},
+    })  # fmt: skip
+    guardado = portales_guardados(nucleo)
+    assert guardado["magneto"]["estado"] == "sin_sesion"
+    assert guardado["magneto"]["motivo"] == "enlace_ingresar"
+    assert guardado["magneto"]["visto"] == a_texto(T0)
+    assert guardado[CT]["estado"] == "listo" and guardado[CT]["cuenta"] == "ok"
+    assert CORREO not in json.dumps(guardado)
+
+
+def test_sin_sesion_conserva_la_cuenta_previa(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    latido(cliente, cab)
+    assert portales_guardados(nucleo)[CT]["cuenta"] == "ok"
+    latido_con(cliente, cab, {CT: {"estado": "sin_sesion", "motivo": "enlace_ingresar"}})
+    assert portales_guardados(nucleo)[CT]["cuenta"] == "ok"
+
+
+def test_portal_con_selectores_ausente_del_latido_queda_sin_permiso(entorno):
+    nucleo, cliente = entorno
+    nucleo.con_selectores = {CT, "elempleo"}
+    cab = vincular(nucleo, cliente)
+    latido(cliente, cab)
+    guardado = portales_guardados(nucleo)
+    assert guardado["elempleo"]["estado"] == "sin_permiso"
+    assert guardado[CT]["estado"] == "listo"
+    # Sin selectores cargados no se puede hablar de permiso
+    assert "magneto" not in guardado
+
+
+def test_guardar_el_estado_completo_no_repite_los_avisos(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    latido(cliente, cab)
+    avisos = len(nucleo.eventos)
+    # Perder y recuperar la sesión con el portal igual de listo no vuelve a avisar
+    latido_con(cliente, cab, {CT: {"estado": "sin_sesion", "motivo": "enlace_ingresar"}})
+    latido(cliente, cab)
+    latido(cliente, cab)
+    assert len(nucleo.eventos) == avisos
+
+
+def test_volver_de_sin_sesion_avisa_solo_si_el_estado_cambio(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    latido(cliente, cab)
+    latido_con(cliente, cab, {CT: {"estado": "sin_sesion", "motivo": "enlace_ingresar"}})
+    latido(cliente, cab, estado="incompleto")
+    tipos = [e["tipo"] for e in nucleo.eventos if isinstance(e, dict)]
+    assert tipos.count("portal_incompleto") == 1
+
+
+def test_latido_con_y_sin_pausado(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    latido(cliente, cab)  # versión anterior de la extensión: no manda el campo
+    assert portales_guardados(nucleo)["_pausado"] is False
+    latido_con(cliente, cab, {CT: {"estado": "listo", "correo": CORREO}}, pausado=True)
+    assert portales_guardados(nucleo)["_pausado"] is True
+    latido_con(cliente, cab, {CT: {"estado": "listo", "correo": CORREO}}, pausado=False)
+    assert portales_guardados(nucleo)["_pausado"] is False
+
+
+def test_plataforma_apagada_no_entrega_su_trabajo_y_al_encender_si(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    nucleo.config.plataformas[CT].automatica = False
+    respuesta = latido(cliente, cab)
+    assert respuesta["trabajo"] is None
+    assert respuesta["cuentas"][CT] is True  # cuentas no cambia: la extensión revalida con ellas
+    assert nucleo.cola.obtener(p.id).estado == E.EN_COLA
+    nucleo.config.plataformas[CT].automatica = True
+    assert latido(cliente, cab)["trabajo"]["id"] == p.id
+
+
+def test_latido_avisa_las_esperas_solo_si_hay_algo_en_cola(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    esperas = lambda: [e for e in nucleo.eventos if isinstance(e, dict) and e["tipo"] == "esperas"]  # noqa: E731
+    latido(cliente, cab)
+    assert esperas() == []
+    nucleo.cola.encolar(1, "abc", CT, T0)
+    nucleo.config.topes.usuario_dia = 0  # no se entrega: se queda esperando en la cola
+    latido(cliente, cab)
+    assert esperas() == [{"tipo": "esperas", "usuario_id": 1}]

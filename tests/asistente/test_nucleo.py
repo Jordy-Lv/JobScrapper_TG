@@ -33,7 +33,7 @@ from buscador_vacantes.asistente.respuestas import (  # noqa: E402
 from buscador_vacantes.asistente.resumen_postulacion import DatosResumen  # noqa: E402
 from buscador_vacantes.asistente.vacantes import Indice  # noqa: E402
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
-from buscador_vacantes.comun.estado import Estado  # noqa: E402
+from buscador_vacantes.comun.estado import Estado, a_texto  # noqa: E402
 from buscador_vacantes.comun.modelo import Vacante  # noqa: E402
 
 T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
@@ -577,6 +577,67 @@ def test_revision_encendida_sin_redacciones_no_espera(mundo):
     preguntas = [Pregunta("Aspiración salarial"), Pregunta("Ciudad de residencia")]
     resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
     assert not resultado.revisar and not resultado.faltan
+
+
+# --- por qué una postulación en cola no sale ---------------------------------------------------
+
+
+def latido_guardado(mundo, portales, momento=T0, version="1.4.0"):
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "UPDATE navegadores SET ultimo_latido = ?, version = ?, portales_json = ?",
+            (a_texto(momento), version, json.dumps(portales)),
+        )
+
+
+def en_cola_magneto(mundo):
+    mundo.vincular()
+    mundo.nucleo.cargar_selectores()
+    id_ = publicar(mundo, "magneto", "1", URL_MG)
+    mundo.nucleo.indice.indexar(T0)
+    return mundo.nucleo.tocar(mundo.usuario, id_).postulacion.id
+
+
+def test_espera_reproduce_la_postulacion_43_magneto_sin_sesion(mundo):
+    mundo.nucleo.config.extension.version_minima = "1.0.0"
+    pid = en_cola_magneto(mundo)
+    latido_guardado(mundo, {
+        "magneto": {"estado": "sin_sesion", "motivo": "enlace_ingresar", "cuenta": "ok"},
+        "_pausado": False,
+    })  # fmt: skip
+    resultado = mundo.nucleo.espera(pid)
+    assert resultado.codigo == "sin_sesion" and resultado.plataforma == "magneto"
+
+
+def test_espera_se_resuelve_al_iniciar_sesion(mundo):
+    mundo.nucleo.config.extension.version_minima = "1.0.0"
+    pid = en_cola_magneto(mundo)
+    latido_guardado(mundo, {"magneto": {"estado": "listo", "cuenta": "ok"}, "_pausado": False})
+    assert mundo.nucleo.espera(pid) is None
+
+
+def test_espera_sin_latido_reciente_y_con_navegador_revocado(mundo):
+    pid = en_cola_magneto(mundo)
+    latido_guardado(mundo, {}, momento=T0 - timedelta(hours=1))
+    assert mundo.nucleo.espera(pid).codigo == "sin_latido"
+    vinculos.revocar(mundo.base, mundo.usuario.id)
+    assert mundo.nucleo.espera(pid).codigo == "sin_navegador"
+
+
+def test_espera_plataforma_apagada_se_explica_aunque_el_portal_este_listo(mundo):
+    mundo.nucleo.config.extension.version_minima = "1.0.0"
+    pid = en_cola_magneto(mundo)
+    latido_guardado(mundo, {"magneto": {"estado": "listo", "cuenta": "ok"}, "_pausado": False})
+    mundo.nucleo.config.plataformas["magneto"].automatica = False
+    assert mundo.nucleo.espera(pid).codigo == "plataforma_apagada"
+
+
+def test_espera_solo_aplica_a_lo_que_esta_en_cola(mundo):
+    pid = en_cola_magneto(mundo)
+    assert mundo.nucleo.espera(99999) is None
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = 'enviada' WHERE id = ?", (pid,))
+    assert mundo.nucleo.espera(pid) is None
 
 
 # --- opciones en la misma llamada: Magneto y elempleo -------------------------------------------

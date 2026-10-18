@@ -13,6 +13,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from enum import StrEnum
+from typing import NamedTuple
 
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.comun import config as cfg
@@ -101,6 +102,13 @@ class Evento:
     detalle: str | None = None
 
 
+class Restriccion(NamedTuple):
+    """Por qué una postulación esperando todavía no se entrega: en_curso, tope_diario o pausa."""
+
+    codigo: str
+    cuando: datetime | None  # desde cuándo vuelve a poder salir; None si no se sabe
+
+
 class Cola:
     def __init__(self, base: BaseAsistente, config: cfg.Asistente) -> None:
         self.base = base
@@ -120,6 +128,16 @@ class Cola:
             (usuario_id, id_corto),
         ).fetchone()
         return Postulacion.de_fila(fila) if fila else None
+
+    def en_espera(self, usuario_id: int | None = None) -> list[Postulacion]:
+        """Postulaciones por postular que esperan en la cola (de un usuario o de todos)."""
+        filtro, parametros = ("AND usuario_id = ? ", (usuario_id,)) if usuario_id else ("", ())
+        filas = self.base.cx.execute(
+            f"SELECT * FROM postulaciones WHERE tipo = 'postular' {filtro}AND estado IN (?, ?) "
+            "ORDER BY id",
+            (*parametros, *ESPERANDO),
+        ).fetchall()
+        return [Postulacion.de_fila(f) for f in filas]
 
     def _inicio_dia(self, ahora: datetime) -> str:
         return a_texto(datetime.combine(ahora.astimezone(ZONA).date(), time(0), tzinfo=ZONA))
@@ -229,6 +247,33 @@ class Cola:
         rango = self.config.ejecucion.pausa_s
         return timedelta(seconds=random.Random(pid).uniform(rango.min, rango.max))
 
+    def restriccion(self, p: Postulacion, ahora: datetime) -> Restriccion | None:
+        """Lo que frena a una postulación esperando; la misma regla que usa ``siguiente``.
+
+        Completar perfil solo espera a que no haya otra en curso; postular respeta además el
+        tope diario y la pausa entre postulaciones.
+        """
+        if self.base.cx.execute(
+            "SELECT 1 FROM postulaciones WHERE usuario_id = ? AND estado IN (?, ?, ?)",
+            (p.usuario_id, *ACTIVAS),
+        ).fetchone():
+            return Restriccion("en_curso", None)  # de a una por usuario
+        if p.tipo != Tipo.POSTULAR:
+            return None
+        if self.postulaciones_hoy(p.usuario_id, ahora) >= self.config.topes.usuario_dia:
+            manana = de_texto(self._inicio_dia(ahora)) + timedelta(days=1)
+            return Restriccion("tope_diario", manana)
+        ultima = self.base.cx.execute(
+            "SELECT MAX(terminada_en) FROM postulaciones WHERE usuario_id = ? "
+            "AND tipo = 'postular' AND terminada_en IS NOT NULL",
+            (p.usuario_id,),
+        ).fetchone()[0]
+        if ultima:
+            fin_pausa = de_texto(ultima) + self._pausa_para(p.id)
+            if ahora < fin_pausa:
+                return Restriccion("pausa", fin_pausa)
+        return None
+
     def siguiente(
         self, usuario_id: int, portales_listos: set[str], ahora: datetime
     ) -> Postulacion | None:
@@ -236,11 +281,6 @@ class Cola:
 
         Completar perfil va primero. Se respetan el tope diario y la pausa entre postulaciones.
         """
-        if self.base.cx.execute(
-            "SELECT 1 FROM postulaciones WHERE usuario_id = ? AND estado IN (?, ?, ?)",
-            (usuario_id, *ACTIVAS),
-        ).fetchone():
-            return None  # de a una por usuario
         filas = self.base.cx.execute(
             "SELECT * FROM postulaciones WHERE usuario_id = ? AND estado IN (?, ?) "
             "ORDER BY CASE tipo WHEN 'completar_perfil' THEN 0 ELSE 1 END, creada, id",
@@ -249,18 +289,8 @@ class Cola:
         candidata = next(
             (Postulacion.de_fila(f) for f in filas if f["plataforma"] in portales_listos), None
         )
-        if candidata is None:
+        if candidata is None or self.restriccion(candidata, ahora):
             return None
-        if candidata.tipo == Tipo.POSTULAR:
-            if self.postulaciones_hoy(usuario_id, ahora) >= self.config.topes.usuario_dia:
-                return None
-            ultima = self.base.cx.execute(
-                "SELECT MAX(terminada_en) FROM postulaciones WHERE usuario_id = ? "
-                "AND tipo = 'postular' AND terminada_en IS NOT NULL",
-                (usuario_id,),
-            ).fetchone()[0]
-            if ultima and ahora < de_texto(ultima) + self._pausa_para(candidata.id):
-                return None
         return candidata
 
     def tomar(self, pid: int, navegador_id: int, ahora: datetime) -> bool:
