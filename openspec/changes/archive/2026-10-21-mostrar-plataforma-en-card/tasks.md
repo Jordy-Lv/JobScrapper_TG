@@ -6,4 +6,4 @@
 ## 2. Pruebas existentes y cierre
 
 - [x] 2.1 🟡 Actualizar las pruebas que comparan la cabecera exacta y correr `pytest tests/asistente` en verde.
-- [ ] 2.2 👤 Del dueño: tras desplegar, postular a una vacante y confirmar en Telegram que la plataforma se ve de la cola a la confirmación.
+- [x] 2.2 👤 Del dueño: tras desplegar, postular a una vacante y confirmar en Telegram que la plataforma se ve de la cola a la confirmación.

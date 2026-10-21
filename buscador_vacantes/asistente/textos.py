@@ -167,6 +167,8 @@ ESTADOS = {
 EFECTO_CONFETI = "5046509860389126442"
 
 NOMBRES_PLATAFORMA = {"computrabajo": "Computrabajo", "magneto": "Magneto", "elempleo": "elempleo"}
+# Solo para la cabecera de la card y el bloque «Conexión»; botones y prosa usan el nombre plano.
+EMOJI_PLATAFORMA = {"computrabajo": "🔵", "magneto": "🟢", "elempleo": "🩵"}
 # Página de inicio de cada portal (el registro exacto se confirma en el reconocimiento)
 URL_REGISTRO = {
     "computrabajo": "https://co.computrabajo.com/",
@@ -249,6 +251,20 @@ def e(texto: object) -> str:
     return html.escape(str(texto or ""), quote=False)
 
 
+def nombre_con_emoji(plataforma: str | None) -> str:
+    """«🟢 Magneto»; el nombre solo si la plataforma no tiene emoji; «» si no hay plataforma.
+    No escapa: lo hace quien arma la línea."""
+    nombre = NOMBRES_PLATAFORMA.get(plataforma or "", plataforma or "")
+    emoji = EMOJI_PLATAFORMA.get(plataforma or "")
+    return f"{emoji} {nombre}" if emoji and nombre else nombre
+
+
+def linea_empresa(empresa: str | None, plataforma: str | None) -> str | None:
+    """«Empresa · 🟢 Plataforma» para la cabecera de la card; None si no hay ninguna."""
+    partes = [e(p) for p in (empresa, nombre_con_emoji(plataforma)) if p]
+    return " · ".join(partes) or None
+
+
 def bloque(texto: str) -> str:
     """Texto copiable con un toque en Telegram."""
     return f"<code>{e(texto)}</code>"
@@ -267,13 +283,6 @@ class ItemCuestionario:
 
 # Salario mínimo legal vigente 2026 (Colombia); actualizar cada enero
 SMMLV = 1750905
-def linea_empresa(empresa: str | None, plataforma: str | None) -> str | None:
-    """«Empresa · Plataforma» para la cabecera de la card; None si no hay ninguna."""
-    portal = NOMBRES_PLATAFORMA.get(plataforma or "", plataforma or "")
-    partes = [e(p) for p in (empresa, portal) if p]
-    return " · ".join(partes) or None
-
-
 
 CUESTIONARIO: tuple[ItemCuestionario, ...] = (
     ItemCuestionario("nombre", "¿Cuál es tu nombre completo?"),
