@@ -10,6 +10,7 @@ const CARGA_MS = 45000;
 const PREDETERMINADOS = {
   sondeo_captcha_ms: 10000, verificacion_max_ms: 2 * 60 * 60 * 1000,
   sondeo_sesion_ms: 2000, espera_sesion_max_ms: 10 * 60 * 1000, // 10 min para iniciar sesión
+  llenado_max_ms: 30000, // tope del llenado de un formulario dentro de la pestaña
 };
 
 let ocupado = false;
@@ -494,13 +495,30 @@ async function formulario(tabId, contexto, campos) {
     return { fin: true };
   }
   if (r.cv_url && campos.some((c) => c.tipo === "archivo")) await descargarCv(contexto, r);
-  const lleno = await enPestana(
-    tabId,
-    (pp, s, dd) => globalThis.__asistente.paso(pp, s, dd),
-    { accion: "llenar" },
-    contexto.sel,
-    { plataforma: trabajo.plataforma, respuestas: r.respuestas, cv: contexto.cv },
-  );
+  const { llenado_max_ms } = await opciones();
+  let reloj;
+  const lleno = await Promise.race([
+    enPestana(
+      tabId,
+      (pp, s, dd) => globalThis.__asistente.paso(pp, s, dd),
+      { accion: "llenar" },
+      contexto.sel,
+      { plataforma: trabajo.plataforma, respuestas: r.respuestas, cv: contexto.cv },
+    ),
+    new Promise((resolver) => (reloj = setTimeout(() => resolver({ vencido: true }), llenado_max_ms))),
+  ]).finally(() => clearTimeout(reloj));
+  // Cada respuesta escrita queda en el historial (sin su texto), también si el llenado falló
+  for (const n of (lleno && lleno.escritas) || []) await reportar(trabajo.id, `llenado_${n}`);
+  if (lleno && lleno.vencido) {
+    // La página no devolvió el llenado: no se envía nada a ciegas. La evidencia es lo que
+    // se alcance a leer (si la página sigue colgada, se termina sin ella)
+    const html = await Promise.race([
+      enPestana(tabId, () => globalThis.__asistente.html()).catch(() => null),
+      new Promise((resolver) => setTimeout(() => resolver(null), 3000)),
+    ]);
+    await terminar(trabajo.id, "formulario_desconocido", { motivo: "llenado_sin_respuesta", html });
+    return { fin: true };
+  }
   if (lleno && lleno.error) {
     // Una respuesta no quedó marcada: no se envía nada a ciegas
     await terminar(trabajo.id, lleno.error, { motivo: lleno.motivo, html: lleno.html });

@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from buscador_vacantes.asistente import espera, progreso
 from buscador_vacantes.asistente import tarjeta_postulacion as tp
 from buscador_vacantes.asistente import textos as t
@@ -116,6 +118,17 @@ def test_bloqueo_explica_la_causa_aclara_que_no_se_envio_y_ofrece_reintentar():
     assert "Computrabajo dice que no puede enviarte correos" in texto
     assert "No envié nada todavía." in texto
     assert tp.botones(card, datos(), cb) == [[("Reintentar", cb("rei", 7))]]
+
+
+@pytest.mark.parametrize("motivo", ["aplicar_sin_efecto", "llenado_sin_respuesta"])
+def test_portal_que_no_proceso_aplicar_dice_que_no_cargo_y_ofrece_reintentar(motivo):
+    card = tp.Card(fase=tp.BLOQUEO, motivo=motivo)
+    d = datos(plataforma="magneto")
+    texto = tp.texto(card, d)
+    assert "Magneto no cargó la postulación" in texto
+    assert "No envié nada todavía." in texto
+    assert "no mostró la confirmación" not in texto
+    assert tp.botones(card, d, cb) == [[("Reintentar", cb("rei", 7))]]
 
 
 def test_respaldo_explica_el_motivo_y_ofrece_las_acciones_con_el_seguimiento_marcado():

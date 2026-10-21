@@ -239,7 +239,8 @@ def _cuerpo(card: Card, d: Datos) -> list[str]:
             ]
         case "bloqueo":
             causa = t.BLOQUEOS_PORTAL.get(card.motivo or "", "")
-            return [f"🔒 {t.e(causa.format(portal=d.portal))}", "No envié nada todavía."]
+            icono = "⚠️" if card.motivo in t.SIN_PROCESAR else "🔒"
+            return [f"{icono} {t.e(causa.format(portal=d.portal))}", "No envié nada todavía."]
         case "respaldo":
             return _respaldo(card)
         case "cerrada":

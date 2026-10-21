@@ -131,7 +131,16 @@ BLOQUEOS_PORTAL = {
         "la completes. Entra a {portal}, abre «Hoja de vida» y completa las secciones que "
         "marca como pendientes."
     ),
+    "aplicar_sin_efecto": (
+        "{portal} no cargó la postulación: tras pulsar «Aplicar» no mostró la encuesta ni "
+        "la confirmación. Puedes reintentar; si la vacante ya la habías aplicado y retirado, "
+        "suele pasar y conviene aplicarla a mano en {portal}."
+    ),
 }
+# El llenado de la encuesta que no responde se explica igual: no se envió nada
+BLOQUEOS_PORTAL["llenado_sin_respuesta"] = BLOQUEOS_PORTAL["aplicar_sin_efecto"]
+# Bloqueos que no piden nada en la cuenta del portal: el portal falló, no el usuario
+SIN_PROCESAR = ("aplicar_sin_efecto", "llenado_sin_respuesta")
 
 ESTADOS = {
     "en_cola": "⏳ En cola",

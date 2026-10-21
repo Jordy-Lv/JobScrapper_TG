@@ -1249,7 +1249,8 @@ def respuestas_mg(campos: list[dict]) -> list[dict]:
     return [{"indice": i, "valor": None, "opcion": 0} for i, _ in enumerate(campos)]
 
 
-def postular_magneto(tmp_path, api, portales, *, rapido=False) -> None:
+def postular_magneto(tmp_path, api, portales, *, rapido=False, pruebas=None) -> None:
+    """`pruebas`: opciones de la extensión que la prueba acorta (por ejemplo llenado_max_ms)."""
     api.trabajos = [trabajo_mg()]
     if rapido:
         api.ajustar = confirmar_rapido
@@ -1257,6 +1258,11 @@ def postular_magneto(tmp_path, api, portales, *, rapido=False) -> None:
     async def flujo():
         nav = await abrir(tmp_path, api.url, portales)
         try:
+            if pruebas:
+                await nav.evaluar(
+                    "chrome.storage.local.get('pruebas').then(r => chrome.storage.local.set("
+                    f"{{pruebas: {{...r.pruebas, ...{json.dumps(pruebas)}}}}}))"
+                )
             await nav.latido()
         finally:
             await cerrar(nav)
@@ -1386,6 +1392,73 @@ def test_magneto_enviar_respuestas_deshabilitado_no_se_pulsa(tmp_path, api):
     resultado = api.de("resultado")[0]
     assert resultado["estado"] == "formulario_desconocido", resultado
     assert "deshabilitado" in resultado["motivo"]
+
+
+# Fallas del 2026-10-18 (postulaciones 54 y 55)
+SIN_EFECTO = {"}, 1500);": "}, 1500000);"}  # «Aplicar» no hace nada: el modal nunca sale
+# «Aplicar» sí envía (la vacante ya no muestra el botón) pero el modal nunca sale
+ENVIA_SIN_MODAL = {
+    **SIN_EFECTO,
+    'addEventListener("click", () => {':
+        'addEventListener("click", (e) => { e.currentTarget.remove();',
+}
+
+
+def test_magneto_aplicar_que_no_hace_nada_no_queda_como_incierta(tmp_path, api):
+    portales = portales_magneto("mg_aplicada_sin_encuesta.html", SIN_EFECTO)
+    postular_magneto(tmp_path, api, portales, rapido=True)
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido", resultado
+    assert resultado["motivo"] == "aplicar_sin_efecto"
+    assert "applyButton_apply-btn" in resultado["html"]  # la evidencia es la vacante intacta
+    assert not api.de("formulario")
+
+
+def test_magneto_envio_sin_modal_y_sin_boton_sigue_incierta(tmp_path, api):
+    portales = portales_magneto("mg_aplicada_sin_encuesta.html", ENVIA_SIN_MODAL)
+    postular_magneto(tmp_path, api, portales, rapido=True)
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "incierta", resultado
+
+
+def llenados(api) -> list[dict]:
+    return [p for p in api.de("paso") if p["paso"].startswith("llenado_")]
+
+
+def test_magneto_registra_un_paso_por_cada_respuesta_sin_su_texto(tmp_path, api):
+    api.respuestas = respuestas_mg_mixta
+    postular_magneto(tmp_path, api, portales_magneto(reemplazos=MIXTA))
+    nombres = [p["paso"] for p in api.de("paso")]
+    assert [p["paso"] for p in llenados(api)] == [f"llenado_{n}" for n in (1, 2, 3, 4)]
+    assert nombres.index("llenado_4") < nombres.index("enviar")
+    assert not any("Respuesta" in str(p.get("detalle") or "") for p in llenados(api))
+    assert api.de("resultado")[0]["estado"] == "enviada"
+
+
+def test_magneto_llenado_que_se_corta_deja_el_ultimo_numero(tmp_path, api):
+    api.respuestas = respuestas_mg_mixta
+    borra = {**MIXTA, 'campo.addEventListener("input", () => {':
+             'campo.addEventListener("input", () => { campo.value = "";'}  # fmt: skip
+    postular_magneto(tmp_path, api, portales_magneto(reemplazos=borra))
+    assert [p["paso"] for p in llenados(api)] == ["llenado_1"]  # la 2 es la abierta que se borra
+    assert "llenado" not in [p["paso"] for p in api.de("paso")]
+    assert api.de("resultado")[0]["estado"] == "formulario_desconocido"
+
+
+def test_magneto_llenado_que_no_termina_se_corta_sin_enviar(tmp_path, api):
+    """Postulación 55: el llenado se colgó ~3 min dentro de la extensión. Con la página
+    bloqueada 8 s al marcar una opción, el tope (1,5 s en la prueba, 30 s real) lo corta."""
+    api.respuestas = respuestas_mg
+    cuelga = {'boton.querySelector("input.ant-radio-input").checked = true;':
+              'for (const fin = Date.now() + 8000; Date.now() < fin; ) {} '
+              'boton.querySelector("input.ant-radio-input").checked = true;'}  # fmt: skip
+    postular_magneto(tmp_path, api, portales_magneto(reemplazos=cuelga),
+                     pruebas={"llenado_max_ms": 1500})  # fmt: skip
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido", resultado
+    assert resultado["motivo"] == "llenado_sin_respuesta"
+    assert "enviar" not in [p["paso"] for p in api.de("paso")]
+    assert len(api.de("envio")) == 1  # solo el de «Aplicar»
 
 
 # --- popup: ping y recarga de la conexión ---------------------------------------------------

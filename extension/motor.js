@@ -392,6 +392,10 @@
 
   async function llenar(respuestas, cv) {
     let escritos = 0;
+    // Número (desde 1) de cada pregunta que quedó escrita o marcada: el servicio lo reporta
+    // paso a paso, así un llenado que se corta muestra hasta dónde llegó
+    const escritas = [];
+    const fallo = (motivo) => ({ ...error({ accion: "llenar" }, motivo), escritas });
     for (const r of respuestas) {
       const campo = campos[r.indice];
       if (!campo) continue;
@@ -412,7 +416,7 @@
       } else if (campo.tipo === "boton") {
         if (r.opcion == null) continue;
         if (!(await pulsarRespuesta(campo.elementos[r.opcion]))) {
-          return error({ accion: "llenar" }, "la opción elegida no quedó marcada");
+          return fallo("la opción elegida no quedó marcada");
         }
       } else if (campo.tipo === "abierta") {
         // Pregunta abierta de una encuesta (Magneto, React): se comprueba que el portal
@@ -424,7 +428,7 @@
         await dormir(200);
         const linea = (t) => t.replace(/\r\n?/g, "\n"); // el textarea normaliza los saltos
         if (linea(campo.el.value) !== linea(valor)) {
-          return error({ accion: "llenar" }, "la respuesta abierta no quedó escrita en el campo");
+          return fallo("la respuesta abierta no quedó escrita en el campo");
         }
       } else if (campo.tipo === "casilla") {
         if (r.opcion == null) continue;
@@ -434,6 +438,7 @@
         asignarValor(campo.el, String(r.valor));
       }
       escritos++;
+      escritas.push(r.indice + 1);
       await pausa();
     }
     let adjunto = null;
@@ -446,7 +451,7 @@
         }
       }
     }
-    return { escritos, adjunto };
+    return { escritos, adjunto, escritas };
   }
 
   // --- pasos ----------------------------------------------------------------------------
@@ -616,6 +621,12 @@
         // un campo que no aceptó la respuesta…). No es "sin confirmación": no se envió nada.
         if (paso.no_enviado && buscar(paso.no_enviado)) {
           return error(paso, "el portal no aceptó el envío: el formulario sigue en pantalla");
+        }
+        // Sin encuesta ni modal y con el botón de postular aún en la vacante, el portal no
+        // procesó el clic: no se envió nada (a diferencia de un envío sin confirmación)
+        if (paso.sin_efecto && buscar(paso.sin_efecto)) {
+          return { error: "formulario_desconocido", motivo: "aplicar_sin_efecto",
+            html: htmlSinValores() };
         }
         return { confirmado: false, html: htmlSinValores() };
       }
