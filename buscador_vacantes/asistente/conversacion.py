@@ -327,9 +327,11 @@ class Conversacion:
             )
         elif paso == "navegador":
             if self.n.tiene_navegador(usuario.id):  # ya lo vinculó: no se le pide otra vez
-                await self._terminar_alta(usuario)
+                await self._ir_a(usuario, "plataformas")
             else:
                 await self._mostrar_navegador(usuario)
+        elif paso == "plataformas":
+            await self._mostrar_plataformas(usuario)
 
     async def _ir_a(self, usuario: Usuario, paso: str) -> None:
         self.n.usuarios.fijar_paso(usuario, paso)
@@ -709,7 +711,7 @@ class Conversacion:
                 ("Celular", "telefono", None),
             )
         ]
-        partes = ["<b>Paso 4 de 5 · Revisa tu información</b>", "\n".join(contacto)]
+        partes = ["<b>Paso 4 de 6 · Revisa tu información</b>", "\n".join(contacto)]
         for seccion in SECCIONES:
             partes.append(f"<b>{NOMBRE_SECCION[seccion]}</b>\n{self._texto_seccion(p, seccion)}")
         enfoque = p.enfoque
@@ -977,6 +979,84 @@ class Conversacion:
         botones: Botones = [[("🔗 Vincular mi navegador", cb("vincular"))]]
         await self._enviar(usuario, t.NAVEGADOR.format(tienda=t.e(tienda)), botones)
 
+    def _vacante_pendiente(self, usuario: Usuario):
+        """La vacante que el usuario tocó antes del alta, o None si no hay (o ya no existe)."""
+        if not usuario.vacante_pendiente:
+            return None
+        return self.n.indice.resolver(usuario.vacante_pendiente, self.n.ahora())
+
+    def _plataforma_esperada(self, usuario: Usuario) -> str | None:
+        vacante = self._vacante_pendiente(usuario)
+        return vacante.plataforma if vacante else None
+
+    def _plataformas_automaticas(self) -> list[str]:
+        return [p for p, ajustes in self.config.plataformas.items() if ajustes.automatica]
+
+    def _paso_cumplido(self, usuario: Usuario, tj: Tarjeta, *, con_latido: bool = False) -> bool:
+        """Con vacante pendiente cuenta solo su plataforma; sin vacante, cualquiera. Cuenta la
+        cuenta confirmada en la tarjeta y, con ``con_latido``, la que el último latido de los
+        navegadores ya reportó con la sesión abierta."""
+        listas = {
+            p for p, c in tj.cuentas.items()
+            if c["estado"] in (tarjeta.CONFIRMADA, tarjeta.COMPLETANDO)
+        }  # fmt: skip
+        if con_latido:
+            listas |= self.n.portales_abiertos(usuario.id)
+        esperada = self._plataforma_esperada(usuario)
+        return esperada in listas if esperada else bool(listas)
+
+    def _paso_innecesario(self, usuario: Usuario, tj: Tarjeta) -> bool:
+        """El paso no hace falta: la vacante irá a respaldo, no hay portales automáticos o la
+        cuenta que se espera ya estaba confirmada con la sesión abierta."""
+        vacante = self._vacante_pendiente(usuario)
+        automaticas = self._plataformas_automaticas()
+        if not automaticas or (vacante is not None and vacante.plataforma not in automaticas):
+            return True
+        return self._paso_cumplido(usuario, tj, con_latido=True)
+
+    async def _mostrar_plataformas(self, usuario: Usuario) -> None:
+        """Paso 6: la tarjeta de conexión lista los portales automáticos y espera su cuenta.
+
+        Con ``/start`` durante el paso, la tarjeta se reenvía al final del chat."""
+        antes = self._tarjeta(usuario) or Tarjeta()
+        if self._paso_innecesario(usuario, antes):
+            await self._terminar_alta(usuario)
+            return
+        retoma = antes.paso
+        if retoma and usuario.vacante_pendiente:
+            await self._enviar(
+                usuario,
+                "Tu vacante sigue guardada: la postulo en cuanto confirmes tu cuenta del portal.",
+            )
+        esperada = self._plataforma_esperada(usuario)
+        automaticas = self._plataformas_automaticas()
+
+        def preparar(tj: Tarjeta) -> None:
+            tj.navegador, tj.paso, tj.esperada = True, True, esperada
+            for plataforma in automaticas:
+                if plataforma not in tj.cuentas:
+                    tj.poner_cuenta(plataforma, tarjeta.PENDIENTE)
+            if retoma:  # la tarjeta nueva va al final: se envía otra y se retira la anterior
+                tj.mensaje_id = None
+
+        await self._actualizar_tarjeta(usuario, preparar)
+        if retoma and antes.mensaje_id:
+            try:
+                await self.s.borrar(usuario.telegram_id, antes.mensaje_id)
+            except Exception:  # noqa: BLE001 - ya no existe o no se puede borrar: no importa
+                log.info("No se pudo borrar la tarjeta anterior de %s", usuario.id)
+
+    async def _revisar_paso_plataformas(self, usuario: Usuario) -> None:
+        """Cierra el alta si, con el aviso que llegó, el paso de plataformas ya se cumplió."""
+        actual = self.n.usuarios.por_id(usuario.id)
+        if actual is None or actual.estado != EstadoUsuario.ALTA:
+            return
+        if actual.paso_alta != "plataformas":
+            return
+        tj = self._tarjeta(actual)
+        if tj is not None and self._paso_cumplido(actual, tj):
+            await self._terminar_alta(actual)
+
     async def _terminar_alta(self, usuario: Usuario) -> None:
         self.n.usuarios.completar_alta(usuario)
         usuario = self.n.usuarios.por_id(usuario.id)
@@ -1003,6 +1083,10 @@ class Conversacion:
     @staticmethod
     def _alta_lista(tj: Tarjeta) -> None:
         tj.navegador = tj.listo = True
+        tj.paso, tj.esperada = False, None
+        # Los portales que el paso sembró sin sesión no se muestran: la tarjeta vuelve a ser
+        # la de siempre y solo conserva lo que el navegador reportó
+        tj.cuentas = {p: c for p, c in tj.cuentas.items() if c["estado"] != tarjeta.PENDIENTE}
 
     # --- tarjeta de conexión ----------------------------------------------------------
 
@@ -1934,6 +2018,10 @@ class Conversacion:
                 await self._enviar(usuario, "Envíame tu nueva hoja de vida en PDF.")
             case "alta":
                 await self._terminar_alta(usuario)
+            case "omitir_plat":  # «Omitir por ahora»: la cola esperará la sesión
+                actual = self.n.usuarios.por_id(usuario.id)
+                if actual.estado == EstadoUsuario.ALTA and actual.paso_alta == "plataformas":
+                    await self._terminar_alta(actual)
             case "pend":
                 pendiente = next(
                     (p for p in self.n.pendientes(usuario.id) if p["id"] == int(args[0])), None
@@ -2012,6 +2100,7 @@ class Conversacion:
                         lambda tj: tj.poner_cuenta(plataforma, tarjeta.CONFIRMADA),
                         plataforma,
                     )
+                    await self._revisar_paso_plataformas(usuario)
                 elif decision == "nueva":
                     # No se guarda el correo ajeno: se olvida la asociación y en el próximo
                     # latido se pide confirmar la cuenta abierta, mostrando su correo completo
@@ -2407,9 +2496,10 @@ class Conversacion:
         if tipo == "esperas":
             await self._revisar_esperas(usuario)
         elif tipo == "navegador_vinculado":
-            await self._actualizar_tarjeta(usuario, lambda tj: setattr(tj, "navegador", True))
-            if usuario.estado == EstadoUsuario.ALTA:  # vincular era lo último del alta
-                await self._terminar_alta(usuario)
+            if usuario.estado == EstadoUsuario.ALTA and usuario.paso_alta == "navegador":
+                await self._ir_a(usuario, "plataformas")  # falta iniciar sesión en los portales
+            else:
+                await self._actualizar_tarjeta(usuario, lambda tj: setattr(tj, "navegador", True))
         elif tipo == "cuenta_por_confirmar":
             await self._actualizar_tarjeta(
                 usuario,
@@ -2432,12 +2522,14 @@ class Conversacion:
                 lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.CONFIRMADA, d.get("asociado")),
                 d["plataforma"],
             )
+            await self._revisar_paso_plataformas(usuario)
         elif tipo == "portal_incompleto":
             await self._actualizar_tarjeta(
                 usuario,
                 lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.COMPLETANDO),
                 d["plataforma"],
             )
+            await self._revisar_paso_plataformas(usuario)
         elif tipo == "verificacion":
             await self._poner_fase(usuario, d["postulacion_id"], tp.VERIFICACION)
         elif tipo == "preguntas_pendientes":

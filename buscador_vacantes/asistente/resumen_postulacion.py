@@ -92,8 +92,8 @@ def tarjeta(d: DatosResumen) -> str:
     empresa = v.empresa or (v.ficha or {}).get("empresa")
     titulo = f"<b>{t.e(v.titulo or 'Vacante')}</b>"
     cabecera = ["✅ <b>Postulación enviada</b>", titulo] if d.confirmada else [f"❔ {titulo}"]
-    if empresa:
-        cabecera.append(t.e(empresa))
+    if linea := t.linea_empresa(empresa, d.plataforma):
+        cabecera.append(linea)
     if d.confirmada:
         cabecera += ["", f"{progreso.barra(100)}  100 %"]
     cuando = d.enviada_en.astimezone().strftime("%d/%m, %H:%M") if d.enviada_en else ""

@@ -38,7 +38,7 @@ SUSPENDIDO = "Tu acceso al asistente está suspendido."
 EN_GRUPO = "Escríbeme en privado para usar el asistente: {enlace}"
 
 PEDIR_CLAVE = (
-    "<b>Paso 2 de 5 · Tu clave gratuita de Gemini</b>\n"
+    "<b>Paso 2 de 6 · Tu clave gratuita de Gemini</b>\n"
     "La IA usa <b>tu propia clave</b> (gratis):\n"
     "1. Entra a aistudio.google.com con tu cuenta de Google.\n"
     "2. Abre <b>Get API key</b> y pulsa <b>Crear clave de API</b>.\n"
@@ -46,7 +46,7 @@ PEDIR_CLAVE = (
     "Otros proveedores de IA llegarán pronto:"
 )
 PEDIR_CV = (
-    "<b>Paso 3 de 5 · Tu hoja de vida</b>\n"
+    "<b>Paso 3 de 6 · Tu hoja de vida</b>\n"
     "Envíame tu CV en <b>PDF</b> (máximo {max_mb:g} MB). Con él armo tu perfil."
 )
 CV_ADJUNTAR = "📎 Adjunta aquí tu hoja de vida en <b>PDF</b> (máximo {max_mb:g} MB)."
@@ -64,15 +64,24 @@ PEDIR_ENFOQUE = (
     "• Roles: {roles}\n• Tecnologías a destacar: {tecnologias}\n• Objetivo: {objetivo}"
 )
 NAVEGADOR = (
-    "<b>Paso 5 de 5 · Postulación automática</b>\n"
+    "<b>Paso 5 de 6 · Vincula tu navegador</b>\n"
     "Para que yo postule por ti en Computrabajo, Magneto y elempleo:\n"
     "1. Instala la extensión en <b>Edge</b>{tienda} (o en Chrome/Brave con el paquete que te "
     "envío con /vincular).\n"
     "2. Toca <b>Vincular mi navegador</b>.\n"
-    "3. Inicia sesión en esos portales en ese navegador (elempleo se activa también en la "
-    "extensión).\n"
     "Tu PC debe estar encendido con el navegador abierto (puede estar minimizado)."
 )
+PLATAFORMAS = (
+    "<b>Paso 6 de 6 · Inicia sesión en tus portales</b>\n"
+    "En el navegador que acabas de vincular, inicia sesión con tu cuenta en los portales de "
+    "abajo (en elempleo, activa también la extensión). Cuando aparezca tu cuenta, confírmala "
+    "aquí; puede tardar unos segundos."
+)
+PLATAFORMAS_CON_VACANTE = (
+    "Tu vacante es de <b>{portal}</b>: no la postulo hasta que confirmes esa cuenta. Los demás "
+    "portales son opcionales."
+)
+PLATAFORMAS_SIN_VACANTE = "Con confirmar la cuenta de un portal basta para terminar."
 YA_VINCULADO = (
     "✅ <b>Dispositivo ya vinculado</b>\n{navegadores}\n"
     "No necesitas vincular de nuevo. Si cambiaste de navegador o reinstalaste la extensión, "
@@ -249,6 +258,13 @@ class ItemCuestionario:
 
 # Salario mínimo legal vigente 2026 (Colombia); actualizar cada enero
 SMMLV = 1750905
+def linea_empresa(empresa: str | None, plataforma: str | None) -> str | None:
+    """«Empresa · Plataforma» para la cabecera de la card; None si no hay ninguna."""
+    portal = NOMBRES_PLATAFORMA.get(plataforma or "", plataforma or "")
+    partes = [e(p) for p in (empresa, portal) if p]
+    return " · ".join(partes) or None
+
+
 
 CUESTIONARIO: tuple[ItemCuestionario, ...] = (
     ItemCuestionario("nombre", "¿Cuál es tu nombre completo?"),

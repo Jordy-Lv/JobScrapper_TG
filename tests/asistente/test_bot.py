@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import io
 import json
 import re
@@ -181,7 +182,14 @@ async def alta_completa(m, tid, *, payload=None):
     await m.c.al_boton(tid, cb("vincular"))
     usuario = m.n.usuarios.obtener(tid)
     await m.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+    await omitir_plataformas(m, tid)
     await m.c.esperar_tareas()
+
+
+async def omitir_plataformas(m, tid):
+    """Cierra el paso de plataformas del alta si sigue abierto (las pruebas que no lo ejercitan)."""
+    if m.n.usuarios.obtener(tid).paso_alta == "plataformas":
+        await m.c.al_boton(tid, cb("omitir_plat"))
 
 
 def test_no_miembro_no_guarda_datos(mundo):
@@ -1057,6 +1065,20 @@ def test_bloqueo_del_portal_explica_que_hacer_sin_paquete(mundo):
     assert not mundo.s.de(DUENO)  # no es un formulario roto: no se avisa al dueño
 
 
+def test_portal_que_no_proceso_aplicar_ofrece_reintentar_sin_avisar_al_dueno(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    mundo.n.indice.indexar(T0)
+    p, _ = mundo.n.cola.encolar(usuario.id, id_corto("linkedin:1"), "magneto", T0)
+    ev = Evento("resultado", p.id, usuario.id, E.FORMULARIO_DESCONOCIDO, "aplicar_sin_efecto")
+    correr(mundo.c.notificar(ev))
+    correr(mundo.c.esperar_tareas())
+    chat, texto, botones = mundo.s.ultimo(ANA)
+    assert "Magneto no cargó la postulación" in texto and "No envié nada todavía" in texto
+    assert botones == [[("Reintentar", cb("rei", p.id))]]
+    assert not mundo.s.de(DUENO)  # el portal falló, no el formulario: no se avisa al dueño
+
+
 def test_sin_confirmacion_igual_envia_la_tarjeta_con_las_respuestas(mundo):
     usuario, p, _ = postulacion_enviada_con_datos(mundo)
     correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.INCIERTA)))
@@ -1191,7 +1213,7 @@ def test_progreso_un_solo_mensaje_que_avanza_de_etapa_y_se_detiene(mundo):
 
 def test_paso_cv_con_botones_adjuntar_y_desde_cero_proximamente(mundo):
     correr(alta_completa(mundo, ANA))
-    _, texto, botones = next(m for m in mundo.s.mensajes if "Paso 3 de 5" in m[1])
+    _, texto, botones = next(m for m in mundo.s.mensajes if "Paso 3 de 6" in m[1])
     assert botones == [[("✍️ Crearla desde cero", cb("cvopc", "cero")),
                         ("📎 Adjuntar mi CV", cb("cvopc", "adjuntar"))]]  # fmt: skip
     correr(mundo.c.al_boton(ANA, cb("cvopc", "cero")))
@@ -1216,43 +1238,291 @@ def test_modalidad_se_pregunta_segun_la_ciudad_del_usuario(mundo):
     assert mundo.n.datos_usuario(usuario.id).cuestionario["modalidades"] == "Presencial en Cali"
 
 
-def test_al_vincular_el_navegador_el_alta_termina_sin_boton_terminar(mundo):
+async def hasta_navegador(mundo, tid, *, payload=None):
+    """Alta hasta el paso del navegador (sin vincularlo)."""
+    await hasta_resumen(mundo, tid, payload=payload)
+    await mundo.c.al_boton(tid, cb("resumen", "ok"))
+    await responder_faltantes(mundo, tid)
+
+
+async def avisar_vinculado(mundo, tid):
+    usuario = mundo.n.usuarios.obtener(tid)
+    await mundo.c.al_boton(tid, cb("vincular"))
+    await mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+    return usuario
+
+
+def vacante_de_portal(mundo, plataforma):
+    """La vacante de la prueba es de LinkedIn: el índice la entrega como del portal dado."""
+    original = mundo.n.indice.resolver
+
+    def resolver(corto, ahora):
+        vacante = original(corto, ahora)
+        return dataclasses.replace(vacante, plataforma=plataforma) if vacante else vacante
+
+    mundo.n.indice.resolver = resolver
+
+
+def tarjetas_de_conexion(mundo):
+    return [m for m in mundo.s.mensajes if "Conexión con tus portales" in m[1]]
+
+
+def test_al_vincular_el_navegador_el_alta_pasa_al_paso_de_plataformas(mundo):
     mundo.n.enlace_grupo = "https://t.me/+abc"
 
     async def flujo():
-        await hasta_resumen(mundo, ANA)
-        await mundo.c.al_boton(ANA, cb("resumen", "ok"))
-        await responder_faltantes(mundo, ANA)
-        await mundo.c.al_boton(ANA, cb("vincular"))
-        usuario = mundo.n.usuarios.obtener(ANA)
-        assert usuario.estado == EstadoUsuario.ALTA
-        await mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+        await hasta_navegador(mundo, ANA)
+        await avisar_vinculado(mundo, ANA)
 
     correr(flujo())
-    assert mundo.n.usuarios.obtener(ANA).estado != EstadoUsuario.ALTA
-    assert not any("Cuando termines" in m[1] for m in mundo.s.mensajes)
-    tarjetas = [m for m in mundo.s.mensajes if "Conexión con tus portales" in m[1]]
-    assert len(tarjetas) == 1 and "✓ Navegador vinculado" in tarjetas[0][1]
-    assert t.ALTA_LISTA not in mundo.s.ediciones[-1][2]  # la tarjeta ya no repite el cierre
-    cierres = [m for m in mundo.s.mensajes if m[1] == t.ALTA_LISTA]  # mensaje nuevo: sí avisa
-    assert len(cierres) == 1 and "grupo" in cierres[0][1] and "⚡ Postularme" in cierres[0][1]
-    assert cierres[0][2] == [[("👥 Ir al grupo", "url:https://t.me/+abc")]]
+    usuario = mundo.n.usuarios.obtener(ANA)
+    assert usuario.estado == EstadoUsuario.ALTA and usuario.paso_alta == "plataformas"
+    assert not any(m[1] == t.ALTA_LISTA for m in mundo.s.mensajes)  # el alta sigue abierta
+    tarjetas = tarjetas_de_conexion(mundo)
+    assert len(tarjetas) == 1
+    _, texto, botones = tarjetas[0]
+    assert "Paso 6 de 6" in texto and "✓ Navegador vinculado" in texto
+    for portal in ("Computrabajo", "Magneto", "elempleo"):
+        assert f"· {portal}: inicia sesión" in texto
+    assert botones == [[("Omitir por ahora", cb("omitir_plat"))]]
+
+
+@respx.mock
+def test_al_vincular_con_vacante_de_un_portal_automatico_no_arranca_la_postulacion(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    vacante_de_portal(mundo, "magneto")
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
+        await avisar_vinculado(mundo, ANA)
+        await mundo.c.esperar_tareas()
+
+    correr(flujo())
+    usuario = mundo.n.usuarios.obtener(ANA)
+    assert usuario.estado == EstadoUsuario.ALTA
+    assert usuario.vacante_pendiente == id_corto("linkedin:1")
+    assert postulaciones(mundo) == []
+    texto = tarjetas_de_conexion(mundo)[0][1]
+    assert "Tu vacante es de <b>Magneto</b>" in texto
+    assert "👉 <b>Magneto</b>: inicia sesión" in texto
+    assert "· Computrabajo (opcional): inicia sesión" in texto
+
+
+def test_sin_vacante_basta_confirmar_una_cuenta_y_cierra_con_el_mensaje_al_grupo(mundo):
+    mundo.n.enlace_grupo = "https://t.me/+abc"
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA)
+        usuario = await avisar_vinculado(mundo, ANA)
+        await mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com"))
+        assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ALTA  # por confirmar
+        await mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si"))
+
+    correr(flujo())
+    assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ACTIVO
+    cierres = [m for m in mundo.s.mensajes if m[1] == t.ALTA_LISTA]
+    assert len(cierres) == 1 and cierres[0][2] == [[("👥 Ir al grupo", "url:https://t.me/+abc")]]
+    ultima = mundo.s.ediciones[-1][2]
+    assert "Paso 6" not in ultima and "Omitir" not in str(mundo.s.botones_editados)
+    assert "✓ Computrabajo" in ultima and "Magneto" not in ultima  # sin los portales sembrados
+
+
+def test_el_aviso_de_portal_listo_tambien_cumple_el_paso(mundo):
+    async def flujo():
+        await hasta_navegador(mundo, ANA)
+        usuario = await avisar_vinculado(mundo, ANA)
+        await mundo.c.notificar(aviso_cuenta(usuario, "elempleo", "ana@gmail.com", "portal_listo"))
+
+    correr(flujo())
+    assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ACTIVO
+    assert any(m[1] == t.ALTA_LISTA for m in mundo.s.mensajes)
+
+
+def test_el_aviso_de_perfil_incompleto_tambien_cumple_el_paso(mundo):
+    async def flujo():
+        await hasta_navegador(mundo, ANA)
+        usuario = await avisar_vinculado(mundo, ANA)
+        await mundo.c.notificar(
+            aviso_cuenta(usuario, "magneto", "ana@gmail.com", "portal_incompleto")
+        )
+
+    correr(flujo())
+    assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ACTIVO
+
+
+@respx.mock
+def test_con_vacante_solo_cuenta_la_plataforma_de_la_vacante(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    mundo.n.camino_automatico = lambda *_: None
+    vacante_de_portal(mundo, "elempleo")
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
+        usuario = await avisar_vinculado(mundo, ANA)
+        await mundo.c.notificar(aviso_cuenta(usuario, "magneto", "ana@gmail.com", "portal_listo"))
+        await mundo.c.esperar_tareas()
+        otra = (mundo.n.usuarios.obtener(ANA).estado, postulaciones(mundo))
+        await mundo.c.notificar(aviso_cuenta(usuario, "elempleo", "ana@gmail.com", "portal_listo"))
+        await mundo.c.esperar_tareas()
+        return otra
+
+    estado_antes, antes = correr(flujo())
+    assert estado_antes == EstadoUsuario.ALTA and antes == []  # otra plataforma: sigue abierto
+    usuario = mundo.n.usuarios.obtener(ANA)
+    assert usuario.estado == EstadoUsuario.ACTIVO and usuario.vacante_pendiente is None
+    assert len(postulaciones(mundo)) == 1  # la de la plataforma esperada arranca
+    assert not any(m[1] == t.ALTA_LISTA for m in mundo.s.mensajes)
+
+
+@respx.mock
+def test_omitir_con_vacante_cierra_el_alta_y_encola_la_vacante(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    mundo.n.camino_automatico = lambda *_: None
+    vacante_de_portal(mundo, "magneto")
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
+        await avisar_vinculado(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("omitir_plat"))
+        await mundo.c.esperar_tareas()
+
+    correr(flujo())
+    usuario = mundo.n.usuarios.obtener(ANA)
+    assert usuario.estado == EstadoUsuario.ACTIVO and usuario.vacante_pendiente is None
+    assert len(postulaciones(mundo)) == 1
+    assert not any(m[1] == t.ALTA_LISTA for m in mundo.s.mensajes)
 
 
 def test_el_cierre_del_alta_sin_enlace_al_grupo_no_lleva_boton(mundo):
     mundo.n.enlace_grupo = None
 
     async def flujo():
-        await hasta_resumen(mundo, ANA)
-        await mundo.c.al_boton(ANA, cb("resumen", "ok"))
-        await responder_faltantes(mundo, ANA)
-        await mundo.c.al_boton(ANA, cb("vincular"))
-        usuario = mundo.n.usuarios.obtener(ANA)
-        await mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+        await hasta_navegador(mundo, ANA)
+        await avisar_vinculado(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("omitir_plat"))
 
     correr(flujo())
     cierres = [m for m in mundo.s.mensajes if m[1] == t.ALTA_LISTA]
     assert len(cierres) == 1 and cierres[0][2] is None
+
+
+def test_omitir_sin_vacante_cierra_el_alta_con_el_mensaje_al_grupo(mundo):
+    async def flujo():
+        await hasta_navegador(mundo, ANA)
+        await avisar_vinculado(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("omitir_plat"))
+        await mundo.c.al_boton(ANA, cb("omitir_plat"))  # un botón viejo ya no hace nada
+
+    correr(flujo())
+    assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ACTIVO
+    assert len([m for m in mundo.s.mensajes if m[1] == t.ALTA_LISTA]) == 1
+
+
+@respx.mock
+def test_el_paso_se_salta_si_la_cuenta_esperada_ya_tenia_la_sesion_abierta(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    mundo.n.camino_automatico = lambda *_: None
+    vacante_de_portal(mundo, "magneto")
+    portales = json.dumps({"magneto": {"estado": "listo", "cuenta": "ok"}})
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
+        usuario = mundo.n.usuarios.obtener(ANA)
+        with mundo.n.base.transaccion() as cx:  # reinstalación: el latido ya reportó la sesión
+            cx.execute(
+                "INSERT INTO navegadores(usuario_id, token_hash, creado, ultimo_latido, "
+                "portales_json) VALUES (?, 'h', 'x', 'x', ?)",
+                (usuario.id, portales),
+            )
+        await mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+        await mundo.c.esperar_tareas()
+
+    correr(flujo())
+    assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ACTIVO
+    assert len(postulaciones(mundo)) == 1
+
+
+@respx.mock
+def test_la_sesion_cerrada_en_el_ultimo_latido_no_salta_el_paso(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    vacante_de_portal(mundo, "magneto")
+    portales = json.dumps({"magneto": {"estado": "sin_sesion", "cuenta": "ok"}})
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
+        usuario = mundo.n.usuarios.obtener(ANA)
+        with mundo.n.base.transaccion() as cx:
+            cx.execute(
+                "INSERT INTO navegadores(usuario_id, token_hash, creado, ultimo_latido, "
+                "portales_json) VALUES (?, 'h', 'x', 'x', ?)",
+                (usuario.id, portales),
+            )
+        await mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+
+    correr(flujo())
+    assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ALTA
+
+
+@respx.mock
+def test_el_paso_se_salta_si_la_plataforma_de_la_vacante_no_es_automatica(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    vacante_de_portal(mundo, "magneto")
+    mundo.n.config.plataformas["magneto"].automatica = False
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA, payload="v_" + id_corto("linkedin:1"))
+        await avisar_vinculado(mundo, ANA)
+        await mundo.c.esperar_tareas()
+
+    correr(flujo())
+    usuario = mundo.n.usuarios.obtener(ANA)
+    assert usuario.estado == EstadoUsuario.ACTIVO and usuario.vacante_pendiente is None
+    assert len(postulaciones(mundo)) == 1  # sigue su camino de respaldo
+
+
+@respx.mock
+def test_start_durante_el_paso_reenvia_la_tarjeta_y_avisa_que_la_vacante_sigue_guardada(mundo):
+    respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
+    vacante_de_portal(mundo, "magneto")
+    corta = id_corto("linkedin:1")
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA, payload="v_" + corta)
+        await avisar_vinculado(mundo, ANA)
+        antes = len(mundo.s.mensajes)
+        anterior = mundo.n.base.kv_obtener(f"tarjeta:{mundo.n.usuarios.obtener(ANA).id}")
+        await mundo.c.al_iniciar(ANA, "Ana", "v_" + corta)
+        return antes, json.loads(anterior)["mensaje_id"]
+
+    antes, mensaje_anterior = correr(flujo())
+    nuevos_ = mundo.s.mensajes[antes:]
+    assert len(nuevos_) == 2
+    assert "sigue guardada" in nuevos_[0][1]
+    assert "Paso 6 de 6" in nuevos_[1][1]  # la tarjeta nueva queda al final
+    assert (ANA, mensaje_anterior) in mundo.s.borrados
+    usuario = mundo.n.usuarios.obtener(ANA)
+    assert usuario.vacante_pendiente == corta and usuario.paso_alta == "plataformas"
+    guardada = json.loads(mundo.n.base.kv_obtener(f"tarjeta:{usuario.id}"))
+    assert guardada["mensaje_id"] != mensaje_anterior
+
+
+@respx.mock
+def test_start_durante_el_paso_tolera_no_poder_borrar_la_tarjeta_anterior(mundo):
+    vacante_de_portal(mundo, "magneto")
+
+    async def borrar(*_):
+        raise RuntimeError("mensaje demasiado viejo")
+
+    mundo.s.borrar = borrar
+
+    async def flujo():
+        await hasta_navegador(mundo, ANA)
+        await avisar_vinculado(mundo, ANA)
+        await mundo.c.al_iniciar(ANA, "Ana", None)
+
+    correr(flujo())
+    assert len(tarjetas_de_conexion(mundo)) == 2
+    assert mundo.n.usuarios.obtener(ANA).paso_alta == "plataformas"
 
 
 @respx.mock
@@ -1278,7 +1548,7 @@ def test_start_con_el_navegador_ya_vinculado_cierra_el_alta_y_retoma_la_vacante(
     assert mundo.n.usuarios.obtener(ANA).estado == EstadoUsuario.ACTIVO
     mensajes = "\n".join(mundo.s.de(ANA))
     assert "Conexión con tus portales" in mensajes and "✓ Navegador vinculado" in mensajes
-    assert "Paso 5 de 5" not in mensajes.split("Conexión con tus portales")[-1]
+    assert "Paso 5 de 6" not in mensajes.split("Conexión con tus portales")[-1]
     assert "Mensaje de presentación" not in mensajes  # ya no se envía paquete
 
 
@@ -1295,6 +1565,7 @@ async def vincular_navegador(m, tid):
             (usuario.id,),
         )
     await m.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+    await omitir_plataformas(m, tid)
     await m.c.esperar_tareas()
     return m.n.usuarios.obtener(tid)
 

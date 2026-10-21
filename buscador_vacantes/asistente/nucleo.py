@@ -183,6 +183,25 @@ class Nucleo:
             ).fetchone()
         )
 
+    def portales_abiertos(self, usuario_id: int) -> set[str]:
+        """Plataformas con la sesión abierta y la cuenta confirmada según el último latido de
+        los navegadores del usuario."""
+        filas = self.base.cx.execute(
+            "SELECT portales_json FROM navegadores WHERE usuario_id = ? AND revocado = 0",
+            (usuario_id,),
+        ).fetchall()
+        abiertos: set[str] = set()
+        for fila in filas:
+            portales = json.loads(fila["portales_json"]) if fila["portales_json"] else {}
+            for plataforma, portal in portales.items():
+                if (
+                    isinstance(portal, dict)
+                    and portal.get("cuenta") == "ok"
+                    and portal.get("estado") not in ("sin_sesion", "sin_permiso")
+                ):
+                    abiertos.add(plataforma)
+        return abiertos
+
     # --- vacantes y selectores -----------------------------------------------------------
 
     def vacante(self, id_corto: str) -> dict[str, Any] | None:

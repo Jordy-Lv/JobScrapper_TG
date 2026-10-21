@@ -117,3 +117,53 @@ def test_sin_filtro_todas_las_cuentas_como_antes():
         "✓ Magneto · ana@magneto.co",
     ]
     assert len(tarjeta.botones(tj, cb)) == 1
+
+
+def test_el_paso_5_solo_vincula_el_navegador_y_el_6_pide_iniciar_sesion():
+    assert "sesión" not in t.NAVEGADOR and "Paso 5 de 6" in t.NAVEGADOR
+    assert "Paso 6 de 6" in t.PLATAFORMAS and "Inicia sesión" in t.PLATAFORMAS
+
+
+def _en_el_paso(esperada: str | None) -> Tarjeta:
+    tj = Tarjeta(navegador=True, paso=True, esperada=esperada)
+    for plataforma in ("computrabajo", "magneto", "elempleo"):
+        tj.poner_cuenta(plataforma, tarjeta.PENDIENTE)
+    return tj
+
+
+def test_el_paso_lista_las_plataformas_con_la_esperada_resaltada_y_las_demas_opcionales():
+    lineas = tarjeta.lineas(_en_el_paso("magneto"))
+    assert lineas[1:] == [
+        "✓ Navegador vinculado",
+        "· Computrabajo (opcional): inicia sesión con tu cuenta en ese navegador",
+        "👉 <b>Magneto</b>: inicia sesión con tu cuenta en ese navegador",
+        "· elempleo (opcional): inicia sesión con tu cuenta en ese navegador",
+    ]
+    texto = tarjeta.texto(_en_el_paso("magneto"))
+    assert texto.startswith(t.PLATAFORMAS) and "Tu vacante es de <b>Magneto</b>" in texto
+
+
+def test_el_paso_sin_vacante_no_marca_ninguna_como_opcional():
+    tj = _en_el_paso(None)
+    assert not any("opcional" in x for x in tarjeta.lineas(tj))
+    assert t.PLATAFORMAS_SIN_VACANTE in tarjeta.texto(tj)
+
+
+def test_el_paso_ofrece_omitir_ademas_de_los_botones_de_cuenta():
+    tj = _en_el_paso("magneto")
+    assert tarjeta.botones(tj, cb) == [[("Omitir por ahora", "cb:omitir_plat")]]
+    tj.poner_cuenta("magneto", tarjeta.POR_CONFIRMAR, "ana@gmail.com")
+    filas = tarjeta.botones(tj, cb)
+    assert filas[0][0] == ("Confirmar Magneto", "cb:cuenta:magneto:si")
+    assert filas[-1] == [("Omitir por ahora", "cb:omitir_plat")]
+
+
+def test_fuera_del_paso_no_hay_explicacion_ni_omitir():
+    tj = _en_el_paso("magneto")
+    tj.paso = False
+    assert t.PLATAFORMAS not in tarjeta.texto(tj)
+    assert tarjeta.botones(tj, cb) is None
+    # el filtro por portal de la card tampoco lleva el paso ni el botón
+    tj.paso = True
+    assert tarjeta.botones(tj, cb, solo="magneto") is None
+    assert t.PLATAFORMAS not in tarjeta.texto(tj, solo="magneto")
