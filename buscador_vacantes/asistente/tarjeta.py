@@ -102,7 +102,7 @@ def lineas(tarjeta: Tarjeta, solo: str | None = None, excepto: str | None = None
     cuentas = _cuentas(tarjeta, solo, excepto)
     if cuentas:
         for plataforma, cuenta in cuentas.items():
-            nombre = t.NOMBRES_PLATAFORMA.get(plataforma, plataforma)
+            nombre = t.nombre_con_emoji(plataforma)
             salida.append(_linea_cuenta(nombre, cuenta, _rol(tarjeta, plataforma, solo, excepto)))
     elif tarjeta.navegador and excepto is None:
         salida.append("· Inicia sesión en Computrabajo, Magneto y elempleo en ese navegador.")

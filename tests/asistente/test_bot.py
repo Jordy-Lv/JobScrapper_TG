@@ -1282,7 +1282,7 @@ def test_al_vincular_el_navegador_el_alta_pasa_al_paso_de_plataformas(mundo):
     assert len(tarjetas) == 1
     _, texto, botones = tarjetas[0]
     assert "Paso 6 de 6" in texto and "✓ Navegador vinculado" in texto
-    for portal in ("Computrabajo", "Magneto", "elempleo"):
+    for portal in ("🔵 Computrabajo", "🟢 Magneto", "🩵 elempleo"):
         assert f"· {portal}: inicia sesión" in texto
     assert botones == [[("Omitir por ahora", cb("omitir_plat"))]]
 
@@ -1304,8 +1304,8 @@ def test_al_vincular_con_vacante_de_un_portal_automatico_no_arranca_la_postulaci
     assert postulaciones(mundo) == []
     texto = tarjetas_de_conexion(mundo)[0][1]
     assert "Tu vacante es de <b>Magneto</b>" in texto
-    assert "👉 <b>Magneto</b>: inicia sesión" in texto
-    assert "· Computrabajo (opcional): inicia sesión" in texto
+    assert "👉 <b>🟢 Magneto</b>: inicia sesión" in texto
+    assert "· 🔵 Computrabajo (opcional): inicia sesión" in texto
 
 
 def test_sin_vacante_basta_confirmar_una_cuenta_y_cierra_con_el_mensaje_al_grupo(mundo):
@@ -1324,7 +1324,7 @@ def test_sin_vacante_basta_confirmar_una_cuenta_y_cierra_con_el_mensaje_al_grupo
     assert len(cierres) == 1 and cierres[0][2] == [[("👥 Ir al grupo", "url:https://t.me/+abc")]]
     ultima = mundo.s.ediciones[-1][2]
     assert "Paso 6" not in ultima and "Omitir" not in str(mundo.s.botones_editados)
-    assert "✓ Computrabajo" in ultima and "Magneto" not in ultima  # sin los portales sembrados
+    assert "✓ 🔵 Computrabajo" in ultima and "Magneto" not in ultima  # sin los portales sembrados
 
 
 def test_el_aviso_de_portal_listo_tambien_cumple_el_paso(mundo):
@@ -1629,7 +1629,7 @@ def test_cuentas_se_confirman_en_la_misma_tarjeta_sin_mensajes_nuevos(mundo):
     correr(flujo())
     id_tarjeta = next(i for i, m in enumerate(mundo.s.mensajes, 1) if "Conexión" in m[1])
     chat, mensaje, texto = mundo.s.ediciones[-1]
-    assert mensaje == id_tarjeta and "✓ Computrabajo · ana@gmail.com" in texto
+    assert mensaje == id_tarjeta and "✓ 🔵 Computrabajo · ana@gmail.com" in texto
     assert mundo.s.botones_editados[mensaje] is None  # ya no queda nada por confirmar
     assert not any("quedó asociada" in m[1] or "Sesión iniciada" in m[1] for m in mundo.s.mensajes)
 
@@ -1642,7 +1642,7 @@ def test_cancelar_la_cuenta_deja_la_linea_pendiente_en_la_tarjeta(mundo):
         await mundo.c.al_boton(ANA, cb("cuenta", "magneto", "no"))
 
     correr(flujo())
-    assert "· Magneto: inicia sesión con tu cuenta" in mundo.s.ediciones[-1][2]
+    assert "· 🟢 Magneto: inicia sesión con tu cuenta" in mundo.s.ediciones[-1][2]
 
 
 @respx.mock
@@ -1671,7 +1671,7 @@ def test_la_vacante_del_alta_se_postula_dentro_de_la_misma_tarjeta(mundo):
     assert con_botones[0][0][1] == cb("cuenta", "computrabajo", "si")
     textos = [e[2] for e in mundo.s.ediciones if e[1] == fila["mensaje_id"]]
     assert any("✓ Navegador vinculado" in x and "Abriendo la oferta" in x for x in textos)
-    assert any("✓ Computrabajo · ana@gmail.com" in x and "Respondiendo el formulario…" in x
+    assert any("✓ 🔵 Computrabajo · ana@gmail.com" in x and "Respondiendo el formulario…" in x
                for x in textos)  # fmt: skip
     final = mundo.s.ultimo(ANA)[1]  # la confirmación llega como la card nueva, con confeti
     assert "confirmó tu postulación" in final and "Conexión" not in final
@@ -1698,7 +1698,7 @@ def test_si_la_tarjeta_fue_borrada_se_envia_una_nueva(mundo):
 
     usuario = correr(flujo())
     chat, texto, _ = mundo.s.ultimo(ANA)
-    assert "✓ Computrabajo · ana@gmail.com" in texto
+    assert "✓ 🔵 Computrabajo · ana@gmail.com" in texto
     assert f'"mensaje_id": {len(mundo.s.mensajes)}' in kv_tarjeta(mundo, usuario)
 
 
@@ -1844,7 +1844,7 @@ def test_la_cuenta_por_confirmar_se_pinta_en_la_card_en_curso(mundo):
     ]]  # fmt: skip
     correr(mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si")))
     texto, botones = card_de(mundo, mensaje)
-    assert "✓ Computrabajo · ana@gmail.com" in texto and botones is None
+    assert "✓ 🔵 Computrabajo · ana@gmail.com" in texto and botones is None
     assert len(mundo.s.mensajes) == antes
 
 
@@ -1880,7 +1880,7 @@ def test_vacante_de_magneto_con_computrabajo_confirmado_no_lo_menciona(mundo):
     correr(mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id}))
     texto, botones = card_de(mundo, mensaje)
     assert "Conexión con tus portales" in texto
-    assert "· Magneto: inicia sesión con tu cuenta en ese navegador" in texto
+    assert "· 🟢 Magneto: inicia sesión con tu cuenta en ese navegador" in texto
     assert "Computrabajo" not in texto and botones is None
 
 
@@ -1893,7 +1893,7 @@ def test_cuenta_por_confirmar_del_mismo_portal_va_en_la_card(mundo):
     antes = len(mundo.s.mensajes)
     correr(mundo.c.notificar(aviso_cuenta(usuario, "magneto", "ana@magneto.co")))
     texto, botones = card_de(mundo, mensaje)
-    assert "<b>Magneto</b>: sesión iniciada con <b>ana@magneto.co</b>" in texto
+    assert "<b>🟢 Magneto</b>: sesión iniciada con <b>ana@magneto.co</b>" in texto
     assert botones == [[
         ("Confirmar Magneto", cb("cuenta", "magneto", "si")),
         ("Cancelar", cb("cuenta", "magneto", "no")),
@@ -1916,7 +1916,7 @@ def test_aviso_de_otro_portal_con_la_card_abierta_va_a_un_mensaje_aparte(mundo):
     (chat, texto, botones), = mundo.s.mensajes[antes:]  # fmt: skip
     aparte = mundo.s._id
     assert "Conexión con tus portales" in texto
-    assert "<b>Computrabajo</b>: sesión iniciada con <b>ana@gmail.com</b>" in texto
+    assert "<b>🔵 Computrabajo</b>: sesión iniciada con <b>ana@gmail.com</b>" in texto
     assert "Magneto" not in texto
     assert botones == [[
         ("Confirmar Computrabajo", cb("cuenta", "computrabajo", "si")),
@@ -1929,7 +1929,7 @@ def test_aviso_de_otro_portal_con_la_card_abierta_va_a_un_mensaje_aparte(mundo):
     assert len(mundo.s.mensajes) == antes + 1
     assert len(ediciones_de(mundo, mensaje)) == ediciones_card
     texto, botones = card_de(mundo, aparte)
-    assert "✓ Computrabajo · ana@gmail.com" in texto and botones is None
+    assert "✓ 🔵 Computrabajo · ana@gmail.com" in texto and botones is None
     texto, botones = card_de(mundo, mensaje)
     assert "Confirmar Magneto" in botones[0][0][0]  # la card conserva lo suyo
 
@@ -1946,8 +1946,8 @@ def test_sin_card_abierta_la_tarjeta_muestra_todos_los_portales(mundo):
     )
     correr(mundo.c.notificar(aviso_cuenta(usuario, "magneto", "ana@magneto.co")))
     texto, botones = mundo.s.ediciones[-1][2], mundo.s.botones_editados[mundo.s.ediciones[-1][1]]
-    assert "✓ Computrabajo · ana@gmail.com" in texto
-    assert "<b>Magneto</b>: sesión iniciada con <b>ana@magneto.co</b>" in texto
+    assert "✓ 🔵 Computrabajo · ana@gmail.com" in texto
+    assert "<b>🟢 Magneto</b>: sesión iniciada con <b>ana@magneto.co</b>" in texto
     assert botones[0][0] == ("Confirmar Magneto", cb("cuenta", "magneto", "si"))
     assert not mundo.base.kv_obtener(f"tarjeta_otros:{usuario.id}")
 

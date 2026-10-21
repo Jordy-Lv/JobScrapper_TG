@@ -21,8 +21,10 @@ def test_una_linea_por_portal_segun_su_estado():
     tj.poner_cuenta("computrabajo", tarjeta.CONFIRMADA, "ana@gmail.com")
     tj.poner_cuenta("magneto", tarjeta.POR_CONFIRMAR, "ana<2>@gmail.com")
     lineas = tarjeta.texto(tj).split("\n")
-    assert "✓ Computrabajo · ana@gmail.com" in lineas
-    assert any(x.startswith("❓ <b>Magneto</b>") and "ana&lt;2&gt;@gmail.com" in x for x in lineas)
+    assert "✓ 🔵 Computrabajo · ana@gmail.com" in lineas
+    assert any(
+        x.startswith("❓ <b>🟢 Magneto</b>") and "ana&lt;2&gt;@gmail.com" in x for x in lineas
+    )
     assert not any("Inicia sesión en Computrabajo, Magneto" in x for x in lineas)
 
 
@@ -77,7 +79,7 @@ def test_solo_muestra_el_portal_de_la_vacante():
     assert tarjeta.lineas(tj, solo="magneto") == [
         "🔗 <b>Conexión con tus portales</b>",
         "✓ Navegador vinculado",
-        "✓ Magneto · ana@magneto.co",
+        "✓ 🟢 Magneto · ana@magneto.co",
     ]
     assert tarjeta.botones(tj, cb, solo="magneto") is None
     assert tarjeta.botones(tj, cb, solo="computrabajo") == [
@@ -92,7 +94,7 @@ def test_solo_sin_cuenta_del_portal_pide_iniciar_sesion_en_el():
     tj = Tarjeta(navegador=True)
     tj.poner_cuenta("computrabajo", tarjeta.CONFIRMADA, "ana@gmail.com")
     lineas = tarjeta.lineas(tj, solo="magneto")
-    assert lineas[-1] == "· Magneto: inicia sesión con tu cuenta en ese navegador"
+    assert lineas[-1] == "· 🟢 Magneto: inicia sesión con tu cuenta en ese navegador"
     assert not any("Computrabajo" in x for x in lineas)
     assert tarjeta.botones(tj, cb, solo="magneto") is None
 
@@ -101,7 +103,7 @@ def test_excepto_muestra_los_demas_portales():
     tj = _con_dos_portales()
     lineas = tarjeta.lineas(tj, excepto="magneto")
     assert not any("Magneto" in x for x in lineas)
-    assert any(x.startswith("❓ <b>Computrabajo</b>") for x in lineas)
+    assert any(x.startswith("❓ <b>🔵 Computrabajo</b>") for x in lineas)
     assert tarjeta.botones(tj, cb, excepto="magneto") == tarjeta.botones(
         tj, cb, solo="computrabajo"
     )
@@ -113,8 +115,8 @@ def test_sin_filtro_todas_las_cuentas_como_antes():
     assert tarjeta.lineas(tj) == [
         "🔗 <b>Conexión con tus portales</b>",
         "✓ Navegador vinculado",
-        "❓ <b>Computrabajo</b>: sesión iniciada con <b>ana@gmail.com</b>. ¿Es tu cuenta?",
-        "✓ Magneto · ana@magneto.co",
+        "❓ <b>🔵 Computrabajo</b>: sesión iniciada con <b>ana@gmail.com</b>. ¿Es tu cuenta?",
+        "✓ 🟢 Magneto · ana@magneto.co",
     ]
     assert len(tarjeta.botones(tj, cb)) == 1
 
@@ -135,9 +137,9 @@ def test_el_paso_lista_las_plataformas_con_la_esperada_resaltada_y_las_demas_opc
     lineas = tarjeta.lineas(_en_el_paso("magneto"))
     assert lineas[1:] == [
         "✓ Navegador vinculado",
-        "· Computrabajo (opcional): inicia sesión con tu cuenta en ese navegador",
-        "👉 <b>Magneto</b>: inicia sesión con tu cuenta en ese navegador",
-        "· elempleo (opcional): inicia sesión con tu cuenta en ese navegador",
+        "· 🔵 Computrabajo (opcional): inicia sesión con tu cuenta en ese navegador",
+        "👉 <b>🟢 Magneto</b>: inicia sesión con tu cuenta en ese navegador",
+        "· 🩵 elempleo (opcional): inicia sesión con tu cuenta en ese navegador",
     ]
     texto = tarjeta.texto(_en_el_paso("magneto"))
     assert texto.startswith(t.PLATAFORMAS) and "Tu vacante es de <b>Magneto</b>" in texto
@@ -167,3 +169,29 @@ def test_fuera_del_paso_no_hay_explicacion_ni_omitir():
     tj.paso = True
     assert tarjeta.botones(tj, cb, solo="magneto") is None
     assert t.PLATAFORMAS not in tarjeta.texto(tj, solo="magneto")
+
+
+def test_la_linea_de_cuenta_lleva_el_emoji_y_el_boton_no():
+    tj = Tarjeta(navegador=True)
+    tj.poner_cuenta("elempleo", tarjeta.POR_CONFIRMAR, "ana@gmail.com")
+    assert any(x.startswith("❓ <b>🩵 elempleo</b>") for x in tarjeta.lineas(tj))
+    assert tarjeta.botones(tj, cb)[0][0][0] == "Confirmar elempleo"
+
+
+def test_nombre_con_emoji_de_cada_plataforma():
+    assert t.nombre_con_emoji("computrabajo") == "🔵 Computrabajo"
+    assert t.nombre_con_emoji("magneto") == "🟢 Magneto"
+    assert t.nombre_con_emoji("elempleo") == "🩵 elempleo"
+
+
+def test_nombre_con_emoji_sin_emoji_registrado_o_sin_plataforma():
+    assert t.nombre_con_emoji("otra") == "otra"
+    assert t.nombre_con_emoji(None) == "" and t.nombre_con_emoji("") == ""
+
+
+def test_linea_empresa_con_emoji_de_la_plataforma():
+    assert t.linea_empresa("Maaji", "magneto") == "Maaji · 🟢 Magneto"
+    assert t.linea_empresa(None, "computrabajo") == "🔵 Computrabajo"
+    assert t.linea_empresa("Maaji", "otra") == "Maaji · otra"
+    assert t.linea_empresa("Maaji", None) == "Maaji"
+    assert t.linea_empresa(None, None) is None
