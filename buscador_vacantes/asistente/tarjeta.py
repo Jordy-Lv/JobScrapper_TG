@@ -21,6 +21,9 @@ CONFIRMADA = "confirmada"
 COMPLETANDO = "completando"  # el portal tiene el perfil incompleto y se está llenando
 DISTINTA = "distinta"  # la sesión abierta es de otra cuenta
 
+ESPERADA = "esperada"  # en el paso de plataformas: la de la vacante pendiente
+OPCIONAL = "opcional"  # en el paso de plataformas: no bloquea el cierre
+
 
 @dataclass
 class Tarjeta:
@@ -29,6 +32,8 @@ class Tarjeta:
     listo: bool = False  # el alta terminó
     cuentas: dict[str, dict] = field(default_factory=dict)  # plataforma → {estado, correo, otro}
     pid: int | None = None  # postulación que se muestra dentro de la tarjeta
+    paso: bool = False  # el alta está en el paso de iniciar sesión en los portales
+    esperada: str | None = None  # plataforma de la vacante pendiente que ese paso espera
 
     def a_texto(self) -> str:
         return json.dumps(self.__dict__, ensure_ascii=False)
@@ -47,7 +52,7 @@ class Tarjeta:
         }
 
 
-def _linea_cuenta(nombre: str, cuenta: dict) -> str:
+def _linea_cuenta(nombre: str, cuenta: dict, rol: str | None = None) -> str:
     correo = t.e(cuenta.get("correo"))
     match cuenta["estado"]:
         case "por_confirmar":
@@ -63,8 +68,11 @@ def _linea_cuenta(nombre: str, cuenta: dict) -> str:
                 f"⚠️ <b>{nombre}</b>: la cuenta abierta ({t.e(cuenta.get('otro'))}) no es la "
                 f"tuya ({correo}). No postularé con ella."
             )
+        case _ if rol == ESPERADA:
+            return f"👉 <b>{nombre}</b>: inicia sesión con tu cuenta en ese navegador"
         case _:
-            return f"· {nombre}: inicia sesión con tu cuenta en ese navegador"
+            opcional = " (opcional)" if rol == OPCIONAL else ""
+            return f"· {nombre}{opcional}: inicia sesión con tu cuenta en ese navegador"
 
 
 def _cuentas(tarjeta: Tarjeta, solo: str | None, excepto: str | None) -> dict[str, dict]:
@@ -73,6 +81,14 @@ def _cuentas(tarjeta: Tarjeta, solo: str | None, excepto: str | None) -> dict[st
     if solo is not None:
         return {solo: tarjeta.cuentas.get(solo, {"estado": PENDIENTE})}
     return {p: c for p, c in tarjeta.cuentas.items() if p != excepto}
+
+
+def _rol(tarjeta: Tarjeta, plataforma: str, solo: str | None, excepto: str | None) -> str | None:
+    """Con el paso de plataformas abierto y una vacante esperando, su portal es el que se
+    necesita y los demás son opcionales."""
+    if not tarjeta.paso or solo is not None or excepto is not None or not tarjeta.esperada:
+        return None
+    return ESPERADA if plataforma == tarjeta.esperada else OPCIONAL
 
 
 def lineas(tarjeta: Tarjeta, solo: str | None = None, excepto: str | None = None) -> list[str]:
@@ -86,22 +102,36 @@ def lineas(tarjeta: Tarjeta, solo: str | None = None, excepto: str | None = None
     cuentas = _cuentas(tarjeta, solo, excepto)
     if cuentas:
         for plataforma, cuenta in cuentas.items():
-            salida.append(_linea_cuenta(t.NOMBRES_PLATAFORMA.get(plataforma, plataforma), cuenta))
+            nombre = t.NOMBRES_PLATAFORMA.get(plataforma, plataforma)
+            salida.append(_linea_cuenta(nombre, cuenta, _rol(tarjeta, plataforma, solo, excepto)))
     elif tarjeta.navegador and excepto is None:
         salida.append("· Inicia sesión en Computrabajo, Magneto y elempleo en ese navegador.")
     return salida
 
 
 def texto(tarjeta: Tarjeta, solo: str | None = None, excepto: str | None = None) -> str:
-    """La tarjeta de conexión sola (sin postulación)."""
-    return "\n".join(lineas(tarjeta, solo, excepto))
+    """La tarjeta de conexión sola (sin postulación). En el paso de plataformas del alta lleva
+    antes su explicación."""
+    cuerpo = "\n".join(lineas(tarjeta, solo, excepto))
+    if tarjeta.paso and solo is None and excepto is None:
+        return f"{_introduccion(tarjeta)}\n\n{cuerpo}"
+    return cuerpo
+
+
+def _introduccion(tarjeta: Tarjeta) -> str:
+    if tarjeta.esperada:
+        portal = t.NOMBRES_PLATAFORMA.get(tarjeta.esperada, tarjeta.esperada)
+        aviso = t.PLATAFORMAS_CON_VACANTE.format(portal=t.e(portal))
+    else:
+        aviso = t.PLATAFORMAS_SIN_VACANTE
+    return f"{t.PLATAFORMAS}\n{aviso}"
 
 
 def botones(
     tarjeta: Tarjeta, cb: Callable[..., str], solo: str | None = None, excepto: str | None = None
 ) -> list[list[tuple[str, str]]] | None:
     """Confirmar / Cancelar de cada cuenta por confirmar y los de la cuenta distinta, con el
-    mismo filtro que `lineas`."""
+    mismo filtro que `lineas`; en el paso de plataformas, además «Omitir por ahora»."""
     filas = []
     for plataforma, cuenta in _cuentas(tarjeta, solo, excepto).items():
         nombre = t.NOMBRES_PLATAFORMA.get(plataforma, plataforma)
@@ -115,4 +145,6 @@ def botones(
                 ("Es mi cuenta nueva", cb("cuenta", plataforma, "nueva")),
                 ("No es mía", cb("cuenta", plataforma, "no")),
             ])  # fmt: skip
+    if tarjeta.paso and solo is None and excepto is None:
+        filas.append([("Omitir por ahora", cb("omitir_plat"))])
     return filas or None

@@ -44,10 +44,23 @@ gratuito. La versión con diagramas está en `docs/asistente/guia-asistente-post
 6. **Vincula tu navegador.** En el bot toca *Vincular mi navegador*: se abre una página que la
    extensión reconoce sola. El bot abre una **tarjeta de conexión** con «✓ Navegador vinculado».
    Esa misma tarjeta se va actualizando sola: no llegan mensajes sueltos por cada paso.
-7. **Inicia sesión en Computrabajo, Magneto y elempleo** en ese mismo navegador, como siempre
-   (elempleo pide además su permiso: ver «Plataformas»). La extensión lo detecta y, en la misma tarjeta, el bot te muestra el correo de cada cuenta con los botones
-   *Confirmar* y *Cancelar* para que confirmes que es la tuya. Si ya tocaste una vacante, la
-   tarjeta sigue con las etapas de esa postulación hasta el resultado.
+7. **Inicia sesión en tus portales (paso 6 del registro).** Al vincular el navegador, el bot
+   no termina el registro: la misma tarjeta pasa a «Paso 6 de 6 · Inicia sesión en tus
+   portales» y lista Computrabajo, Magneto y elempleo. Inicia sesión en ellos en ese mismo
+   navegador, como siempre (elempleo pide además su permiso: ver «Plataformas»). La
+   extensión lo detecta y, en la misma tarjeta, el bot te muestra el correo de cada cuenta
+   con los botones *Confirmar* y *Cancelar* para que confirmes que es la tuya.
+   - *Si ya tocaste una vacante:* no la postulo hasta que confirmes la cuenta del portal de
+     esa vacante (la marca 👉); los demás portales son opcionales. Al confirmarla, la tarjeta
+     sigue con las etapas de esa postulación hasta el resultado.
+   - *Si no has tocado ninguna vacante:* basta confirmar la cuenta de un portal; el bot
+     termina el registro y te manda al grupo a tocar *⚡ Postularme*.
+   - *Si ahora no puedes iniciar sesión:* toca *Omitir por ahora*. El registro termina y la
+     vacante (si la hay) queda en cola esperando que abras la sesión.
+   - *Si ya tenías la sesión abierta* (por ejemplo, reinstalaste la extensión) o la vacante
+     es de una plataforma sin postulación automática, este paso se salta solo.
+   - *Si vuelves con /start durante este paso*, el bot te reenvía la tarjeta al final del
+     chat y te recuerda que tu vacante sigue guardada.
    - *Si no tienes cuenta:* el bot te da el enlace de registro. La cuenta la creas tú, porque
      requiere tu contraseña y la verificación de tu correo.
    - *Si tu perfil del portal está incompleto:* la extensión lo completa con tu perfil y tu CV.
