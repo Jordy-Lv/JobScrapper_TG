@@ -39,7 +39,7 @@ def test_tarjeta_con_encuesta_titulo_empresa_y_cita():
     d = DatosResumen(vacante(), "computrabajo", CUANDO, respuestas=[resp(i) for i in range(4)])
     lineas = tarjeta(d).split("\n")
     assert lineas[0] == "✅ <b>Postulación enviada</b>"
-    assert lineas[1] == "<b>Aprendiz &lt;SENA&gt;</b>" and lineas[2] == "Euro"
+    assert lineas[1] == "<b>Aprendiz &lt;SENA&gt;</b>" and lineas[2] == "Euro · Computrabajo"
     assert lineas[3] == "" and lineas[4] == "██████████████  100 %" and lineas[5] == ""
     assert lineas[6] == "<blockquote>Computrabajo confirmó tu postulación"
     assert lineas[8] == "Encuesta de 4 · HdV del perfil</blockquote>"

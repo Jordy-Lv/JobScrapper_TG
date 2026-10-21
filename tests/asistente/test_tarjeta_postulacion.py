@@ -43,7 +43,7 @@ def test_en_cola_escapa_el_titulo_y_no_lleva_botones():
     texto = tp.texto(card, datos())
     assert texto.split("\n") == [
         "<b>Aprendiz &lt;SENA&gt;</b>",
-        "Euro",
+        "Euro · Computrabajo",
         "",
         "<blockquote>En cola. Te aviso el resultado.</blockquote>",
     ]
@@ -145,7 +145,7 @@ def test_confirmada_muestra_la_cita_las_vistas_y_el_seguimiento_en_filas_de_a_tr
     card = tp.Card(fase=tp.CONFIRMADA)
     d = datos(resumen=resumen())
     texto = tp.texto(card, d)
-    assert texto.startswith("✅ <b>Postulación enviada</b>\n<b>Aprendiz &lt;SENA&gt;</b>\nEuro\n")
+    assert texto.startswith("✅ <b>Postulación enviada</b>\n<b>Aprendiz &lt;SENA&gt;</b>\nEuro · Computrabajo\n")
     assert "██████████████  100 %" in texto
     assert "Computrabajo confirmó tu postulación" in texto
     assert "Encuesta de 1 · HdV del perfil</blockquote>" in texto
@@ -223,7 +223,7 @@ def test_cuenta_muestra_los_segundos_la_barra_y_el_boton_cancelar():
     texto = tp.texto(tp.Card(fase=tp.CUENTA), d)
     assert texto.split("\n") == [
         "<b>Aprendiz &lt;SENA&gt;</b>",
-        "Euro",
+        "Euro · Computrabajo",
         "",
         "<blockquote>⚡ Postulando en 3 s",
         "▰▰▱▱▱</blockquote>",
@@ -497,3 +497,12 @@ def test_con_el_bloque_de_conexion_la_cuenta_no_se_explica_dos_veces():
         texto = tp.texto(con_espera(codigo), d)
         assert "Hay una sesión abierta" not in texto and "no es la que me diste" not in texto
         assert "Sale en cuanto resuelvas la cuenta de arriba." in texto
+
+
+def test_cabecera_con_plataforma_sola_y_sin_plataforma():
+    solo_portal = tp.texto(tp.Card(), datos(empresa=None, plataforma="magneto")).split("\n")
+    assert solo_portal[:2] == ["<b>Aprendiz &lt;SENA&gt;</b>", "Magneto"]
+    sin_portal = tp.texto(tp.Card(), datos(plataforma=None)).split("\n")
+    assert sin_portal[:2] == ["<b>Aprendiz &lt;SENA&gt;</b>", "Euro"]
+    nada = tp.texto(tp.Card(), datos(empresa=None, plataforma=None)).split("\n")
+    assert nada[:2] == ["<b>Aprendiz &lt;SENA&gt;</b>", ""]

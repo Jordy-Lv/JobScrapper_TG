@@ -103,8 +103,8 @@ class Datos:
 
 def _cabecera(d: Datos) -> list[str]:
     lineas = [f"<b>{t.e(d.titulo or 'Vacante')}</b>"]
-    if d.empresa:
-        lineas.append(t.e(d.empresa))
+    if linea := t.linea_empresa(d.empresa, d.plataforma):
+        lineas.append(linea)
     return lineas
 
 

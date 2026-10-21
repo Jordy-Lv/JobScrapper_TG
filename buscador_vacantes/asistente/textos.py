@@ -249,6 +249,13 @@ class ItemCuestionario:
 
 # Salario mínimo legal vigente 2026 (Colombia); actualizar cada enero
 SMMLV = 1750905
+def linea_empresa(empresa: str | None, plataforma: str | None) -> str | None:
+    """«Empresa · Plataforma» para la cabecera de la card; None si no hay ninguna."""
+    portal = NOMBRES_PLATAFORMA.get(plataforma or "", plataforma or "")
+    partes = [e(p) for p in (empresa, portal) if p]
+    return " · ".join(partes) or None
+
+
 
 CUESTIONARIO: tuple[ItemCuestionario, ...] = (
     ItemCuestionario("nombre", "¿Cuál es tu nombre completo?"),
