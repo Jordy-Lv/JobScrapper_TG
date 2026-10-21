@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -9,6 +10,7 @@ pytest.importorskip("cryptography", reason="requiere uv sync --group asistente")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from buscador_vacantes.asistente import api as api_modulo  # noqa: E402
 from buscador_vacantes.asistente import vinculos  # noqa: E402
 from buscador_vacantes.asistente.api import (  # noqa: E402
     LIMITE_PING_POR_MINUTO,
@@ -45,6 +47,8 @@ class NucleoFalso:
         self.faltan = False
         self.revisar = False
         self.preguntas = []
+        self.demora_resolver: timedelta | None = None
+        self.eventos_vigilar: list = []
         self.cv = tmp_path / "CV_Ana_Perez.pdf"
         self.cv.write_bytes(b"%PDF-1.4 cv")
         with self.base.transaccion() as cx:
@@ -73,6 +77,12 @@ class NucleoFalso:
 
     async def resolver_formulario(self, postulacion, preguntas):
         self.preguntas = preguntas
+        if self.demora_resolver:
+            # Una resolución larga: el reloj avanza, el latido del servidor tiene tiempo de
+            # correr y la cola vigila a mitad, como cada minuto en producción
+            self.momento += self.demora_resolver
+            await asyncio.sleep(0.05)
+            self.eventos_vigilar.append(self.cola.vigilar(self.momento))
         if self.revisar:
             return ResultadoFormulario(revisar=True)
         if self.faltan:
@@ -313,6 +323,30 @@ def test_revision_de_respuestas_libera_la_postulacion(entorno):
                      json={"campos": [{"texto": "¿Por qué te interesa?"}]}).json()  # fmt: skip
     assert r == {"esperar_usuario": True}
     assert nucleo.cola.obtener(p.id).estado == E.ESPERANDO_USUARIO
+
+
+def test_formulario_largo_no_deja_la_postulacion_como_navegador_cerrado(entorno, monkeypatch):
+    """Postulación 55: resolver el formulario tarda más que `navegador_caido_min` y la cola,
+    que vigila cada minuto, la marcaba como navegador cerrado aunque el servidor siguiera
+    trabajando. Mientras resuelve, el servidor mantiene vivo el latido del navegador."""
+    nucleo, cliente = entorno
+    monkeypatch.setattr(api_modulo, "LATIDO_FORMULARIO_S", 0.01, raising=False)
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    nucleo.demora_resolver = timedelta(minutes=nucleo.config.extension.navegador_caido_min + 1)
+    r = cliente.post(f"/api/v1/postulaciones/{p.id}/formulario", headers=cab,
+                     json={"campos": [{"texto": "¿Tienes computador?"}]})  # fmt: skip
+    assert r.status_code == 200
+    # La vigilancia corrió a mitad de la resolución, con el reloj ya pasado del plazo
+    assert nucleo.eventos_vigilar == [[]]
+    assert nucleo.cola.obtener(p.id).estado == E.EN_CURSO
+    pasos = nucleo.base.cx.execute(
+        "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? AND paso = ?",
+        (p.id, "formulario_resuelto"),
+    ).fetchall()
+    assert len(pasos) == 1 and pasos[0]["detalle"].endswith(" s")
 
 
 def test_cuenta_distinta_no_da_trabajo(entorno):

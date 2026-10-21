@@ -6,6 +6,7 @@ token (Authorization: Bearer); el servidor solo guarda su hash.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import logging
@@ -42,6 +43,7 @@ LIMITE_POR_MINUTO = 120
 LIMITE_VINCULAR_POR_MINUTO = 20
 LIMITE_PING_POR_MINUTO = 60
 VIGENCIA_CV = timedelta(minutes=10)
+LATIDO_FORMULARIO_S = 30  # latido del navegador mientras el servidor resuelve un formulario
 
 
 # --- contrato con el resto del asistente --------------------------------------------------
@@ -331,6 +333,13 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             raise HTTPException(429, "demasiadas peticiones")
         return navegador
 
+    def latir(nav: vinculos.Navegador) -> None:
+        with nucleo.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE navegadores SET ultimo_latido = ? WHERE id = ?",
+                (a_texto(nucleo.ahora()), nav.id),
+            )
+
     def postulacion_de(pid: int, nav: vinculos.Navegador) -> Postulacion:
         p = nucleo.cola.obtener(pid)
         if p is None or p.usuario_id != nav.usuario_id:
@@ -338,12 +347,31 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         # Mientras ejecuta una postulación la extensión no manda latidos (el latido es el que
         # la ejecuta): cada llamada de la postulación cuenta como señal de vida, así un paso
         # largo (la IA, el CV adaptado) no la deja como "navegador cerrado"
-        with nucleo.base.transaccion() as cx:
-            cx.execute(
-                "UPDATE navegadores SET ultimo_latido = ? WHERE id = ?",
-                (a_texto(nucleo.ahora()), nav.id),
-            )
+        latir(nav)
         return p
+
+    async def resolver_con_latido(p: Postulacion, nav: vinculos.Navegador, preguntas):
+        """Resuelve el formulario sin dejar que la espera cuente como navegador caído: la
+        llamada puede durar más que `navegador_caido_min` (la IA con reintentos, el CV).
+        Registra cuánto tardó, para saber si ahí está el cuello de botella."""
+        inicio = time.perf_counter()
+        tarea = asyncio.ensure_future(nucleo.resolver_formulario(p, preguntas))
+        try:
+            while True:
+                terminadas, _ = await asyncio.wait({tarea}, timeout=LATIDO_FORMULARIO_S)
+                if terminadas:
+                    break
+                latir(nav)
+        finally:
+            if not tarea.done():
+                tarea.cancel()
+        latir(nav)
+        resultado = tarea.result()
+        nucleo.cola.registrar_paso(
+            p.id, nav.id, "formulario_resuelto", f"{time.perf_counter() - inicio:.1f} s",
+            nucleo.ahora(),
+        )
+        return resultado
 
     # --- ping ---
 
@@ -580,7 +608,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             )
             for c in cuerpo.campos
         ]
-        resultado = await nucleo.resolver_formulario(p, preguntas)
+        resultado = await resolver_con_latido(p, nav, preguntas)
         if resultado.revisar or any(r.pregunta.obligatoria for r in resultado.faltan):
             nucleo.cola.esperar_usuario(pid, nav.id, nucleo.ahora())
             return {"esperar_usuario": True}

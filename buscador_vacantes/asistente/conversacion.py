@@ -2796,7 +2796,10 @@ class Conversacion:
         elif ev.estado == E.INCIERTA:
             # Igual se le cuenta qué se respondió y con qué hoja de vida, para que pueda revisar
             await self._enviar_resumen(usuario, p, confirmada=False)
-        elif ev.estado == E.BLOQUEADA and (ev.detalle or "") in t.BLOQUEOS_PORTAL:
+        elif (
+            ev.estado in (E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO)
+            and (ev.detalle or "") in t.BLOQUEOS_PORTAL
+        ):
             await self._cerrar_card(usuario, p.id, tp.BLOQUEO, motivo=ev.detalle)
         elif ev.estado in CON_RESPALDO:
             motivo = ev.detalle if ev.tipo == "respaldo" else str(ev.estado)
