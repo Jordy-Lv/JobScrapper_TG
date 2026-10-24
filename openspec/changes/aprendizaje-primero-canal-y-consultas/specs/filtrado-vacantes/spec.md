@@ -2,8 +2,8 @@
 
 ## ADDED Requirements
 
-### Requirement: Nivel junior configurable y pausado por defecto
-El alcance por nivel MUST configurarse en `alcance.junior.activo`, con valor `false` por defecto. Con el nivel pausado, una vacante aceptada por reglas o por la IA con una categoría distinta de «Prácticas y Aprendizaje» MUST descartarse con el motivo `nivel_pausado`. Con el nivel activo, MUST publicarse en su categoría por área, como antes.
+### Requirement: Alcance de prácticas y sin experiencia, con junior pausado por defecto
+El alcance por nivel MUST configurarse en `alcance.junior.activo`, con valor `false` por defecto. Cada vacante MUST tener un nivel: `practica`, `sin_experiencia`, `junior` u `otro`. Con el nivel junior pausado, una vacante aceptada por reglas o por la IA cuyo nivel no sea `practica` ni `sin_experiencia` MUST descartarse con el motivo `nivel_pausado`. Con el nivel activo, MUST publicarse en su categoría por área, como antes.
 
 #### Scenario: Junior pausado
 - **WHEN** las reglas aceptan «Desarrollador Junior Python», remoto, con el nivel junior pausado
@@ -17,15 +17,30 @@ El alcance por nivel MUST configurarse en `alcance.junior.activo`, con valor `fa
 - **WHEN** llega «Practicante de desarrollo de software» en Cartagena con el nivel junior pausado
 - **THEN** se publica en «Prácticas y Aprendizaje»
 
+#### Scenario: Sin experiencia dentro del alcance
+- **WHEN** llega «Soporte técnico sin experiencia», remoto, sin años de experiencia exigidos, con el nivel junior pausado
+- **THEN** su nivel es `sin_experiencia` y se publica en «Prácticas y Aprendizaje»
+
+#### Scenario: Sin experiencia y junior en el mismo título
+- **WHEN** llega «Desarrollador Junior (sin experiencia)» sin años exigidos
+- **THEN** su nivel es `sin_experiencia`, no `junior`
+
+### Requirement: «Sin experiencia» es un nivel propio
+Los términos de «sin experiencia» («sin experiencia», «no requiere experiencia», «primer empleo», «recién egresado», «recién graduado», «nivel de entrada») MUST vivir en un grupo propio, `filtros.nivel.sin_experiencia`, separado de `filtros.nivel.junior`. Apagar el nivel junior MUST NOT apagarlos. Una vacante cuenta como `sin_experiencia` solo si no exige años de experiencia.
+
+#### Scenario: Sin experiencia que exige años
+- **WHEN** llega «Auxiliar de sistemas, sin experiencia en la herramienta» con «mínimo 2 años de experiencia en soporte» en la descripción
+- **THEN** la vacante no es `sin_experiencia` y se rechaza por los años exigidos
+
 ### Requirement: El guardarraíl respeta el nivel pausado
-Cuando el guardarraíl de prácticas saca una vacante de «Prácticas y Aprendizaje» y el nivel junior está pausado, la vacante MUST descartarse con el motivo `nivel_pausado` en lugar de publicarse en su área.
+Cuando el guardarraíl de prácticas saca una vacante de «Prácticas y Aprendizaje» y el nivel junior está pausado, la vacante MUST descartarse con el motivo `nivel_pausado` en lugar de publicarse en su área. El guardarraíl MUST tratar la evidencia de «sin experiencia» en el título como evidencia válida y no sacar la vacante de la categoría.
 
 #### Scenario: Puesto profesional marcado como práctica
 - **WHEN** la IA acepta «Ingeniero IBM Sterling B2B» como práctica, sin evidencia de práctica, con el nivel junior pausado
 - **THEN** la vacante se descarta con el motivo `nivel_pausado`
 
 ### Requirement: Prompt del clasificador según el alcance
-El prompt que recibe la IA MUST describir solo los niveles activos. Con el nivel junior pausado, MUST pedir que se acepten solo prácticas, pasantías, aprendizaje, contrato de aprendizaje y etapa productiva de TI. Un cambio de alcance MUST cambiar la versión del prompt, para que no se reutilicen clasificaciones hechas con otro alcance.
+El prompt que recibe la IA MUST describir solo los niveles activos. Con el nivel junior pausado, MUST pedir que se acepten solo prácticas, pasantías, aprendizaje, contrato de aprendizaje, etapa productiva y vacantes sin experiencia (0 años) de TI. Un cambio de alcance MUST cambiar la versión del prompt, para que no se reutilicen clasificaciones hechas con otro alcance.
 
 #### Scenario: Cambio de alcance
 - **WHEN** el administrador enciende el nivel junior
@@ -77,3 +92,54 @@ Una dudosa con evidencia de práctica en el título MUST esperar a la IA hasta `
 #### Scenario: Vencimiento
 - **WHEN** una práctica dudosa lleva 73 h sin clasificarse
 - **THEN** sale de la cola y queda en los descartes con etapa «vencida»
+
+### Requirement: Nivel de la regla 5 solo en el título o con evidencia fuerte
+La regla de aceptación sin IA MUST aceptar una vacante únicamente si el término de nivel está en el título, o si la descripción trae evidencia fuerte (`filtros.nivel.evidencia_practica_descripcion` o un término de «sin experiencia»). En cualquier otro caso MUST quedar dudosa.
+
+#### Scenario: «Mejores prácticas» en la descripción
+- **WHEN** llega «Desarrollador Java» con «mejores prácticas de desarrollo» en la descripción
+- **THEN** la vacante queda dudosa y no se acepta por reglas
+
+### Requirement: Frases que no indican nivel
+`filtros.frases_ignoradas` MUST incluir «mejores prácticas», «prácticas de desarrollo», «prácticas ágiles» y «equipo junior»: esas frases solas MUST NOT dar nivel. «Auxiliar» MUST dejar de contar como nivel junior y MUST quedar solo como disparador de vacante dudosa.
+
+#### Scenario: Auxiliar con años exigidos
+- **WHEN** llega «Auxiliar de sistemas» con «2 años de experiencia» en la descripción
+- **THEN** la vacante se rechaza por los años exigidos
+
+### Requirement: Detección de años de experiencia en más formas
+La regla de años de experiencia MUST reconocer los años escritos en letra («dos años»), la experiencia en meses (12 o más cuenta como un año o más) y el patrón «Experiencia:» seguido de un salto de línea con el número en la línea siguiente.
+
+#### Scenario: Años en letra
+- **WHEN** la descripción dice «experiencia mínima de dos años en soporte»
+- **THEN** la vacante se rechaza por los años exigidos
+
+#### Scenario: Meses
+- **WHEN** la descripción dice «24 meses de experiencia»
+- **THEN** la vacante se rechaza; con «18 meses» también, y con «6 meses» no
+
+#### Scenario: Número en la línea siguiente
+- **WHEN** la descripción dice «Experiencia:» y el número «2 años» en la línea siguiente
+- **THEN** la vacante se rechaza por los años exigidos
+
+### Requirement: Umbral de experiencia con el nivel junior pausado
+Con el nivel junior pausado, la regla de años MUST rechazar a partir de 1 año de experiencia exigida, en lugar del umbral anterior. MUST aceptar hasta 6 meses y la experiencia descrita como «deseable» u «opcional». En un rango MUST contar el mínimo: «1 a 3 años» se rechaza. Con el nivel activo, MUST regir el umbral anterior.
+
+#### Scenario: Experiencia deseable
+- **WHEN** llega «Aprendiz de soporte» con «6 meses de experiencia deseable» en la descripción
+- **THEN** la vacante no se rechaza por experiencia
+
+#### Scenario: Un año exigido
+- **WHEN** llega «Practicante de sistemas» con «1 año de experiencia» exigido
+- **THEN** la vacante se rechaza por los años exigidos
+
+#### Scenario: Rango
+- **WHEN** la descripción pide «de 1 a 3 años de experiencia»
+- **THEN** la vacante se rechaza
+
+### Requirement: Área y nivel de cada vacante aceptada
+Una vacante aceptada MUST conservar, además de su categoría, el área de TI detectada y su nivel (`practica`, `sin_experiencia`, `junior` u `otro`). Para una práctica, el área MUST detectarse igual que para las demás: «Aprendiz de desarrollo» tiene categoría «Prácticas y Aprendizaje» y área «desarrollo».
+
+#### Scenario: Aprendiz de desarrollo
+- **WHEN** se acepta «Aprendiz de desarrollo de software»
+- **THEN** su categoría es «Prácticas y Aprendizaje», su área es «desarrollo» y su nivel es `practica`

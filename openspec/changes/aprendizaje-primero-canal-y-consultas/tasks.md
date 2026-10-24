@@ -10,9 +10,9 @@
 
   Agregar `dias_descartes` a `config.Estado`. Verificar en `tests/comun/test_estado.py` que una base del esquema anterior con datos migra sin perder filas, que una base nueva nace en el esquema nuevo y que la limpieza borra un descarte de 15 días.
 - [x] 1.2 Agregar `Estado.registrar_descarte(vacante, huella, etapa, motivo, detalle, momento)`, con upsert por clave que sube `veces` y `ultima_vez`. Llamarlo desde `corrida._aplicar` (etapa `reglas`), desde `_clasificar` con las rechazadas por la IA y su motivo (etapa `ia`), desde `_aplicar_guardarrail` (etapa `guardarrail`) y desde las vencidas del clasificador y de la cola de detalle (etapa `vencida`). Nada se escribe en dry-run, seed ni modo prueba. Verificar en `tests/radar/test_buscador.py` que una corrida con una vacante de cada caso deja un registro por etapa, y que la misma vacante en dos corridas deja `veces = 2`.
-- [ ] 1.3 Implementar `buscador.py diagnosticar <url | título>` (design §5): búsqueda por URL normalizada, clave o título en `vistas`, `por_enviar`, `pendientes`, `pendientes_detalle` y `descartes`. Sin coincidencias, mostrar el resumen de `intentos` de los últimos 3 días de la fuente que corresponde al dominio. El comando abre la base en solo lectura. Verificar con pruebas en `tests/radar/test_punto_entrada.py` para «publicada», «descartada por reglas», «pendiente de IA» y «nunca vista».
-- [ ] 1.4 Agregar `diagnosticar --evaluar --titulo … [--empresa --ubicacion --modalidad --descripcion --fuente] [--con-ia]`: veredicto, motivo, categoría, guardarraíl y alcance. Con `--con-ia` se usa un `Estado` en memoria, sin escribir en la caché. Verificar con una prueba que evalúa «Aprendiz SENA Tecnólogo ADSO» y con una prueba con respx de `--con-ia` que no toca `clasificaciones`.
-- [ ] 1.5 Documentar `diagnosticar` en `README.md` (sección de operación), con dos ejemplos. Verificar que los ejemplos corren tal como están escritos contra una copia de `data/vacantes.db`.
+- [x] 1.3 Implementar `buscador.py diagnosticar <url | título>` (design §5): búsqueda por URL normalizada, clave o título en `vistas`, `por_enviar`, `pendientes`, `pendientes_detalle` y `descartes`. Sin coincidencias, mostrar el resumen de `intentos` de los últimos 3 días de la fuente que corresponde al dominio. El comando abre la base en solo lectura. Verificar con pruebas en `tests/radar/test_punto_entrada.py` para «publicada», «descartada por reglas», «pendiente de IA» y «nunca vista».
+- [x] 1.4 Agregar `diagnosticar --evaluar --titulo … [--empresa --ubicacion --modalidad --descripcion --fuente] [--con-ia]`: veredicto, motivo, categoría y guardarraíl (el alcance se agrega en 3.4, cuando exista `alcance.junior`). Con `--con-ia` se usa un `Estado` en memoria, sin escribir en la caché. Verificar con una prueba que evalúa «Aprendiz SENA Tecnólogo ADSO» y con una prueba con respx de `--con-ia` que no toca `clasificaciones`.
+- [x] 1.5 Documentar `diagnosticar` en `README.md` (sección de operación), con dos ejemplos. Verificar que los ejemplos corren tal como están escritos contra una copia de `data/vacantes.db`.
 
 ## 2. Corpus de aprendizaje perdido y corrección de reglas (🔴)
 
@@ -28,19 +28,19 @@
 - [ ] 2.8 H5: agregar `estado.republicar_tras_dias` (30). `Estado.ya_vista` compara la huella solo con las vistas enviadas dentro de esa ventana, y la clave sin límite. Verificar en `test_estado.py` los escenarios «Nueva cohorte de aprendices» y «Copia en otra fuente», y que con 0 queda el comportamiento anterior.
 - [ ] 2.9 Corregir lo que 2.2 haya mostrado fuera de H1–H6, y quitar los `xfail` de 2.3. Si una causa exige otro change (por ejemplo, el detalle de Computrabajo por H7), anotarla en el documento de 2.2 en lugar de implementarla aquí. Verificar que `uv run pytest` pasa completo sin `xfail` en el corpus y que `uv run ruff check` y `uv run ruff format --check` no reportan nada.
 
-## 3. Nivel junior pausado (🟡)
+## 3. Alcance de prácticas y sin experiencia, con junior pausado (🟡)
 
-- [ ] 3.1 Agregar `alcance.junior.activo` (por defecto `false`) a `config.py` y `palabras_clave.junior` como grupo propio. Mover a `palabras_clave.junior` las consultas junior de `cola_larga`: las que tienen «junior», «jr», «entry level» o ningún término de práctica. Dejar en la cola larga solo las de práctica por rol. Agregar al núcleo los términos del spec «El núcleo cubre la jerga del aprendizaje» y quitarlos de la cola larga. Verificar con pruebas en `tests/comun/test_config.py`: sin repetidos entre grupos, toda palabra del núcleo y de la cola larga tiene un término de práctica, y «contrato de aprendizaje» está en el núcleo.
-- [ ] 3.2 Excluir el grupo `junior` de `grupos_cola` y `calcular_lote` con el nivel pausado, conservando su posición en `rotacion`. Usar `seniorities: [no_experience]` en GetOnBoard con el nivel pausado. Verificar en `tests/radar/test_fechas_rotacion.py` que ninguna consulta del lote es `junior` con el nivel pausado y que al activarlo retoma la posición guardada.
+- [ ] 3.1 Agregar `alcance.junior.activo` (por defecto `false`) a `config.py` y `palabras_clave.junior` como grupo propio. Mover a `palabras_clave.junior` las consultas junior de `cola_larga`: las que tienen «junior», «jr», «entry level» o ningún término de práctica. Dejar en la cola larga solo las de práctica por rol. Agregar al núcleo los términos del spec «El núcleo cubre la jerga del aprendizaje» y quitarlos de la cola larga. Agregar consultas de **sin experiencia** de TI al núcleo o a la cola larga («desarrollador sin experiencia», «soporte TI sin experiencia», «primer empleo sistemas»). En `config.yaml`, separar «sin experiencia», «primer empleo», «recién egresado», «recién graduado» y «nivel de entrada» de `filtros.nivel.junior` en un grupo propio, `filtros.nivel.sin_experiencia`. Verificar con pruebas en `tests/comun/test_config.py`: sin repetidos entre grupos, toda palabra del núcleo y de la cola larga tiene un término de práctica o de sin experiencia, «contrato de aprendizaje» está en el núcleo y ningún término está a la vez en `junior` y en `sin_experiencia`.
+- [ ] 3.2 Excluir el grupo `junior` de `grupos_cola` y `calcular_lote` con el nivel pausado, conservando su posición en `rotacion`. Usar `seniorities: [no_experience]` en GetOnBoard con el nivel pausado. Medir con los datos de `descartes` cuántas vacantes de LinkedIn con `f_E=2` llegan a ser prácticas o sin experiencia y, si son pocas, cambiar `linkedin.opciones.f_E` a `"1"` (solo prácticas); si cae la cobertura, volver a `"1,2"` y dejar que filtren la regla y la IA. Verificar en `tests/radar/test_fechas_rotacion.py` que ninguna consulta del lote es `junior` con el nivel pausado y que al activarlo retoma la posición guardada, y en `test_linkedin.py` que `f_E` sigue la configuración.
 - [ ] 3.3 Ajustar los presupuestos para que el núcleo cubra el 75 % en las fuentes sin filtro de nivel (por ejemplo, Magneto `reservado_nucleo: 3`), sin subir ningún presupuesto total. Actualizar la prueba de `test_config.py` que hoy exige el 50 %. Verificar con `uv run buscador.py --dry-run --fuente computrabajo` que hace 6 requests del núcleo y 2 de la cola larga, ninguno junior.
-- [ ] 3.4 Agregar `corrida._aplicar_alcance` después del guardarraíl: con el nivel pausado, todo lo que no sea `PRACTICAS` se descarta con el motivo `nivel_pausado` y se registra en `descartes` (etapa `nivel`). Verificar con los escenarios de «Nivel junior configurable y pausado por defecto» y «El guardarraíl respeta el nivel pausado» en `test_buscador.py`.
-- [ ] 3.5 Agregar el marcador `{alcance}` a `clasificador.prompt_sistema` y `clasificador.textos_alcance.{practicas, junior}` en `config.yaml`, con un texto para solo prácticas y otro para prácticas y junior. `version_prompt` se calcula sobre el prompt ya resuelto. Verificar en `test_clasificador.py` que los dos alcances dan versiones distintas, que con el nivel pausado el prompt no menciona junior y que la configuración falla si falta el marcador.
-- [ ] 3.6 Actualizar `README.md` y los comentarios de `config.yaml`: el canal publica solo prácticas y aprendizaje, y se explica cómo encender junior. Verificar que lo documentado coincide con `config.yaml`.
+- [ ] 3.4 Agregar `Vacante.nivel` (`practica`, `sin_experiencia`, `junior`, `otro`), calculado por `Filtros.nivel_de` según el design §4: una vacante con términos de `sin_experiencia` y sin años exigidos cuenta como `sin_experiencia` aunque también diga «junior». Hacer que `categoria_por_terminos` publique en `PRACTICAS` las de nivel `practica` y `sin_experiencia`. Agregar `corrida._aplicar_alcance` después del guardarraíl: con el nivel pausado, todo lo que no sea `practica` ni `sin_experiencia` se descarta con el motivo `nivel_pausado` y se registra en `descartes` (etapa `nivel`). Mostrar el alcance (nivel y decisión de `_aplicar_alcance`) en `diagnosticar --evaluar`. Verificar con los escenarios de «Nivel junior configurable y pausado por defecto», «Sin experiencia dentro del alcance» y «El guardarraíl respeta el nivel pausado» en `test_buscador.py` y `test_filtros.py`.
+- [ ] 3.5 Agregar el marcador `{alcance}` a `clasificador.prompt_sistema` y `clasificador.textos_alcance.{practicas, junior}` en `config.yaml`, con un texto para «prácticas, aprendizaje y sin experiencia (0 años)» y otro que además incluye junior. `version_prompt` se calcula sobre el prompt ya resuelto. Verificar en `test_clasificador.py` que los dos alcances dan versiones distintas, que con el nivel pausado el prompt menciona «sin experiencia» y no menciona junior, y que la configuración falla si falta el marcador.
+- [ ] 3.6 Actualizar `README.md` y los comentarios de `config.yaml`: el canal publica solo prácticas, aprendizaje y sin experiencia, y se explica cómo encender junior. Verificar que lo documentado coincide con `config.yaml`.
 
 ## 4. DeepSeek verificable (🟡)
 
 - [ ] 4.1 Agregar `clasificador.horas_vencimiento_practicas` (72): una pendiente con evidencia de práctica en el título vence a las 72 h y las demás a las 24 h, como antes. Al vencer, queda en `descartes` con la etapa `vencida`. Verificar con los escenarios de «Las prácticas dudosas esperan más a la IA» en `test_clasificador.py`.
-- [ ] 4.2 Crear `tests/fixtures/clasificador_oro.yaml` con unas 25 dudosas etiquetadas (design §7) e implementar `buscador.py ia --verificar`:
+- [ ] 4.2 Crear `tests/fixtures/clasificador_oro.yaml` con unas 25 dudosas etiquetadas (design §7), incluidos casos de «sin experiencia» y de junior con el nivel pausado e implementar `buscador.py ia --verificar`:
   - saldo;
   - una llamada con el propósito `verificacion` y su tope diario;
   - el porcentaje de aciertos y la lista de errores;
@@ -54,68 +54,28 @@
   - aviso al chat de administración.
 
   Agregar un ejemplo a `simulacion.py`. Verificar con los escenarios de los dos requisitos de `incidentes-reportero` en `test_incidentes.py` y con `uv run buscador.py --simular-incidente ia:clasificador --chat-prueba`.
-- [ ] 4.5 Agregar al resumen diario las métricas de la IA, los descartes por etapa con sus tres motivos principales, las destacadas enviadas y los datos de prácticas perdidas que recibe la IA del resumen (spec `resumen-diario`). Actualizar `resumen.prompt_sistema` para que use esos datos. Verificar con los tres escenarios del spec en `test_resumen.py`.
+- [ ] 4.5 Agregar al resumen diario las métricas de la IA, los descartes por etapa con sus tres motivos principales, el porcentaje de lo publicado por nivel (prácticas, sin experiencia y otro) y los datos de prácticas perdidas que recibe la IA del resumen (spec `resumen-diario`). Actualizar `resumen.prompt_sistema` para que use esos datos. Verificar con los tres escenarios del spec en `test_resumen.py`.
 
-## 5. Vacantes destacadas y formato compacto (🟡)
+## 5. Endurecimiento de reglas (🟡)
 
-- [ ] 5.1 Agregar `publicacion.destacadas` a `config.py` y a `config.yaml` (design §8). Implementar `Filtros.es_destacada(vacante, ahora)`, que devuelve los criterios cumplidos, exponiendo la regla de ciudad base o remoto de `_geografia` como un método público. Verificar con los tres escenarios de «Vacantes destacadas» en `test_filtros.py`.
-- [ ] 5.2 En `formato.py`: `ficha_completa` con la línea de insignias, `ficha_compacta` en dos líneas sin salario, el bloque «⭐ DESTACADAS» al inicio, el encabezado con el conteo de destacadas y el título del bloque repetido al partir el mensaje. Verificar con los escenarios de «Bloque de destacadas al inicio», «Formato compacto para las demás vacantes», «Las destacadas se cuentan en el encabezado» y «El corte de mensajes respeta el bloque de destacadas» en `test_formato.py`, cuidando que ningún mensaje pase de 4.096 unidades.
-- [ ] 5.3 Guardar en `vistas` las columnas `publicada`, `destacada` y `area` al registrar una vacante enviada. Verificar el escenario «Vacante destacada enviada» en `test_publicacion.py`.
-- [ ] 5.4 👤 Revisar en el chat de prueba (`--chat-prueba`) una corrida con destacadas y vacantes normales. Verificar que el dueño aprueba el formato o deja anotados los ajustes en `config.yaml` o en `formato.py` antes del despliegue.
+Causas, halladas en el código, de que hoy se publiquen vacantes con experiencia. Cada cambio se valida contra `tests/fixtures/casos_reales_2026-10.yaml` y contra el corpus del bloque 2, para no perder aprendices al endurecer. Lo que deja de aceptarse queda **dudoso** (va a la IA), no rechazado, salvo el rechazo por años de experiencia exigidos.
 
-## 6. Botón único y selector de vacantes (🟡)
+- [ ] 5.1 E1: la regla 5 de `Filtros._por_titulo` acepta sin IA solo si la palabra de nivel está en el título o hay evidencia fuerte en la descripción (`evidencia_practica_descripcion` o «sin experiencia»). Si no, la vacante queda dudosa. Verificar con el escenario «Nivel solo en la descripción» en `test_filtros.py` («Desarrollador Java» con «mejores prácticas» en la descripción queda dudosa) y sin regresión en `test_casos_reales.py`.
+- [ ] 5.2 E2 y E3 en `config.yaml`: quitar `auxiliar` de `filtros.nivel.junior` (queda solo como disparador de dudosa) y agregar a `frases_ignoradas` «mejores prácticas», «prácticas de desarrollo», «prácticas ágiles» y «equipo junior». Verificar con los escenarios «Auxiliar sin práctica» (con 2 años en la descripción se rechaza) y «Frases que no son nivel».
+- [ ] 5.3 E4: `Filtros._anios_excesivos` detecta los años escritos en letra («dos años»), en meses (≥ 12) y «Experiencia:» seguido de un salto de línea con el número en la línea siguiente. Verificar con una prueba por variante en `test_filtros.py`.
+- [ ] 5.4 E5: con `alcance.junior.activo: false`, el umbral de experiencia excluida baja a 1 año (`anios_experiencia_excluidos_desde` condicionado al alcance). Se aceptan hasta 6 meses y la experiencia «deseable» u «opcional; en un rango cuenta el mínimo («1 a 3 años» se rechaza). Verificar con los escenarios «Experiencia deseable» (6 meses pasa) y «Un año exigido» (se rechaza), y que con el nivel activo el umbral anterior no cambia.
+- [ ] 5.5 E6: conservar el área de las prácticas y el nivel. Agregar `Vacante.area`, calculada con `categoria_por_area` también para las prácticas («Aprendiz de desarrollo» → categoría `practicas`, área `desarrollo`), y el `nivel` de 3.4. Guardar `area` y `nivel` en `vistas` al registrar una vacante enviada (columna `nivel` nueva, migración aditiva) y exponer el área por `vistas.area`. Verificar con los escenarios «Área de una práctica» y «Nivel de una vacante» en `test_filtros.py` y `test_publicacion.py`.
+- [ ] 5.6 Verificar el bloque completo: `uv run pytest tests/radar/test_filtros.py tests/radar/test_casos_reales.py` en verde, con el corpus del bloque 2 sin `xfail` y ningún aprendiz del corpus que pase de publicable a rechazado.
 
-- [ ] 6.1 Hacer que `NotificadorBotAPI.enviar_mensaje` acepte botones `url:`. En `publicacion.py`, reemplazar los botones por vacante por un solo botón URL `t.me/<bot>?start=l_<id_lote>`, con el texto del spec, y guardar el lote en `lotes_canal` solo al confirmarse el envío. Sin asistente activo, no hay botón. Verificar con los escenarios de «Un solo botón de postulación por mensaje del canal» y de «Lote de cada mensaje publicado» en `test_publicacion.py` y `test_notificador.py`.
-- [ ] 6.2 Agregar `Indice.resolver_lote(id_lote, ahora)` en `asistente/vacantes.py`: lee `lotes_canal` en solo lectura, indexa las claves que falten y devuelve las vacantes en orden, o `None` si el lote venció. Verificar con pruebas en `tests/asistente/test_datos.py` o en un archivo nuevo `test_vacantes.py`.
-- [ ] 6.3 Crear `asistente/selector.py`, con lógica pura: páginas de 6, texto numerado, ⭐ y ✅, y botones `sel:`, `selpag:` y `selx`. Su estado vive en `kv`. Verificar con pruebas unitarias del escenario «Lote de nueve vacantes» y de las marcas ⭐ y ✅.
-- [ ] 6.4 Conectar el selector en la conversación:
-  - `al_iniciar` reconoce `l_<id>`, guarda el lote pendiente durante el alta y lo muestra al terminarla;
-  - `sel:` llama a `procesar_toque(..., origen="selector")`;
-  - `pv:` y `v_` siguen funcionando.
+## 6. Verificación integrada en producción
 
-  Si `dividir-conversacion-asistente` ya se aplicó, usar su registro `@boton`. Verificar con los escenarios de «El botón abre el bot en privado con el lote del mensaje», «Elegir una vacante sigue el flujo de postulación existente», «El lote sobrevive al registro» y «Compatibilidad con los botones ya publicados» en `tests/asistente/test_bot.py`.
-- [ ] 6.5 Actualizar `asistente/textos.py` (`AYUDA`) y `docs/asistente/guia-usuario.md` con el botón único y el selector. Verificar que la guía describe el flujo tal como lo muestran las pruebas de 6.4.
-
-## 7. Consultas desde el bot asistente (🔴)
-
-> Tarea pesada: recomendar sesión nueva antes de empezarla y al terminarla.
-
-- [ ] 7.1 Migrar `asistente.db` al esquema 3: columnas `ubicacion`, `modalidad`, `publicada`, `destacada` y `area` en `vacantes`. `Indice.indexar` las copia de `vistas`. Verificar en `tests/asistente/test_datos.py` la migración desde el esquema 2 y que una vacante indexada trae los datos nuevos.
-- [ ] 7.2 Crear `asistente/consultas.py`, con lógica pura:
-  - el dataclass `ConsultaVacantes`;
-  - la validación pydantic con la lista cerrada de campos y valores;
-  - la consulta SQL parametrizada sobre `vacantes`, ordenada con las destacadas primero y luego por fecha;
-  - el alcance de los datos: solo el canal real, dentro de la retención y sin descartadas.
-
-  Verificar con pruebas de cada filtro, de su combinación y de los escenarios «Vacante descartada» y «Sin resultados».
-- [ ] 7.3 Implementar la tarjeta de filtros y los resultados en la conversación:
-  - `/buscar` y el botón «🔎 Buscar vacantes»;
-  - la tarjeta editable con el contador;
-  - «Limpiar filtros» y el junior pausado;
-  - los resultados con el selector de 6.3, en el modo `consulta`.
-
-  Verificar con los escenarios de «Punto de entrada de las consultas», «Tarjeta de filtros con botones», «Nivel junior pausado en las consultas» y «Resultados paginados con postulación» en `test_bot.py`.
-- [ ] 7.4 Implementar `/buscar <frase>`:
-  - limpieza de la frase (200 caracteres, sin correos, teléfonos ni documentos);
-  - llamada a DeepSeek con el cliente HTTP del radar y un prompt corto en `asistente.consultas.prompt_sistema`;
-  - validación de la respuesta;
-  - topes `ia_usuario_dia` (5) e `ia_servidor_dia` (200) contados en `asistente.db`;
-  - búsqueda literal en el título y la empresa cuando no hay IA, con aviso.
-
-  Verificar con respx los escenarios de «Búsqueda con las palabras del usuario», «Búsqueda por texto cuando la IA no está disponible» y «La frase del usuario no lleva datos personales a la IA».
-- [ ] 7.5 Agregar `/buscar` a `AYUDA` y a `docs/asistente/guia-usuario.md`, con un aviso breve de que la frase se procesa con DeepSeek y sin datos personales. Verificar que la guía y `textos.py` coinciden.
-
-## 8. Verificación integrada en producción
-
-- [ ] 8.1 👤 Desplegar en el Fedora (`git pull`, reinicio de `buscador-asistente`) y revisar el canal, el bot y el resumen diario durante 3 días. Verificar que:
-  - no llegan vacantes junior;
-  - los mensajes tienen un solo botón y el selector funciona desde el móvil;
-  - las destacadas aparecen al inicio;
-  - `/buscar` responde con y sin IA;
-  - el resumen muestra los descartes por etapa y las métricas de DeepSeek.
-- [ ] 8.2 Con los datos de 3 días de `descartes`, comparar las vacantes de prácticas enviadas por día frente a la semana anterior al change, y revisar los 20 descartes más frecuentes con evidencia de práctica en el título. Entregar el resultado al dueño y anotar en `docs/radar/diagnostico-aprendizaje-perdido.md` los ajustes que queden pendientes.
+- [ ] 6.1 👤 Desplegar en el Fedora (`git pull`) y revisar el canal, el bot y el resumen diario durante 3 días. Verificar que:
+  - no llegan vacantes junior ni que pidan 1 año o más de experiencia, comprobado con `vistas` y `descartes`;
+  - al menos el 95 % de lo publicado es práctica o sin experiencia, según el resumen diario;
+  - el resumen muestra los descartes por etapa, las métricas de DeepSeek y el porcentaje por nivel.
+- [ ] 6.2 Con los datos de 3 días de `descartes`, comparar las vacantes de prácticas enviadas por día frente a la semana anterior al change, y revisar los 20 descartes más frecuentes con evidencia de práctica en el título. Entregar el resultado al dueño y anotar en `docs/radar/diagnostico-aprendizaje-perdido.md` los ajustes que queden pendientes.
 
 ## Workflow follow-up
 
 - Archivar este change después de `crear-buscador-vacantes`, `filtro-vacantes-limpias` y `linkedin-detalle-vacantes`: sus deltas usan `ADDED` sobre capacidades que nacen al archivarlos.
-- Si `dividir-conversacion-asistente` se aplica antes del bloque 6, actualizar las rutas de las tareas 6.4 y 7.3 al paquete nuevo.
+- Los bloques de botón único, selector y `/buscar` (antes 6 y 7) viven ahora en `selector-y-consultas-asistente`, y las vacantes destacadas (antes bloque 5) las reemplaza la fase 2 del plan de mejora (`visibilidad-area-y-fecha`).

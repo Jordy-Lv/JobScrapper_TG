@@ -34,7 +34,7 @@ from buscador_vacantes.comun.fechas import ZONA
 from buscador_vacantes.comun.lock import CorridaActiva, Lock
 from buscador_vacantes.comun.modelo import Vacante, Veredicto
 from buscador_vacantes.comun.normalizar import huella
-from buscador_vacantes.radar import rotacion
+from buscador_vacantes.radar import diagnostico, rotacion
 from buscador_vacantes.radar.clasificador import Clasificador, Dudosa
 from buscador_vacantes.radar.detalle import recortar_descripcion
 from buscador_vacantes.radar.filtros import Evaluacion, Filtros, Motivo
@@ -837,6 +837,35 @@ def construir_parser() -> argparse.ArgumentParser:
         "promover-prueba",
         help="al pasar a producción, marca como enviadas las vacantes de la fase de prueba",
     )
+    diagnosticar_p = sub.add_parser(
+        "diagnosticar",
+        help="explica qué pasó con una vacante: se buscó, llegó, se publicó o se descartó",
+    )
+    diagnosticar_p.add_argument(
+        "consulta", nargs="?", help="enlace de la oferta, clave de la fuente o título"
+    )
+    diagnosticar_p.add_argument(
+        "--evaluar",
+        action="store_true",
+        help="en lugar de buscar, evalúa con las reglas vigentes una vacante descrita con "
+        "--titulo y las demás opciones",
+    )
+    diagnosticar_p.add_argument("--titulo", help="con --evaluar: título de la vacante")
+    diagnosticar_p.add_argument("--empresa", default="", help="con --evaluar: empresa")
+    diagnosticar_p.add_argument("--ubicacion", help="con --evaluar: ubicación")
+    diagnosticar_p.add_argument("--modalidad", help="con --evaluar: Presencial, Híbrido o Remoto")
+    diagnosticar_p.add_argument("--descripcion", help="con --evaluar: descripción de la oferta")
+    diagnosticar_p.add_argument(
+        "--fuente-vacante",
+        dest="fuente_vacante",
+        default="manual",
+        help="con --evaluar: fuente de la vacante (cuenta para la regla de ubicación)",
+    )
+    diagnosticar_p.add_argument(
+        "--con-ia",
+        action="store_true",
+        help="con --evaluar: si las reglas dudan, consulta a DeepSeek sin guardar la caché",
+    )
     asistente_cli.agregar_subcomandos(sub)
     return parser
 
@@ -865,6 +894,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.simular_incidente:
         return _simular(args)
+    if args.comando == "diagnosticar":
+        return _diagnosticar(args)
     if args.comando == "asistente":
         # El asistente es otro servicio: no toma el lock de las corridas del buscador
         return asistente_cli.ejecutar(args)
@@ -916,6 +947,61 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         log.warning("%s; esta ejecución termina sin hacer requests", exc)
         return 0
+
+
+def _diagnosticar(args: argparse.Namespace) -> int:
+    """Solo lee la base: no toma el lock de las corridas ni escribe nada."""
+    if args.evaluar == bool(args.consulta) or (args.evaluar and not args.titulo):
+        print(
+            "Uso: diagnosticar <enlace | título>  o  diagnosticar --evaluar --titulo <título> "
+            "[--empresa --ubicacion --modalidad --descripcion --fuente-vacante --con-ia]",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        config = cfg.cargar_configuracion(args.config)
+        secretos = cfg.cargar_secretos(config, args.env, exigir_envio=False, exigir_salud=False)
+    except cfg.ErrorConfiguracion as exc:
+        print(f"Error de configuración:\n{exc}", file=sys.stderr)
+        return 2
+    if args.evaluar:
+        return _evaluar(args, config, secretos)
+    ruta = _ruta(cfg.RAIZ, config.rutas.base_datos)
+    if not ruta.is_file():
+        print(f"No existe la base de estado en {ruta}", file=sys.stderr)
+        return 1
+    cx = diagnostico.abrir_solo_lectura(ruta)
+    try:
+        resultado = diagnostico.diagnosticar(cx, args.consulta, ahora_utc())
+    finally:
+        cx.close()
+    print(diagnostico.formatear(resultado))
+    return 0
+
+
+def _evaluar(args: argparse.Namespace, config: cfg.Configuracion, secretos: cfg.Secretos) -> int:
+    """Evalúa una vacante a mano. La IA usa un Estado en memoria: la caché real no se toca."""
+    filtros = Filtros(config.filtros)
+    vacante = diagnostico.vacante_manual(
+        args.titulo, empresa=args.empresa, ubicacion=args.ubicacion, modalidad=args.modalidad,
+        descripcion=args.descripcion, fuente=args.fuente_vacante,
+    )  # fmt: skip
+    ahora = ahora_utc()
+    if not args.con_ia:
+        print(diagnostico.evaluar(filtros, vacante, ahora))
+        return 0
+    if not secretos.deepseek_api_key:
+        print("Falta DEEPSEEK_API_KEY en el .env para usar --con-ia", file=sys.stderr)
+        return 2
+    memoria = Estado.abrir(":memory:")
+    ia = ClienteIA(config.ia, secretos.deepseek_api_key, memoria, secretos=secretos.valores())
+    try:
+        clasificador = Clasificador(config.clasificador, ia, memoria, filtros)
+        print(diagnostico.evaluar(filtros, vacante, ahora, clasificador=clasificador))
+    finally:
+        ia.cerrar()
+        memoria.cerrar()
+    return 0
 
 
 def _simular(args: argparse.Namespace) -> int:
