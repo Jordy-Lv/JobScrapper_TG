@@ -155,6 +155,12 @@ def _respaldo(card: Card) -> list[str]:
     if motivo == "sin_navegador":
         lineas.append("Falta vincular tu navegador.")
     lineas.append(f"No puedo postularla sola: {t.e(t.MOTIVOS_RESPALDO.get(motivo, motivo))}.")
+    if motivo == "sin_ia":
+        lineas.append("Con tu clave de IA puedo seguir sola en estos formularios.")
+    if motivo == "nivel_ahorro":
+        lineas.append(
+            "Con el nivel Normal o Máximo (/ia nivel) puedo seguir sola en estos formularios."
+        )
     return lineas
 
 
@@ -391,6 +397,8 @@ def botones(card: Card, d: Datos, cb: Cb) -> Botones | None:
                 acciones.insert(0, ("Ver vacante", f"url:{d.url}"))
             if card.motivo == "sin_navegador":
                 acciones.insert(0, ("Vincular navegador", cb("vincular")))
+            if card.motivo == "sin_ia":
+                acciones.insert(0, ("Configurar IA", cb("clave", "nueva")))
             filas += _filas(acciones)
             filas += _seguimiento(d, SEGUIMIENTO_RESPALDO, cb)
         case "cerrada":

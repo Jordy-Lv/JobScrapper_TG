@@ -23,6 +23,12 @@ from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa:
 from buscador_vacantes.asistente.cola import Cola, E  # noqa: E402
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal  # noqa: E402
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
+from buscador_vacantes.asistente.pantalla import (  # noqa: E402
+    AccionPagina,
+    AccionReparacion,
+    DecisionPagina,
+    Reparacion,
+)
 from buscador_vacantes.asistente.preferencias import Preferencias  # noqa: E402
 from buscador_vacantes.asistente.respuestas import Origen, Respuesta  # noqa: E402
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
@@ -47,6 +53,10 @@ class NucleoFalso:
         self.faltan = False
         self.revisar = False
         self.preguntas = []
+        self.arbitro = None  # función Consulta → DecisionPagina; None simula «sin IA»
+        self.consultas: list = []
+        self.reparador = None  # función ConsultaReparacion → Reparacion; None: «sin IA»
+        self.reparaciones: list = []
         self.demora_resolver: timedelta | None = None
         self.eventos_vigilar: list = []
         self.cv = tmp_path / "CV_Ana_Perez.pdf"
@@ -87,8 +97,17 @@ class NucleoFalso:
             return ResultadoFormulario(revisar=True)
         if self.faltan:
             return ResultadoFormulario(faltan=[Respuesta(preguntas[0], falta=True)])
-        respuestas = [Respuesta(p, valor="Sí", origen=Origen.PERFIL) for p in preguntas]
+        respuestas = [Respuesta(p, valor="Sí", origen=Origen.PERFIL) for p in preguntas
+                      if p.tipo != "archivo"]  # el CV lo adjunta la extensión
         return ResultadoFormulario(respuestas=respuestas, cv=self.cv)
+
+    async def arbitrar_pantalla(self, postulacion, consulta):
+        self.consultas.append(consulta)
+        return self.arbitro(consulta) if self.arbitro else None  # None: sin IA
+
+    async def reparar_pantalla(self, postulacion, consulta):
+        self.reparaciones.append(consulta)
+        return self.reparador(consulta) if self.reparador else None
 
     async def notificar(self, evento):
         self.eventos.append(evento)
@@ -349,6 +368,383 @@ def test_formulario_largo_no_deja_la_postulacion_como_navegador_cerrado(entorno,
     assert len(pasos) == 1 and pasos[0]["detalle"].endswith(" s")
 
 
+def test_formulario_acepta_el_esquema_ampliado_de_la_extension_nueva(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    campo = {"texto": "Ciudad", "ayuda": "Donde vives", "autocomplete": "address-level2",
+             "accept": None, "idioma": "es", "busqueda": True}  # fmt: skip
+    r = cliente.post(f"/api/v1/postulaciones/{p.id}/formulario", headers=cab,
+                     json={"campos": [campo]})  # fmt: skip
+    assert r.status_code == 200 and r.json()["respuestas"][0]["indice"] == 0
+
+
+def test_formulario_pasa_el_esquema_ampliado_a_las_preguntas(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    campo = {"texto": "First Name", "ayuda": "Como en tu cédula", "autocomplete": "given-name",
+             "accept": ".pdf", "idioma": "en", "busqueda": True}  # fmt: skip
+    cliente.post(f"/api/v1/postulaciones/{p.id}/formulario", headers=cab, json={"campos": [campo]})
+    [q] = nucleo.preguntas
+    assert (q.ayuda, q.autocomplete, q.accept, q.idioma, q.busqueda) == (
+        "Como en tu cédula", "given-name", ".pdf", "en", True,
+    )  # fmt: skip
+
+
+# --- /pantalla: decisión de cada pantalla del bucle genérico ---------------------------------
+
+
+def boton(indice, texto, clase=None, **extra):
+    return {"indice": indice, "texto": texto, "clase": clase, "oauth": False, "tipo": "button",
+            "en_contenedor": True, **extra}  # fmt: skip
+
+
+def pantalla(clase="formulario", **extra):
+    base = {"numero": 1, "clase": clase, "motivo": None, "idioma": "es", "url": "https://x.co/a",
+            "campos": [], "botones": [], "sugerido": None, "firma": [],
+            "resumen": {"elementos": [], "encabezados": [], "avisos": []},
+            "exito": None, "correccion": False}  # fmt: skip
+    return {**base, **extra}
+
+
+def en_curso(nucleo, cliente, nivel=None):
+    """Postulación en curso; `nivel` es el de IA del usuario al encolar (por defecto, Normal)."""
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    if nivel:
+        nucleo.preferencias.fijar_nivel_ia(1, nivel)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    return p, cab
+
+
+def decidir(cliente, p, cab, cuerpo):
+    return cliente.post(f"/api/v1/postulaciones/{p.id}/pantalla", headers=cab, json=cuerpo)
+
+
+def test_pantalla_decide_por_reglas_sin_llamar_a_la_ia(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    cuerpo = pantalla(
+        campos=[{"texto": "First name", "autocomplete": "given-name"},
+                {"texto": "Resume", "tipo": "archivo", "accept": ".pdf"}],
+        botones=[boton(0, "Cancelar", "nunca"), boton(1, "Submit application", "enviar")],
+        sugerido={"indice": 1, "accion": "enviar"},
+    )  # fmt: skip
+    r = decidir(cliente, p, cab, cuerpo)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["esperar_usuario"] is False
+    assert d["accion"] == {"tipo": "enviar", "indice": 1}
+    assert [x["indice"] for x in d["respuestas"]] == [0]  # el archivo lo adjunta el CV
+    assert d["cv_nombre"] == "CV_Ana_Perez.pdf" and d["documentos"] == {}
+    assert cliente.get(d["cv_url"], headers=cab).content == b"%PDF-1.4 cv"
+    assert nucleo.consultas == []  # el árbitro no entró
+    assert [q.tipo for q in nucleo.preguntas] == ["texto", "archivo"]
+
+
+def test_pantalla_el_idioma_de_la_pagina_llega_a_los_campos_que_no_traen_el_suyo(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    campos = [{"texto": "First Name", "autocomplete": "given-name"},
+              {"texto": "Ciudad", "idioma": "es"}]  # fmt: skip
+    decidir(cliente, p, cab, pantalla(idioma="en", campos=campos))
+    assert [q.idioma for q in nucleo.preguntas] == ["en", "es"]
+    assert nucleo.preguntas[0].autocomplete == "given-name"
+
+
+def test_pantalla_sin_campo_de_archivo_no_ofrece_el_cv(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    cuerpo = pantalla(campos=[{"texto": "Ciudad"}], botones=[boton(0, "Siguiente", "avanzar")],
+                      sugerido={"indice": 0, "accion": "avanzar"})  # fmt: skip
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert d["cv_url"] is None and d["cv_nombre"] is None
+    assert d["accion"] == {"tipo": "avanzar", "indice": 0}
+
+
+def test_pantalla_intermedia_avanza_sin_resolver_campos(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    cuerpo = pantalla("intermedia", botones=[boton(0, "Apply now", "intermedia")],
+                      sugerido={"indice": 0, "accion": "avanzar"})  # fmt: skip
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert d["respuestas"] == [] and d["accion"] == {"tipo": "avanzar", "indice": 0}
+    assert nucleo.preguntas == []
+
+
+def test_pantalla_la_clase_del_boton_manda_sobre_lo_sugerido(entorno):
+    """Solo un botón `enviar` registra el envío; si la extensión sugiere avanzar sobre uno, el
+    servidor lo trata como enviar, y un botón `nunca` no se pulsa aunque venga sugerido."""
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    cuerpo = pantalla(botones=[boton(0, "Enviar solicitud", "enviar")],
+                      sugerido={"indice": 0, "accion": "avanzar"})  # fmt: skip
+    assert decidir(cliente, p, cab, cuerpo).json()["accion"] == {"tipo": "enviar", "indice": 0}
+    cuerpo = pantalla(botones=[boton(0, "Continuar con Google", "nunca", oauth=True)],
+                      sugerido={"indice": 0, "accion": "avanzar"})  # fmt: skip
+    assert decidir(cliente, p, cab, cuerpo).json()["accion"] == {"tipo": "respaldo",
+                                                                 "motivo": "sin_ia"}  # fmt: skip
+
+
+def test_pantalla_pregunta_al_usuario_lo_que_falta(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.faltan = True
+    cuerpo = pantalla(campos=[{"texto": "¿Licencia de conducción?"}],
+                      botones=[boton(0, "Enviar", "enviar")],
+                      sugerido={"indice": 0, "accion": "enviar"})  # fmt: skip
+    assert decidir(cliente, p, cab, cuerpo).json() == {"esperar_usuario": True}
+    assert nucleo.cola.obtener(p.id).estado == E.ESPERANDO_USUARIO
+
+
+def test_pantalla_revision_de_respuestas_libera_la_postulacion(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.revisar = True
+    cuerpo = pantalla(campos=[{"texto": "¿Por qué te interesa?"}])
+    assert decidir(cliente, p, cab, cuerpo).json() == {"esperar_usuario": True}
+    assert nucleo.cola.obtener(p.id).estado == E.ESPERANDO_USUARIO
+
+
+def test_pantalla_de_exito_y_de_barrera_no_llaman_a_la_ia(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    d = decidir(cliente, p, cab, pantalla("exito", exito={"senal": "texto", "texto": "Gracias"}))
+    assert d.json()["accion"] == {"tipo": "exito", "texto": "Gracias"}
+    d = decidir(cliente, p, cab, pantalla("barrera", motivo="captcha"))
+    assert d.json()["accion"] == {"tipo": "respaldo", "motivo": "captcha"}
+    assert nucleo.consultas == []
+
+
+def arbitro_con(clase, *acciones, motivo=""):
+    return lambda consulta: DecisionPagina(
+        clase=clase, acciones=[AccionPagina(accion=a, indice=i) for a, i in acciones], motivo=motivo
+    )
+
+
+def test_pantalla_desconocida_la_decide_el_arbitro(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.arbitro = arbitro_con("intermedia", ("avanzar", 1))
+    cuerpo = pantalla(
+        "desconocida", url="https://empresa.co/jobs/1",
+        botones=[boton(0, "Compartir"), boton(1, "Quick apply")],
+        resumen={"elementos": [{"indice": 0, "rol": "button", "texto": "Quick apply"}],
+                 "encabezados": ["Backend Engineer"], "avisos": []},
+    )  # fmt: skip
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert d["accion"] == {"tipo": "avanzar", "indice": 1} and d["respuestas"] == []
+    (consulta,) = nucleo.consultas
+    peticion = consulta.peticion
+    assert peticion.clase == "desconocida" and peticion.resumen.encabezados == ["Backend Engineer"]
+    assert [b.texto for b in peticion.botones] == ["Compartir", "Quick apply"]
+    pasos = nucleo.base.cx.execute(
+        "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? AND paso = 'arbitro'",
+        (p.id,),
+    ).fetchall()
+    assert len(pasos) == 1
+
+
+def test_pantalla_con_campos_y_boton_dudoso_llena_por_reglas_y_el_arbitro_elige_el_boton(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.arbitro = arbitro_con("formulario", ("enviar", 0))
+    cuerpo = pantalla(campos=[{"texto": "Ciudad"}], botones=[boton(0, "Apply"), boton(1, "Back")])
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert [x["indice"] for x in d["respuestas"]] == [0]
+    assert d["accion"] == {"tipo": "enviar", "indice": 0}  # botón sin clase: vale lo del árbitro
+
+
+@pytest.mark.parametrize(
+    ("veredicto", "esperada"),
+    [
+        (arbitro_con("intermedia", ("avanzar", 7)), {"tipo": "respaldo",
+                                                      "motivo": "pantalla_desconocida"}),
+        (arbitro_con("intermedia", ("enviar", 0)), {"tipo": "respaldo",
+                                                     "motivo": "pantalla_desconocida"}),
+        (arbitro_con("intermedia", ("avanzar", 1)), {"tipo": "enviar", "indice": 1}),
+        (arbitro_con("intermedia", ("avanzar", 2)), {"tipo": "avanzar", "indice": 2}),
+        (arbitro_con("intermedia", ("esperar", None)), {"tipo": "esperar", "ms": 1500}),
+        (arbitro_con("barrera"), {"tipo": "respaldo", "motivo": "barrera"}),
+        (arbitro_con("desconocida"), {"tipo": "respaldo", "motivo": "pantalla_desconocida"}),
+        (arbitro_con("exito", motivo=" Gracias  por postular "),
+         {"tipo": "exito", "texto": "Gracias por postular"}),
+    ],
+)  # fmt: skip
+def test_pantalla_el_arbitro_solo_actua_dentro_de_la_lista_cerrada(entorno, veredicto, esperada):
+    """Índice inexistente o de un botón `nunca`: se descarta. La clase del botón manda sobre la
+    acción que pida el árbitro."""
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.arbitro = veredicto
+    botones = [boton(0, "Continuar con Google", "nunca", oauth=True),
+               boton(1, "Enviar solicitud", "enviar"), boton(2, "Siguiente")]  # fmt: skip
+    d = decidir(cliente, p, cab, pantalla("desconocida", botones=botones))
+    assert d.json()["accion"] == esperada
+
+
+def test_pantalla_sin_ia_va_a_respaldo(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    d = decidir(cliente, p, cab, pantalla("desconocida", botones=[boton(0, "Quick apply")]))
+    assert d.json()["accion"] == {"tipo": "respaldo", "motivo": "sin_ia"}
+    assert len(nucleo.consultas) == 1
+
+
+def test_pantalla_tope_de_llamadas_al_arbitro_por_postulacion(entorno):
+    nucleo, cliente = entorno
+    nucleo.config.motor_generico.max_arbitro = 2
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.arbitro = arbitro_con("intermedia", ("avanzar", 0))
+    cuerpo = pantalla("desconocida", botones=[boton(0, "Quick apply")])
+    acciones = [decidir(cliente, p, cab, cuerpo).json()["accion"] for _ in range(3)]
+    assert acciones[:2] == [{"tipo": "avanzar", "indice": 0}] * 2
+    assert acciones[2] == {"tipo": "respaldo", "motivo": "tope_arbitro"}
+    assert len(nucleo.consultas) == 2
+
+
+def test_pantalla_en_ahorro_no_consulta_al_arbitro_y_va_a_respaldo_nivel_ahorro(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente, "ahorro")
+    nucleo.arbitro = arbitro_con("intermedia", ("avanzar", 0))
+    cuerpo = pantalla("desconocida", botones=[boton(0, "Quick apply")])
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert d["accion"] == {"tipo": "respaldo", "motivo": "nivel_ahorro"}
+    assert nucleo.consultas == []
+    # Lo que las reglas deciden sigue funcionando en Ahorro: el nivel solo quita llamadas a la IA
+    por_reglas = pantalla(botones=[boton(1, "Submit application", "enviar")],
+                          sugerido={"indice": 1, "accion": "enviar"})  # fmt: skip
+    assert decidir(cliente, p, cab, por_reglas).json()["accion"] == {"tipo": "enviar", "indice": 1}
+
+
+@pytest.mark.parametrize(("nivel", "tope"), [("normal", 3), ("maximo", 6)])
+def test_pantalla_tope_del_arbitro_segun_el_nivel(entorno, nivel, tope):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente, nivel)
+    nucleo.arbitro = arbitro_con("intermedia", ("avanzar", 0))
+    cuerpo = pantalla("desconocida", botones=[boton(0, "Quick apply")])
+    acciones = [decidir(cliente, p, cab, cuerpo).json()["accion"] for _ in range(tope + 1)]
+    assert acciones[:tope] == [{"tipo": "avanzar", "indice": 0}] * tope
+    assert acciones[tope] == {"tipo": "respaldo", "motivo": "tope_arbitro"}
+    assert len(nucleo.consultas) == tope
+
+
+def test_el_tope_de_motor_generico_manda_sobre_el_del_nivel(entorno):
+    nucleo, cliente = entorno
+    nucleo.config.motor_generico.max_arbitro = 1  # por debajo de lo que permite Máximo
+    p, cab = en_curso(nucleo, cliente, "maximo")
+    nucleo.arbitro = arbitro_con("intermedia", ("avanzar", 0))
+    cuerpo = pantalla("desconocida", botones=[boton(0, "Quick apply")])
+    acciones = [decidir(cliente, p, cab, cuerpo).json()["accion"] for _ in range(2)]
+    assert acciones[1] == {"tipo": "respaldo", "motivo": "tope_arbitro"}
+    assert len(nucleo.consultas) == 1
+
+
+def test_cambiar_el_nivel_no_afecta_a_la_postulacion_en_curso(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente, "maximo")
+    nucleo.preferencias.fijar_nivel_ia(1, "ahorro")  # después de encolar
+    nucleo.reparador = reparacion_con(("avanzar", 1))
+    assert reparar(cliente, p, cab).json()["accion"] is None  # sigue en Máximo
+    assert reparar(cliente, p, cab).json()["accion"] is None
+    assert len(nucleo.reparaciones) == 2
+
+
+def test_postulacion_anterior_al_esquema_6_corre_en_normal_y_no_en_el_nivel_del_usuario(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente, "maximo")
+    with nucleo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET nivel_ia = NULL WHERE id = ?", (p.id,))
+    nucleo.reparador = reparacion_con(("avanzar", 1))
+    assert reparar(cliente, p, cab).json()["accion"] is None
+    assert reparar(cliente, p, cab).json()["accion"]["motivo"] == "tope_reparaciones"  # Normal: 1
+
+
+def pasos_de(nucleo, p, paso):
+    filas = nucleo.base.cx.execute(
+        "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? AND paso = ?",
+        (p.id, paso),
+    ).fetchall()
+    return [f["detalle"] for f in filas]
+
+
+def test_la_bajada_por_cuota_deja_el_paso_nivel_bajado_una_sola_vez(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente, "maximo")
+    cuerpo = pantalla("desconocida", botones=[boton(0, "Quick apply")])
+    assert pasos_de(nucleo, p, "nivel_bajado") == []
+
+    def arbitro_sin_cuota(consulta):
+        # lo que hace ClienteIA cuando se agota la cuota del modelo de Máximo
+        nucleo.preferencias.bajar_nivel(1, "normal", nucleo.momento)
+        return DecisionPagina(
+            clase="intermedia", acciones=[AccionPagina(accion="avanzar", indice=0)]
+        )
+
+    nucleo.arbitro = arbitro_sin_cuota
+    decidir(cliente, p, cab, cuerpo)
+    decidir(cliente, p, cab, cuerpo)
+    assert pasos_de(nucleo, p, "nivel_bajado") == ["maximo>normal"]
+    # El tope ya es el de Normal (3 consultas del árbitro): la 4.ª no se hace
+    for _ in range(3):
+        decidir(cliente, p, cab, cuerpo)
+    assert len(nucleo.consultas) == 3
+
+
+def test_la_bajada_vence_al_dia_siguiente(entorno):
+    nucleo, cliente = entorno
+    nucleo.preferencias.bajar_nivel(1, "ahorro", T0)
+    assert nucleo.preferencias.nivel_efectivo(1, "maximo", T0) == "ahorro"
+    assert nucleo.preferencias.nivel_efectivo(1, "normal", T0) == "ahorro"
+    assert nucleo.preferencias.nivel_efectivo(1, "ahorro", T0) == "ahorro"
+    manana = T0 + timedelta(days=1)
+    assert nucleo.preferencias.nivel_efectivo(1, "maximo", manana) == "maximo"
+    assert nucleo.preferencias.nivel_efectivo(1, None, manana) == "normal"
+    # Una bajada no sube un nivel que ya estaba más bajo
+    nucleo.preferencias.bajar_nivel(1, "normal", T0)
+    assert nucleo.preferencias.nivel_bajado(1, T0) == "ahorro"
+
+
+def test_pantalla_con_el_motor_apagado_o_sin_estar_en_curso(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.config.motor_generico.activo = False
+    assert decidir(cliente, p, cab, pantalla()).status_code == 404
+    nucleo.config.motor_generico.activo = True
+    nucleo.cola.esperar_usuario(p.id, 1, T0)
+    assert decidir(cliente, p, cab, pantalla()).status_code == 409
+
+
+def test_pantalla_no_es_de_otro_usuario(entorno):
+    nucleo, cliente = entorno
+    p, _ = en_curso(nucleo, cliente)
+    cab_luis = vincular(nucleo, cliente, usuario_id=2)
+    assert decidir(cliente, p, cab_luis, pantalla()).status_code == 404
+
+
+def test_pantalla_larga_no_deja_la_postulacion_como_navegador_cerrado(entorno, monkeypatch):
+    nucleo, cliente = entorno
+    monkeypatch.setattr(api_modulo, "LATIDO_FORMULARIO_S", 0.01, raising=False)
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.demora_resolver = timedelta(minutes=nucleo.config.extension.navegador_caido_min + 1)
+    cuerpo = pantalla(campos=[{"texto": "Ciudad"}], botones=[boton(0, "Siguiente", "avanzar")],
+                      sugerido={"indice": 0, "accion": "avanzar"})  # fmt: skip
+    assert decidir(cliente, p, cab, cuerpo).status_code == 200
+    assert nucleo.eventos_vigilar == [[]]
+    assert nucleo.cola.obtener(p.id).estado == E.EN_CURSO
+    pasos = nucleo.base.cx.execute(
+        "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? AND paso = ?",
+        (p.id, "pantalla_resuelta"),
+    ).fetchall()
+    assert len(pasos) == 1 and pasos[0]["detalle"].endswith(" s")
+
+
 def test_cuenta_distinta_no_da_trabajo(entorno):
     nucleo, cliente = entorno
     cab = vincular(nucleo, cliente)
@@ -400,6 +796,52 @@ def test_latido_entrega_los_enlaces_del_bot_y_el_grupo(entorno):
     assert r["enlaces"]["grupo"] == "https://t.me/c/4429829042/1"
     bot = nucleo.config.bot_usuario
     assert r["enlaces"]["bot"] == (f"https://t.me/{bot}" if bot else None)
+
+
+def test_latido_entrega_la_version_de_las_reglas_del_motor_generico(entorno):
+    from buscador_vacantes.asistente.reglas_motor import reglas
+
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    r = cliente.post("/api/v1/latido", headers=cab, json={"version": "1.0.0"}).json()
+    assert r["motor_generico"] == reglas().version
+    completo = cliente.get("/api/v1/motor_generico", headers=cab).json()
+    assert completo["version"] == reglas().version
+    assert "submit" in completo["reglas"]["textos"]["enviar"]["en"]
+    assert "nota" not in completo["reglas"]
+    assert cliente.get("/api/v1/motor_generico").status_code == 401  # sin token
+
+
+def test_motor_generico_apagado_no_entrega_reglas(entorno):
+    nucleo, cliente = entorno
+    nucleo.config.motor_generico.activo = False
+    cab = vincular(nucleo, cliente)
+    r = cliente.post("/api/v1/latido", headers=cab, json={"version": "1.0.0"}).json()
+    assert r["motor_generico"] is None
+    assert cliente.get("/api/v1/motor_generico", headers=cab).status_code == 404
+
+
+def test_el_trabajo_lleva_los_topes_y_la_bandera_del_respaldo_declarado(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    nucleo.cola.encolar(1, "abc", CT, T0)
+    motor = latido(cliente, cab)["trabajo"]["motor_generico"]
+    assert motor == {"respaldo_declarado": False, "max_pantallas": 12,
+                     "max_pantallas_una_pregunta": 40, "max_minutos": 10}  # fmt: skip
+    nucleo.config.motor_generico.respaldo_declarado = True
+    nucleo.config.motor_generico.max_pantallas = 5
+    motor = latido(cliente, cab)["trabajo"]["motor_generico"]
+    assert motor["respaldo_declarado"] is True and motor["max_pantallas"] == 5
+
+
+def test_el_trabajo_no_lleva_el_motor_si_esta_apagado(entorno):
+    nucleo, cliente = entorno
+    nucleo.config.motor_generico.activo = False
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    nucleo.cola.encolar(1, "abc", CT, T0)
+    assert "motor_generico" not in latido(cliente, cab)["trabajo"]
 
 
 def test_enlace_del_grupo():
@@ -471,6 +913,69 @@ def test_preferencias_umbral_fuera_de_rango_422(entorno):
     cab = vincular(nucleo, cliente)
     r = cliente.post(f"/api/v1/preferencias/{CT}", headers=cab, json={"umbral": 150})
     assert r.status_code == 422
+
+
+def test_nivel_ia_por_defecto_es_normal_con_el_consumo_de_cada_nivel(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    r = cliente.get("/api/v1/nivel_ia", headers=cab)
+    assert r.status_code == 200
+    datos = r.json()
+    assert datos["nivel"] == "normal"
+    niveles = nucleo.config.niveles_ia
+    assert [(n["clave"], n["nombre"], n["llamadas_estimadas"]) for n in datos["niveles"]] == [
+        ("ahorro", "Ahorro", niveles.ahorro.llamadas_estimadas),
+        ("normal", "Normal", niveles.normal.llamadas_estimadas),
+        ("maximo", "Máximo", niveles.maximo.llamadas_estimadas),
+    ]
+    assert datos["hoy"] == {"llamadas": 0, "tokens": 0}
+
+
+def test_guardar_el_nivel_ia_es_por_usuario(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    r = cliente.post("/api/v1/nivel_ia", headers=cab, json={"nivel": "maximo"})
+    assert r.status_code == 200 and r.json() == {"ok": True, "nivel": "maximo"}
+    assert cliente.get("/api/v1/nivel_ia", headers=cab).json()["nivel"] == "maximo"
+    assert nucleo.preferencias.nivel_ia(1) == "maximo"
+    assert nucleo.preferencias.nivel_ia(2) == "normal"  # el otro usuario no cambia
+
+
+def test_nivel_ia_desconocido_422_y_no_cambia_nada(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    enorme = cliente.post("/api/v1/nivel_ia", headers=cab, json={"nivel": "enorme"})
+    assert enorme.status_code == 422
+    assert cliente.post("/api/v1/nivel_ia", headers=cab, json={}).status_code == 422
+    assert nucleo.preferencias.nivel_ia(1) == "normal"
+
+
+def test_nivel_ia_muestra_el_uso_de_hoy_y_no_el_de_ayer_ni_el_fallido(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    hoy = a_texto(T0)
+    ayer = a_texto(T0 - timedelta(days=1))
+    with nucleo.base.transaccion() as cx:
+        cx.executemany(
+            "INSERT INTO ia_uso(usuario_id, ts, tarea, ok, tokens_in, tokens_out) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (1, hoy, "entender_pagina", 1, 100, 20),
+                (1, hoy, "redactar", 1, 300, 80),
+                (1, hoy, "redactar", 0, 500, 0),  # un 503 del proveedor no cuenta
+                (1, ayer, "redactar", 1, 999, 999),
+                (2, hoy, "redactar", 1, 7, 7),  # de otro usuario
+            ],
+        )
+    assert cliente.get("/api/v1/nivel_ia", headers=cab).json()["hoy"] == {
+        "llamadas": 2, "tokens": 500,
+    }  # fmt: skip
+
+
+def test_nivel_ia_sin_token_401(entorno):
+    _, cliente = entorno
+    assert cliente.get("/api/v1/nivel_ia").status_code == 401
+    assert cliente.post("/api/v1/nivel_ia", json={"nivel": "ahorro"}).status_code == 401
 
 
 def test_olvidar_cuenta(entorno):
@@ -590,3 +1095,308 @@ def test_latido_avisa_las_esperas_solo_si_hay_algo_en_cola(entorno):
     nucleo.config.topes.usuario_dia = 0  # no se entrega: se queda esperando en la cola
     latido(cliente, cab)
     assert esperas() == [{"tipo": "esperas", "usuario_id": 1}]
+
+
+# --- /reparar: corrección de un paso que falló antes del envío ----------------------------------
+
+
+def reparacion_con(*acciones, diagnostico="El botón cambió de texto"):
+    return lambda consulta: Reparacion(
+        clase="formulario",
+        acciones=[AccionReparacion(accion=a, indice=i) for a, i in acciones],
+        diagnostico=diagnostico,
+    )
+
+
+def reparar(cliente, p, cab, **extra):
+    cuerpo = pantalla(
+        botones=[boton(0, "Compartir"), boton(1, "Postular ahora")],
+        resumen={"elementos": [{"indice": 0, "rol": "button", "texto": "Aviso de cookies"},
+                               {"indice": 1, "rol": "button", "texto": "Postular ahora"}],
+                 "encabezados": ["Backend Engineer"], "avisos": []},
+        **extra,
+    )  # fmt: skip
+    cuerpo.update(paso="clic:postular", fallo="no se encontró el botón #postular")
+    return cliente.post(f"/api/v1/postulaciones/{p.id}/reparar", headers=cab, json=cuerpo)
+
+
+def test_reparar_devuelve_las_acciones_validas_y_el_diagnostico(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.reparador = reparacion_con(("cerrar_modal", 0), ("avanzar", 1), ("avanzar", 9))
+    d = reparar(cliente, p, cab).json()
+    assert [(a["accion"], a["indice"]) for a in d["acciones"]] == [
+        ("cerrar_modal", 0), ("avanzar", 1),
+    ]  # fmt: skip
+    assert d["diagnostico"] == "El botón cambió de texto" and d["accion"] is None
+    (consulta,) = nucleo.reparaciones
+    assert (consulta.paso, consulta.fallo) == ("clic:postular", "no se encontró el botón #postular")
+    assert consulta.peticion.resumen.encabezados == ["Backend Engineer"]
+    pasos = nucleo.base.cx.execute(
+        "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? AND paso = 'reparacion'",
+        (p.id,),
+    ).fetchall()
+    assert [f["detalle"] for f in pasos] == ["clic:postular: no se encontró el botón #postular"]
+
+
+def test_reparar_con_indices_inventados_responde_sin_reparacion(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.reparador = reparacion_con(("avanzar", 7), ("cerrar_modal", 5))
+    d = reparar(cliente, p, cab).json()
+    assert d["acciones"] == []
+    assert d["accion"] == {"tipo": "respaldo", "motivo": "sin_reparacion"}
+
+
+def test_reparar_tiene_tope_de_dos_por_postulacion_en_maximo(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente, "maximo")
+    nucleo.reparador = reparacion_con(("avanzar", 1))
+    assert reparar(cliente, p, cab).json()["accion"] is None
+    assert reparar(cliente, p, cab).json()["accion"] is None
+    tercera = reparar(cliente, p, cab).json()
+    assert tercera["acciones"] == []
+    assert tercera["accion"] == {"tipo": "respaldo", "motivo": "tope_reparaciones"}
+    assert len(nucleo.reparaciones) == 2  # a la tercera ni se le pregunta a la IA
+
+
+def test_reparar_en_normal_tiene_tope_de_una(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.reparador = reparacion_con(("avanzar", 1))
+    assert reparar(cliente, p, cab).json()["accion"] is None
+    segunda = reparar(cliente, p, cab).json()
+    assert segunda["accion"] == {"tipo": "respaldo", "motivo": "tope_reparaciones"}
+    assert len(nucleo.reparaciones) == 1
+
+
+def test_reparar_en_ahorro_no_consulta_a_la_ia_y_dice_nivel_ahorro(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente, "ahorro")
+    nucleo.reparador = reparacion_con(("avanzar", 1))
+    d = reparar(cliente, p, cab).json()
+    assert d["acciones"] == [] and d["accion"] == {"tipo": "respaldo", "motivo": "nivel_ahorro"}
+    assert nucleo.reparaciones == []
+
+
+def test_reparar_sin_ia_va_a_respaldo_con_sin_ia(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    d = reparar(cliente, p, cab).json()
+    assert d["acciones"] == [] and d["accion"] == {"tipo": "respaldo", "motivo": "sin_ia"}
+
+
+def test_reparar_con_el_motor_apagado_o_sin_estar_en_curso(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.config.motor_generico.activo = False
+    assert reparar(cliente, p, cab).status_code == 404
+    nucleo.config.motor_generico.activo = True
+    nucleo.cola.esperar_usuario(p.id, 1, T0)
+    assert reparar(cliente, p, cab).status_code == 409
+
+
+def test_reparar_no_es_de_otro_usuario(entorno):
+    nucleo, cliente = entorno
+    p, _ = en_curso(nucleo, cliente)
+    cab2 = vincular(nucleo, cliente, usuario_id=2)
+    assert reparar(cliente, p, cab2).status_code == 404
+
+
+
+# --- recetas, parches y dominios barrera (6.3) --------------------------------------------------
+
+GH = "https://job-boards.greenhouse.io/acme/jobs/4455667/apply"
+
+
+def recetas_en_base(nucleo):
+    return nucleo.base.cx.execute("SELECT * FROM recetas").fetchall()
+
+
+def postular_en_greenhouse(nucleo, cliente, p, cab, senal="texto"):
+    campos = [{"texto": "First Name", "nombre": "first_name"},
+              {"texto": "Why us?", "nombre": "question_1"}]  # fmt: skip
+    envio = pantalla(url=GH, campos=campos, botones=[boton(0, "Submit application", "enviar")],
+                     sugerido={"indice": 0, "accion": "enviar"})  # fmt: skip
+    assert decidir(cliente, p, cab, envio).json()["accion"]["tipo"] == "enviar"
+    if senal:
+        gracias = pantalla("exito", numero=2, url=GH + "/gracias",
+                           exito={"senal": senal, "texto": "Gracias"})  # fmt: skip
+        assert decidir(cliente, p, cab, gracias).json()["accion"]["tipo"] == "exito"
+
+
+def terminar(cliente, p, cab, estado="enviada", **extra):
+    return cliente.post(f"/api/v1/postulaciones/{p.id}/resultado", headers=cab,
+                        json={"estado": estado, **extra})  # fmt: skip
+
+
+def test_un_envio_con_senal_deja_la_receta_del_sitio_sin_valores(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    postular_en_greenhouse(nucleo, cliente, p, cab)
+    assert terminar(cliente, p, cab).status_code == 200
+    [fila] = recetas_en_base(nucleo)
+    assert (fila["host"], fila["ruta_patron"], fila["familia"]) == (
+        "job-boards.greenhouse.io", "/acme/jobs/*/apply", "greenhouse",
+    )  # fmt: skip
+    receta = json.loads(fila["receta_json"])
+    assert receta["senal"] == "texto" and len(receta["pantallas"]) == 1
+    pantalla_guardada = receta["pantallas"][0]
+    assert pantalla_guardada["firma"] == ["first_name", "question_1"]
+    assert set(pantalla_guardada["mapeo"]) == {"first_name", "question_1"}
+    assert pantalla_guardada["boton"]["texto"] == "Submit application"
+    assert "Sí" not in fila["receta_json"]  # el valor con el que se llenó no se guarda
+
+
+def test_sin_senal_explicita_no_se_guarda_receta(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    postular_en_greenhouse(nucleo, cliente, p, cab, senal=None)
+    terminar(cliente, p, cab)
+    assert recetas_en_base(nucleo) == []
+
+
+def test_un_resultado_que_no_es_enviada_no_deja_receta(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    postular_en_greenhouse(nucleo, cliente, p, cab)
+    terminar(cliente, p, cab, "formulario_desconocido", motivo="x")
+    assert recetas_en_base(nucleo) == []
+
+
+def guardar_receta_de_computrabajo(nucleo):
+    from buscador_vacantes.asistente import recetas
+
+    receta = recetas.Receta(
+        pantallas=[recetas.PantallaReceta(firma=["ciudad"], mapeo={"ciudad": "ciudad"})],
+        senal="url",
+    )  # fmt: skip
+    return recetas.guardar_receta(
+        nucleo.base, host="co.computrabajo.com", ruta="/ofertas-de-trabajo/oferta-1",
+        familia="computrabajo", receta=receta, origen="real", ahora=T0, enviada=True,
+    )  # fmt: skip
+
+
+def test_el_trabajo_lleva_la_receta_del_host_y_el_resultado_la_refuerza(entorno):
+    nucleo, cliente = entorno
+    receta_id = guardar_receta_de_computrabajo(nucleo)
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    trabajo = latido(cliente, cab)["trabajo"]
+    assert trabajo["receta"]["id"] == receta_id and trabajo["receta"]["alcance"] == "host"
+    assert trabajo["receta"]["pantallas"][0]["mapeo"] == {"ciudad": "ciudad"}
+    fila = nucleo.base.cx.execute("SELECT receta_id FROM postulaciones WHERE id = ?", (p.id,))
+    assert fila.fetchone()[0] == receta_id
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    assert terminar(cliente, p, cab).status_code == 200
+    assert nucleo.base.cx.execute("SELECT exitos FROM recetas").fetchone()[0] == 2
+
+
+def test_dos_fallos_seguidos_apagan_la_receta_y_avisan(entorno):
+    from buscador_vacantes.asistente import recetas
+
+    nucleo, cliente = entorno
+    receta_id = guardar_receta_de_computrabajo(nucleo)
+    recetas.registrar_resultado_receta(nucleo.base, receta_id, False)  # un fallo previo
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    assert latido(cliente, cab)["trabajo"]["receta"]["id"] == receta_id
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    terminar(cliente, p, cab, "formulario_desconocido", motivo="no_encontrado")
+    assert nucleo.base.cx.execute("SELECT activa FROM recetas").fetchone()[0] == 0
+    assert any(e.get("tipo") == "receta_apagada" for e in nucleo.eventos if isinstance(e, dict))
+
+
+def test_un_trabajo_sin_receta_ni_parches_no_trae_esas_claves(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    nucleo.cola.encolar(1, "abc", CT, T0)
+    trabajo = latido(cliente, cab)["trabajo"]
+    assert "receta" not in trabajo and "parches" not in trabajo
+
+
+def test_dominio_que_exige_cuenta_queda_como_barrera(entorno):
+    from buscador_vacantes.asistente import recetas
+
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    pagina = pantalla("barrera", url="https://ats.example.com/jobs/1/apply",
+                      motivo="ats_con_cuenta")  # fmt: skip
+    decidir(cliente, p, cab, pagina)
+    terminar(cliente, p, cab, "bloqueada", motivo="ats_con_cuenta")
+    assert recetas.barrera_de(nucleo.base, "ats.example.com") == "ats_con_cuenta"
+    assert recetas.barrera_de(nucleo.base, "co.computrabajo.com") is None
+    assert any(e.get("tipo") == "dominio_barrera" for e in nucleo.eventos if isinstance(e, dict))
+
+
+def test_barrera_sin_pantallas_marca_el_host_de_la_vacante(entorno):
+    from buscador_vacantes.asistente import recetas
+
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    terminar(cliente, p, cab, "bloqueada", motivo="oauth")
+    assert recetas.barrera_de(nucleo.base, "co.computrabajo.com") == "oauth"
+
+
+def test_un_resultado_con_otro_motivo_no_marca_barrera(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    terminar(cliente, p, cab, "bloqueada", motivo="captcha")
+    assert nucleo.base.cx.execute("SELECT COUNT(*) FROM dominios_barrera").fetchone()[0] == 0
+
+
+def test_bucle_generico_que_repara_un_paso_declarado_deja_un_parche_candidato(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/paso", headers=cab,
+                 json={"paso": "respaldo_generico", "detalle": "buscar: a.viejo"})  # fmt: skip
+    parche = {"paso": "aplicar", "selector": "a.btn-nuevo"}
+    assert terminar(cliente, p, cab, parche=parche).status_code == 200
+    [fila] = nucleo.base.cx.execute("SELECT * FROM parches_flujo").fetchall()
+    assert (fila["plataforma"], fila["paso"], fila["estado"]) == (CT, "aplicar", "candidato")
+    assert json.loads(fila["selector_json"]) == "a.btn-nuevo" and fila["postulacion_id"] == p.id
+    assert any(e.get("tipo") == "parche_nuevo" for e in nucleo.eventos if isinstance(e, dict))
+
+
+def test_sin_haber_pasado_por_el_bucle_un_parche_no_se_guarda(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    terminar(cliente, p, cab, parche={"paso": "aplicar", "selector": "a.btn-nuevo"})
+    assert nucleo.base.cx.execute("SELECT COUNT(*) FROM parches_flujo").fetchone()[0] == 0
+
+
+def test_el_trabajo_lleva_el_parche_y_un_exito_lo_deja_firme(entorno):
+    from buscador_vacantes.asistente import recetas
+
+    nucleo, cliente = entorno
+    parche_id = recetas.proponer_parche(nucleo.base, CT, "aplicar", "a.btn-nuevo", T0)
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    trabajo = latido(cliente, cab)["trabajo"]
+    assert [(x["id"], x["paso"], x["estado"]) for x in trabajo["parches"]] == [
+        (parche_id, "aplicar", "candidato")
+    ]  # fmt: skip
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    terminar(cliente, p, cab)
+    estado = nucleo.base.cx.execute("SELECT estado FROM parches_flujo").fetchone()[0]
+    assert estado == "firme"
+    assert any(e.get("tipo") == "parche_firme" for e in nucleo.eventos if isinstance(e, dict))
+
+
+def test_un_fallo_con_un_parche_candidato_lo_descarta(entorno):
+    from buscador_vacantes.asistente import recetas
+
+    nucleo, cliente = entorno
+    recetas.proponer_parche(nucleo.base, CT, "aplicar", "a.btn-nuevo", T0)
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    p, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    latido(cliente, cab)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    terminar(cliente, p, cab, "formulario_desconocido", motivo="no_encontrado")
+    estado = nucleo.base.cx.execute("SELECT estado FROM parches_flujo").fetchone()[0]
+    assert estado == "descartado"

@@ -28,6 +28,11 @@ from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.membresia import Comprobador  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
+from buscador_vacantes.asistente.recetas import (  # noqa: E402
+    barrera_de,
+    marcar_barrera,
+    proponer_parche,
+)
 from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     aprendida,
     normalizar_pregunta,
@@ -671,6 +676,20 @@ def test_confirmada_calcula_la_duracion_desde_que_se_tomo(mundo):
     assert datos.duracion_s is None
 
 
+def test_resumen_cuenta_que_la_cuota_bajo_el_nivel_de_la_postulacion(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+    assert mundo.c._datos_resumen(mundo.n.cola.obtener(p.id))[0].nivel_bajado is None
+    with mundo.base.transaccion() as cx:
+        for detalle in ("maximo>normal", "maximo>ahorro"):  # la cuota siguió agotándose
+            cx.execute(
+                "INSERT INTO postulacion_pasos(postulacion_id, ts, paso, estado, detalle) "
+                "VALUES (?, ?, 'nivel_bajado', 'ok', ?)",
+                (p.id, a_texto(T0), detalle),
+            )
+    datos, _ = mundo.c._datos_resumen(mundo.n.cola.obtener(p.id))
+    assert datos.nivel_bajado == "ahorro"
+
+
 def test_cuenta_por_confirmar_muestra_el_correo_y_botones(mundo):
     correr(alta_completa(mundo, ANA))
     usuario = mundo.n.usuarios.obtener(ANA)
@@ -930,6 +949,84 @@ def test_toque_en_el_canal_con_postulaciones_en_pausa(mundo):
     correr(mundo.c.al_comando(ANA, "pausa", []))
     r = correr(mundo.c.al_toque_canal(ANA, id_corto("linkedin:1")))
     assert r.alerta and "pausa" in r.texto
+
+
+def test_ia_nivel_muestra_los_tres_niveles_con_su_consumo_y_el_uso_de_hoy(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    with mundo.base.transaccion() as cx:
+        cx.executemany(
+            "INSERT INTO ia_uso(usuario_id, ts, tarea, ok, tokens_in, tokens_out) "
+            "VALUES (?, ?, 'redactar', ?, ?, ?)",
+            [
+                (usuario.id, a_texto(T0), 1, 1000, 234),
+                (usuario.id, a_texto(T0), 1, 500, 66),
+                (usuario.id, a_texto(T0), 0, 900, 0),  # fallida: no cuenta
+                (usuario.id, a_texto(T0 - timedelta(days=1)), 1, 5000, 5000),  # de ayer
+            ],
+        )
+    correr(mundo.c.al_comando(ANA, "ia", ["nivel"]))
+    _, texto, botones = mundo.s.ultimo(ANA)
+    niveles = mundo.n.config.niveles_ia
+    for nombre, nivel in (("Ahorro", niveles.ahorro), ("Normal", niveles.normal),
+                          ("Máximo", niveles.maximo)):  # fmt: skip
+        assert f"<b>{nombre}</b> · ~{nivel.llamadas_estimadas} llamadas por postulación" in texto
+    assert "Hoy llevas 2 llamadas y 1800 tokens" in texto
+    # Normal es el nivel por defecto y es el único marcado
+    assert "✅ <b>Normal</b>" in texto
+    assert "✅ <b>Ahorro</b>" not in texto and "✅ <b>Máximo</b>" not in texto
+    assert [(b[0][0], b[0][1]) for b in botones] == [
+        ("Ahorro", cb("ia", "ahorro")), ("✅ Normal", cb("ia", "normal")),
+        ("Máximo", cb("ia", "maximo")),
+    ]  # fmt: skip
+
+
+def test_ia_nivel_cambia_el_nivel_y_lo_marca(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    assert mundo.n.preferencias.nivel_ia(usuario.id) == "normal"
+    aviso = correr(mundo.c.al_boton(ANA, cb("ia", "maximo")))
+    assert aviso == "Nivel Máximo"
+    assert mundo.n.preferencias.nivel_ia(usuario.id) == "maximo"
+    _, texto, botones = mundo.s.ultimo(ANA)
+    assert "✅ <b>Máximo</b>" in texto and "✅ <b>Normal</b>" not in texto
+    assert botones[2][0][0] == "✅ Máximo"
+    # Un nivel que no existe no cambia nada
+    assert correr(mundo.c.al_boton(ANA, cb("ia", "enorme"))) is None
+    assert mundo.n.preferencias.nivel_ia(usuario.id) == "maximo"
+    correr(mundo.c.al_comando(ANA, "ia", ["otra"]))
+    assert "/ia nivel" in mundo.s.ultimo(ANA)[1]
+
+
+def test_cambiar_el_nivel_no_afecta_una_postulacion_en_curso(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    antes, _ = mundo.n.cola.encolar(usuario.id, id_corto("computrabajo:1"), "computrabajo", T0)
+    assert antes.nivel_ia == "normal"  # copiado del usuario al encolar
+    # La postulación sale: se toma y arranca con el nivel con que se encoló
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = ? WHERE id = ?", (E.EN_CURSO, antes.id))
+    correr(mundo.c.al_boton(ANA, cb("ia", "ahorro")))
+    despues, _ = mundo.n.cola.encolar(usuario.id, id_corto("computrabajo:2"), "computrabajo", T0)
+    correr(mundo.c.al_boton(ANA, cb("ia", "maximo")))
+    siguiente, _ = mundo.n.cola.encolar(usuario.id, id_corto("computrabajo:3"), "computrabajo", T0)
+    perfil = mundo.n.cola.encolar_completar_perfil(usuario.id, "computrabajo", T0)
+    nivel = lambda pid: mundo.n.cola.obtener(pid).nivel_ia  # noqa: E731
+    assert nivel(antes.id) == "normal"  # la que ya estaba en curso no cambió
+    assert nivel(despues.id) == "ahorro"
+    assert nivel(siguiente.id) == "maximo"
+    assert nivel(perfil) == "maximo"
+    # Un toque repetido sobre una vacante ya encolada devuelve la existente, sin tocar su nivel
+    repetida, creada = mundo.n.cola.encolar(
+        usuario.id, id_corto("computrabajo:1"), "computrabajo", T0
+    )
+    assert not creada and repetida.nivel_ia == "normal"
+
+
+def test_la_ayuda_menciona_ia_nivel(mundo):
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_comando(ANA, "ayuda", []))
+    assert "/ia nivel" in mundo.s.ultimo(ANA)[1]
 
 
 def test_avisar_apagado_silencia_solo_la_automatica(mundo):
@@ -2761,3 +2858,96 @@ def test_punta_a_punta_de_sin_permiso_a_sin_sesion_en_el_mismo_mensaje(mundo):
     assert "Inicia sesión en elempleo" in ultima_edicion(mundo)
     assert _etiquetas(mundo.s.botones_editados[42])[0] == "Iniciar sesión"
     assert len(mundo.s.mensajes) == mensajes  # solo se editó la card, no hubo mensajes nuevos
+
+
+# --- motivos del motor genérico y avisos al dueño (6.4) -------------------------------------
+
+
+@pytest.mark.parametrize("estado", [E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO])
+def test_el_motivo_del_motor_generico_llega_a_la_card_de_respaldo(mundo, estado):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, estado, "ats_con_cuenta")))
+    correr(mundo.c.esperar_tareas())
+    texto, botones = card_de(mundo)
+    assert "pide crear una cuenta" in texto
+    assert ("Pegar preguntas", cb("pegar", p.id)) in [b for fila in botones for b in fila]
+    # Es un caso esperado, no un fallo: el dueño no recibe la alerta de revisar evidencia
+    assert not any("Postulación" in m for m in mundo.s.de(DUENO))
+
+
+def test_sin_ia_ofrece_configurar_la_clave_desde_la_card(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.FORMULARIO_DESCONOCIDO,
+                                    "sin_ia")))  # fmt: skip
+    correr(mundo.c.esperar_tareas())
+    texto, botones = card_de(mundo)
+    assert "necesito tu clave de IA" in texto
+    assert botones[0][0] == ("Configurar IA", cb("clave", "nueva"))
+    correr(mundo.c.al_boton(ANA, cb("clave", "nueva")))
+    assert "Pega una clave nueva" in mundo.s.de(ANA)[-1]
+
+
+def test_el_formulario_desconocido_sin_motivo_conocido_sigue_alertando_al_dueno(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.FORMULARIO_DESCONOCIDO,
+                                    "no_encontrado")))  # fmt: skip
+    correr(mundo.c.esperar_tareas())
+    assert any("Postulación" in m for m in mundo.s.de(DUENO))
+
+
+def test_el_dueno_recibe_el_aviso_de_la_receta_apagada(mundo):
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO recetas(host, ruta_patron, familia, firma, receta_json, actualizada) "
+            "VALUES ('job-boards.greenhouse.io', '/x', 'greenhouse', '[]', '{}', 'x')"
+        )
+    correr(mundo.c.notificar({"tipo": "receta_apagada", "receta_id": 1, "postulacion_id": 9}))
+    aviso = mundo.s.de(DUENO)[-1]
+    assert "job-boards.greenhouse.io" in aviso and "falló 2 veces seguidas" in aviso
+
+
+def test_el_dueno_recibe_el_parche_nuevo_con_el_selector_y_la_evidencia(mundo):
+    parche = proponer_parche(mundo.base, "computrabajo", "aplicar", "a.btn-nuevo", T0, 9)
+    correr(mundo.c.notificar({"tipo": "parche_nuevo", "parche_id": parche,
+                              "plataforma": "computrabajo", "paso": "aplicar",
+                              "postulacion_id": 9}))  # fmt: skip
+    aviso = mundo.s.de(DUENO)[-1]
+    assert "Parche candidato para <b>Computrabajo</b>" in aviso and "«aplicar»" in aviso
+    assert "<code>&quot;a.btn-nuevo&quot;</code>" in aviso or "a.btn-nuevo" in aviso
+    assert "data/asistente/postulaciones/9/" in aviso
+    correr(mundo.c.notificar({"tipo": "parche_firme", "parche_id": parche,
+                              "plataforma": "computrabajo", "paso": "aplicar",
+                              "postulacion_id": 10}))  # fmt: skip
+    assert "Parche firme" in mundo.s.de(DUENO)[-1] and "JSON revisado" in mundo.s.de(DUENO)[-1]
+
+
+def test_el_aviso_del_dominio_barrera_dice_como_quitarlo(mundo):
+    correr(mundo.c.notificar({"tipo": "dominio_barrera", "host": "ats.example.com",
+                              "motivo": "ats_con_cuenta", "postulacion_id": 9}))  # fmt: skip
+    assert "/barreras quitar ats.example.com" in mundo.s.de(DUENO)[-1]
+
+
+def test_los_avisos_al_dueno_no_van_a_nadie_si_no_hay_dueno(mundo):
+    mundo.c.config.dueno_telegram_id = 0
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.notificar({"tipo": "dominio_barrera", "host": "x.co", "motivo": "oauth",
+                              "postulacion_id": 9}))  # fmt: skip
+    assert len(mundo.s.mensajes) == antes
+
+
+def test_el_dueno_lista_y_quita_dominios_barrera(mundo):
+    correr(alta_completa(mundo, DUENO))
+    marcar_barrera(mundo.base, "ats.example.com", "ats_con_cuenta", T0)
+    correr(mundo.c.al_comando(DUENO, "barreras", []))
+    assert "ats.example.com: ats_con_cuenta" in mundo.s.de(DUENO)[-1]
+    correr(mundo.c.al_comando(DUENO, "barreras", ["quitar", "ATS.example.com"]))
+    assert mundo.s.de(DUENO)[-1] == "No hay dominios barrera."
+    assert barrera_de(mundo.base, "ats.example.com") is None
+    auditoria = mundo.base.cx.execute("SELECT accion FROM auditoria").fetchall()
+    assert "barrera_quitada" in [f[0] for f in auditoria]
+
+
+def test_un_usuario_comun_no_puede_ver_las_barreras(mundo):
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_comando(ANA, "barreras", []))
+    assert "No conozco ese comando" in mundo.s.de(ANA)[-1]

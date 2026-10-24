@@ -521,3 +521,41 @@ def test_cabecera_con_plataforma_sola_y_sin_plataforma():
     assert sin_portal[:2] == ["<b>Aprendiz &lt;SENA&gt;</b>", "Euro"]
     nada = tp.texto(tp.Card(), datos(empresa=None, plataforma=None)).split("\n")
     assert nada[:2] == ["<b>Aprendiz &lt;SENA&gt;</b>", ""]
+
+
+@pytest.mark.parametrize(
+    ("motivo", "frase"),
+    [
+        ("ats_con_cuenta", "pide crear una cuenta"),
+        ("captcha", "pidió resolver un captcha"),
+        ("oauth", "cuenta de Google, LinkedIn u otro servicio"),
+        ("codigo_verificacion", "código de verificación"),
+        ("sin_ia", "necesito tu clave de IA"),
+        ("documento_faltante", "documento obligatorio"),
+        ("nivel_ahorro", "tu nivel de IA es Ahorro"),
+    ],
+)
+def test_respaldo_explica_los_motivos_del_motor_generico(motivo, frase):
+    card = tp.Card(fase=tp.RESPALDO, motivo=motivo)
+    texto = tp.texto(card, datos())
+    assert frase in texto
+    assert "_" not in motivo or motivo not in texto  # nunca el código interno
+    assert "No puedo postularla sola" in texto
+
+
+def test_respaldo_nivel_ahorro_sugiere_subir_de_nivel_sin_pedir_clave():
+    card = tp.Card(fase=tp.RESPALDO, motivo="nivel_ahorro")
+    d = datos()
+    assert "/ia nivel" in tp.texto(card, d)
+    assert "Configurar IA" not in [b[0] for fila in tp.botones(card, d, cb) for b in fila]
+
+
+def test_respaldo_sin_ia_ofrece_configurar_la_clave_y_conserva_las_demas_acciones():
+    card = tp.Card(fase=tp.RESPALDO, motivo="sin_ia")
+    d = datos()
+    assert "Con tu clave de IA puedo seguir sola" in tp.texto(card, d)
+    botones = tp.botones(card, d, cb)
+    assert botones[0][0] == ("Configurar IA", cb("clave", "nueva"))
+    assert ("Ver vacante", f"url:{URL}") in [b for fila in botones for b in fila]
+    otro = tp.botones(tp.Card(fase=tp.RESPALDO, motivo="captcha"), d, cb)
+    assert "Configurar IA" not in [b[0] for fila in otro for b in fila]

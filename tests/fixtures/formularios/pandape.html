@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Postulación</title>
+<!-- Copia recortada de *.pandape.computrabajo.com/ApplyCT/{id} (reconocimiento del 2026-10-21,
+     docs/asistente/portales.md, sección «LinkedIn»): HTML del servidor (ASP.NET y jQuery Validate
+     unobtrusive) que pide solo el correo y lo envía por POST a /Apply. Se quitan la marca de la
+     empresa, los scripts y el token antifalsificación (el valor es inventado). El aviso de cookies
+     solo ofrece «Aceptar y cerrar» y queda abajo, sin tapar el campo: el motor no lo pulsa. Lo que
+     sigue al correo no se vio sin enviarlo: pandape_paso2.html y pandape_gracias.html son
+     inventados. -->
+<style>
+  #AllowCookiesModal { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #ccc; padding: 8px; }
+</style></head>
+<body class="app" data-val="false">
+<header class="header-mf">
+  <div class="container cols">
+    <a href="/"><span>Empresa de prueba</span></a>
+    <nav><a href="/">Inicio</a> <a href="/ofertas/">Ofertas de empleo</a></nav>
+  </div>
+</header>
+<main class="main">
+  <section class="app-cv">
+    <div class="container">
+      <a class="fw-600" href="/Vacancies">Ir al listado de ofertas</a>
+      <div class="mt-35">
+        <h1 class="font-2xl">¿Cuál es tu correo electrónico?</h1>
+        <p class="c-drk">Indica el correo electrónico que se usará para identificar tu candidatura.</p>
+        <form method="post" action="/Apply">
+          <input type="hidden" name="actionFrom" value="SetEmail">
+          <input type="hidden" name="requireLoginCt" value="false">
+          <input type="hidden" id="IdVacancy" name="IdVacancy" value="101">
+          <div class="form-group">
+            <div class="input-group-icon input-custom-message">
+              <input type="email" class="form-control" data-val="true" data-val-regex="Correo electrónico no válido" data-val-required="Correo electrónico obligatorio" id="Email" name="Email" value="">
+              <label class="form-label-inner on" for="Email">Correo electrónico</label>
+              <span class="c-red field-validation-valid" data-valmsg-for="Email" data-valmsg-replace="true"></span>
+            </div>
+          </div>
+          <div class="form-group">
+            <button id="BtnSendEmail" role="button" class="btn btn-blue text-uppercase">Continuar</button>
+          </div>
+          <input name="__RequestVerificationToken" type="hidden" value="PRUEBA">
+        </form>
+      </div>
+    </div>
+  </section>
+</main>
+<footer><div>Funciona con <a href="https://www.pandape.com/"><strong>Pandapé</strong></a> · <a href="/Privacy">Política de privacidad</a></div></footer>
+<div class="modal fade" id="AllowCookiesModal" tabindex="-1" role="dialog">
+  <div class="modal-body">
+    <span>Utilizamos las cookies necesarias para que el sitio web funcione correctamente. También utilizamos cookies de terceros para analizar y mejorar el tráfico del sitio web. <a href="/Privacy/Cookies">Política de cookies</a>.</span>
+    <button type="button" class="btn btn-blue" id="AllowCookiesButton">Aceptar y cerrar</button>
+  </div>
+</div>
+<script>
+  document.getElementById("AllowCookiesButton").addEventListener("click", function () {
+    document.body.dataset.cookies = "aceptadas";
+  });
+</script>
+</body></html>

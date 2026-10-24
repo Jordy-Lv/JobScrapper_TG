@@ -57,6 +57,12 @@ class Pregunta:
     obligatoria: bool = True
     nombre: str | None = None  # atributo name del campo, si lo envía la extensión
     maximo: int | None = None  # maxlength del campo, si el portal lo informa
+    # Del esquema ampliado de la extensión 1.2 (la 1.1.x no los manda)
+    ayuda: str | None = None  # texto de ayuda del campo (aria-describedby)
+    autocomplete: str | None = None  # atributo autocomplete, si lo tiene
+    accept: str | None = None  # tipos de archivo que acepta un campo de archivo
+    idioma: str | None = None  # lang del formulario o el detectado por la extensión
+    busqueda: bool = False  # lista demasiado larga para leerla: se escribe el valor y se elige
 
 
 @dataclass
@@ -98,10 +104,22 @@ def semilla(ruta: Path = RUTA_BANCO) -> list[dict]:
 
 
 def sembrar_banco(base: BaseAsistente, ahora: datetime) -> int:
-    """Carga las preguntas sembradas que falten. Devuelve cuántas se agregaron."""
+    """Carga las preguntas sembradas que falten y corrige las ya sembradas cuyo campo cambió.
+    Devuelve cuántas se agregaron."""
     agregadas = 0
     with base.transaccion() as cx:
         for item in semilla():
+            cx.execute(
+                "UPDATE banco_preguntas SET campo = ?, parametro = ? WHERE pregunta_norm = ? "
+                "AND origen = 'semilla' AND (campo != ? OR parametro IS NOT ?)",
+                (
+                    item["campo"],
+                    item.get("parametro"),
+                    normalizar_pregunta(item["pregunta"]),
+                    item["campo"],
+                    item.get("parametro"),
+                ),
+            )
             cur = cx.execute(
                 "INSERT OR IGNORE INTO banco_preguntas(pregunta_norm, campo, parametro, origen, "
                 "creada) VALUES (?, ?, ?, 'semilla', ?)",
@@ -202,6 +220,68 @@ def elegir_opcion(valor: str, opciones: list[str]) -> int | None:
     return None
 
 
+# --- idioma del formulario ----------------------------------------------------------------
+
+IDIOMAS = {"es": "español", "en": "inglés", "pt": "portugués"}
+# Palabras frecuentes de las etiquetas, sin las que se escriben igual en dos idiomas («para»,
+# «de», «salarial», «experiencia»…)
+_PALABRAS_IDIOMA = {
+    "es": set(
+        "el la los las tu tus cual cuales una nombre apellido apellidos correo telefono celular "
+        "ciudad tienes estas puedes cuanto cuanta donde cuando aspiracion disponibilidad estudias "
+        "hoja vida cuentas eres porque quieres".split()
+    ),
+    "en": set(
+        "the you your are is do does have what why how please tell about first last name years "
+        "of to and with for in work upload resume cover letter current company describe salary "
+        "expected authorized legally hear opportunity country city phone number address "
+        "available background".split()
+    ),
+    "pt": set(
+        "voce seu sua seus suas qual quais nome sobrenome telefone cidade tem trabalho trabalhar "
+        "pretensao uma nao curriculo onde quando disponibilidade formacao estudando sao "
+        "obrigatorio".split()
+    ),
+}  # fmt: skip
+
+
+def _idioma_declarado(codigo: str | None) -> str | None:
+    base = (codigo or "").strip().lower()[:2]
+    return base if base in IDIOMAS else None
+
+
+def detectar_idioma(preguntas: list[Pregunta], declarado: str | None = None) -> str:
+    """Idioma del formulario: es, en o pt.
+
+    La extensión informa el `lang` de la página, pero muchos sitios declaran `en` aunque estén en
+    español; por eso se cuentan las palabras frecuentes de cada idioma en las etiquetas, las
+    ayudas y las opciones. El declarado manda si las palabras no dicen claramente otra cosa.
+    """
+    declaradas = [_idioma_declarado(declarado)] + [_idioma_declarado(p.idioma) for p in preguntas]
+    declaradas = [d for d in declaradas if d]
+    declarado = max(set(declaradas), key=declaradas.count) if declaradas else None
+    palabras: list[str] = []
+    for p in preguntas:
+        textos = [p.texto, p.ayuda or "", *p.opciones]
+        palabras += re.findall(r"[a-z]+", normalizar_texto(" ".join(textos)))
+    puntos = {
+        idioma: sum(1 for w in palabras if w in lista) for idioma, lista in _PALABRAS_IDIOMA.items()
+    }
+    ordenados = sorted(puntos.items(), key=lambda x: x[1], reverse=True)
+    (mejor, mejor_puntos), (_, segundo_puntos) = ordenados[0], ordenados[1]
+    if mejor_puntos > segundo_puntos and mejor_puntos >= (2 if declarado else 1):
+        return mejor
+    return declarado or "es"
+
+
+_SI_NO = {"Sí": {"en": "Yes", "pt": "Sim"}, "No": {"pt": "Não"}}
+
+
+def _en_idioma(valor: str, idioma: str) -> str:
+    """«Sí»/«No» como texto libre en el idioma del formulario; lo demás va como está."""
+    return _SI_NO.get(valor, {}).get(idioma, valor)
+
+
 # --- salidas de la IA -------------------------------------------------------------------
 
 
@@ -248,9 +328,10 @@ def _instruccion_clasificar() -> str:
 INSTRUCCION_REDACTAR_FORMULARIO = (
     "Eres el candidato y respondes las preguntas abiertas de un formulario de postulación, "
     "numeradas en «preguntas». Para cada una devuelve su número en indice y su respuesta.\n"
-    "- Escribe en primera persona, en español, con tono natural y profesional, sin muletillas "
-    "de plantilla («Me apasiona…», «Soy una persona proactiva…») y sin copiar el CV "
-    "literalmente.\n"
+    "- Escribe en primera persona, en el idioma indicado en «idioma» (los datos del usuario "
+    "pueden estar en otro idioma: tradúcelos sin cambiar su contenido), con tono natural y "
+    "profesional, sin muletillas de plantilla («Me apasiona…», «Soy una persona "
+    "proactiva…») y sin copiar el CV literalmente.\n"
     "- Responde TODO lo que pide cada pregunta: si pide dos datos, los dos.\n"
     "- La longitud va con la pregunta: una o dos frases para un dato; varias para motivación "
     "o experiencia.\n"
@@ -277,31 +358,100 @@ class Contexto:
     cliente: ClienteIA | None = None
     clave: str | None = None
     vacante: str = ""  # título, empresa y descripción, para redactar
+    plataforma: str | None = None  # de dónde vino la vacante («¿cómo te enteraste?»)
+    idioma: str | None = None  # es | en | pt del formulario; None: se deduce de las preguntas
+    nivel: str = "normal"  # nivel de IA efectivo de la postulación (ahorro | normal | maximo)
+    clasificar_preguntas: bool = True  # False (Ahorro): las preguntas nuevas van a la card
 
     @property
     def con_ia(self) -> bool:
         return self.cliente is not None and bool(self.clave)
 
 
+_MONEDA = re.compile(r"moneda|currency|moeda")
+_DOLARES = re.compile(r"\busd\b|dolar|dollar")
+
+
+def _con_moneda(valor: str, moneda: str) -> str:
+    """«2500000» → «COP 2.500.000»; un valor que ya trae formato solo recibe la moneda."""
+    limpio = re.sub(r"[.,\s$]", "", valor)
+    if limpio.isdigit():
+        valor = f"{int(limpio):,}".replace(",", ".")
+    return f"{moneda} {valor}"
+
+
 def _desde_campo(pregunta, campo, parametro, ctx: Contexto, origen: Origen) -> Respuesta:
-    valor = ctx.datos.valor(campo, parametro)
+    norma = normalizar_pregunta(pregunta.texto)
+    if campo == "salario" and _DOLARES.search(norma):
+        campo = "salario_usd"  # la cifra en pesos nunca va a un campo que pide dólares
+    clave = campos.clave_cuestionario(campo, parametro)
+    if campo == "fuente_vacante":  # la plataforma de la vacante: no se le pregunta al usuario
+        valor = campos.nombre_fuente(ctx.plataforma)
+    else:
+        valor = ctx.datos.valor(campo, parametro)
     if valor is None:
-        return Respuesta(pregunta, campo=campo, falta=True)
+        return Respuesta(pregunta, campo=clave, falta=True)
     if pregunta.opciones:
         indice = elegir_opcion(valor, pregunta.opciones)
         if indice is None:  # el dato existe pero no calza con las opciones: elige el redactor
-            return Respuesta(pregunta, campo=campo, redactar=True)
-        return Respuesta(pregunta, opcion=indice, origen=origen, campo=campo)
-    return Respuesta(pregunta, valor=valor, origen=origen, campo=campo)
+            return Respuesta(pregunta, campo=clave, redactar=True)
+        return Respuesta(pregunta, opcion=indice, origen=origen, campo=clave)
+    if campo in ("salario", "salario_usd"):
+        pedida = _MONEDA.search(f"{norma} {normalizar_texto(pregunta.ayuda)}")
+        if pregunta.tipo != "numero" and pedida:  # «Please include currency»
+            valor = _con_moneda(valor, "USD" if campo == "salario_usd" else "COP")
+    else:
+        valor = _en_idioma(valor, ctx.idioma or detectar_idioma([pregunta]))
+    return Respuesta(pregunta, valor=valor, origen=origen, campo=clave)
+
+
+# Atributo autocomplete (su último término) → campo del catálogo
+_AUTOCOMPLETE = {
+    "given-name": "nombre_pila",
+    "family-name": "apellido",
+    "name": "nombre",
+    "email": "correo",
+    "tel": "telefono",
+    "tel-national": "telefono",
+    "country": "pais",
+    "country-name": "pais",
+    "address-level2": "ciudad",
+}
+# Términos del atributo name o id (en snake_case, entre guiones bajos) → campo
+_TOKENS_NOMBRE = (
+    (("first_name", "firstname", "given_name", "givenname", "fname", "primer_nombre"),
+     "nombre_pila"),
+    (("last_name", "lastname", "family_name", "familyname", "surname", "lname", "apellido",
+      "apellidos"), "apellido"),
+    (("systemfield_name", "full_name", "fullname", "nombre_completo"), "nombre"),
+    (("linkedin", "linkedin_url", "linkedin_profile"), "enlace_linkedin"),
+    (("country", "pais"), "pais"),
+)  # fmt: skip
+_NO_ES_PAIS = ("_code_", "_codigo_", "_dial_", "_prefix_", "_phone_", "_tel_")
+
+
+def _tokens_nombre(nombre: str) -> str:
+    """«jobApplication[firstName]» → «_job_application_first_name_»."""
+    snake = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", nombre).lower()
+    return "_" + re.sub(r"[^a-z0-9]+", "_", snake).strip("_") + "_"
 
 
 def _desde_tipo(pregunta: Pregunta) -> tuple[str, None] | None:
-    """Campos estándar identificables sin IA por su tipo o atributo name."""
+    """Campos estándar identificables sin IA por su tipo, su autocomplete o su name/id."""
     nombre = normalizar_texto(pregunta.nombre or "")
     if pregunta.tipo == "correo" or "email" in nombre or "correo" in nombre:
         return "correo", None
     if pregunta.tipo == "telefono" or any(t in nombre for t in ("phone", "telefono", "celular")):
         return "telefono", None
+    terminos = (pregunta.autocomplete or "").lower().split()
+    if terminos and (campo := _AUTOCOMPLETE.get(terminos[-1])):
+        return campo, None
+    tokens = _tokens_nombre(pregunta.nombre or "")
+    for lista, campo in _TOKENS_NOMBRE:
+        if any(f"_{t}_" in tokens for t in lista):
+            if campo == "pais" and any(x in tokens for x in _NO_ES_PAIS):
+                continue
+            return campo, None
     return None
 
 
@@ -309,13 +459,53 @@ def _desde_tipo(pregunta: Pregunta) -> tuple[str, None] | None:
 # confunde con «¿tienes autorización para trabajar?», que es un dato del perfil.
 _CONSENTIMIENTO = re.compile(
     r"tratamiento de (?:tus |sus |mis )?datos|datos personales|habeas data|terminos y condiciones"
-    r"|politicas? de (?:privacidad|tratamiento)|consentimiento|\bautoriz(?:o|as|a|amos)\b"
+    r"|politicas? de (?:privacidad|tratamiento)|(?:declaracion|aviso) de privacidad"
+    r"|consentimiento|\bautoriz(?:o|as|a|amos)\b"
+    # inglés y portugués
+    r"|privacy (?:policy|notice|statement)|terms (?:and|&) conditions|terms of (?:use|service)"
+    r"|\bconsent\b|\bi (?:agree|accept|authori[sz]e)\b|\bgdpr\b|politica de privacidade"
+    r"|termos e condicoes|\bconcordo\b|\baceito\b"
 )
 
 
 def es_consentimiento(norma: str) -> bool:
     """True si la pregunta (ya normalizada) pide autorizar o aceptar algo."""
     return bool(_CONSENTIMIENTO.search(norma))
+
+
+# «¿Tienes autorización para trabajar en Colombia?»: un dato del perfil, una vez por país
+_TRABAJO = re.compile(r"\b(?:work|working|trabajar|trabajo|trabalhar|trabalho)\b")
+_AUTORIZACION = re.compile(
+    r"authori[sz]ed|authori[sz]ation|eligible|legally|work (?:permit|visa)|permit|"
+    r"autorizad[oa]|autorizacion|autorizacao|legalmente|permiso|permissao"
+)
+_PATROCINIO = re.compile(r"sponsor|patrocin|requiere visa|require.*visa")  # lo contrario
+_PAISES = {
+    "colombia": "Colombia",
+    "estados unidos": "Estados Unidos", "united states": "Estados Unidos", "usa": "Estados Unidos",
+    "u s": "Estados Unidos", "eeuu": "Estados Unidos",
+    "mexico": "México", "argentina": "Argentina", "chile": "Chile", "peru": "Perú",
+    "ecuador": "Ecuador", "venezuela": "Venezuela", "panama": "Panamá",
+    "espana": "España", "spain": "España", "canada": "Canadá",
+    "brasil": "Brasil", "brazil": "Brasil",
+    "reino unido": "Reino Unido", "united kingdom": "Reino Unido",
+    "alemania": "Alemania", "germany": "Alemania",
+}  # fmt: skip
+
+
+def autorizacion_trabajo(norma: str) -> tuple[str, str] | None:
+    """(campo, país) si la pregunta (normalizada) pide autorización para trabajar en un país
+    conocido. «Requiere patrocinio» es la pregunta contraria y no se contesta con este dato."""
+    if _PATROCINIO.search(norma) or not _TRABAJO.search(norma) or not _AUTORIZACION.search(norma):
+        return None
+    hallados = [
+        (m.start(), pais)
+        for alias, pais in _PAISES.items()
+        for m in re.finditer(rf"\b{re.escape(alias)}\b", norma)
+    ]
+    if not hallados:
+        return None
+    return "autorizacion_trabajo", max(hallados)[1]  # el país suele ir al final de la frase
 
 
 async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
@@ -339,12 +529,15 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
         if encontrada[0] == REDACTAR:
             return _para_redactar(pregunta)
         return _desde_campo(pregunta, *encontrada, ctx, Origen.PERFIL)
-    if not ctx.con_ia:
+    if trabajo := autorizacion_trabajo(norma):
+        return _desde_campo(pregunta, *trabajo, ctx, Origen.PERFIL)
+    if not ctx.con_ia or not ctx.clasificar_preguntas:
         return Respuesta(pregunta, falta=True)
     try:
         clasificacion = await ctx.cliente.generar(
             "clasificar_pregunta", ctx.clave, ctx.usuario_id, _instruccion_clasificar(),
             [Parte(datos("pregunta", _pregunta_con_opciones(pregunta)))], Clasificacion,
+            nivel=ctx.nivel,
         )  # fmt: skip
     except ErrorIA:
         return Respuesta(pregunta, falta=True)
@@ -453,6 +646,8 @@ def _texto_preguntas(preguntas: list[Pregunta]) -> str:
         else:
             limite = f" (máximo {p.maximo} caracteres)" if p.maximo else ""
             lineas.append(f"{n}. {p.texto}{limite}")
+        if p.ayuda:
+            lineas[-1] += f" [ayuda: {' '.join(p.ayuda.split())[:200]}]"
     return "\n".join(lineas)
 
 
@@ -483,10 +678,12 @@ async def redactar_formulario(
         return {}
     if not ctx.con_ia:
         return None
+    idioma = ctx.idioma or detectar_idioma(preguntas)
     try:
         redaccion = await ctx.cliente.generar(
             "responder", ctx.clave, ctx.usuario_id, INSTRUCCION_REDACTAR_FORMULARIO,
             [
+                Parte(datos("idioma", IDIOMAS.get(idioma, IDIOMAS["es"]))),
                 Parte(datos("perfil", json.dumps(ctx.datos.para_ia(), ensure_ascii=False))),
                 Parte(datos("datos_del_usuario",
                             _texto_aprendidos(datos_aprendidos(ctx.base, ctx.usuario_id)))),
@@ -494,6 +691,7 @@ async def redactar_formulario(
                 Parte(datos("preguntas", _texto_preguntas(preguntas))),
             ],
             RedaccionFormulario,
+            nivel=ctx.nivel,
         )  # fmt: skip
     except ClaveInvalida:
         raise

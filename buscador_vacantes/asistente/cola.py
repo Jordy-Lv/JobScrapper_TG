@@ -80,6 +80,7 @@ class Postulacion:
     tomada_en: datetime | None
     terminada_en: datetime | None
     afinidad: int | None
+    nivel_ia: str | None = None  # el del usuario al encolar: un cambio posterior no la afecta
 
     @classmethod
     def de_fila(cls, f: sqlite3.Row) -> Postulacion:
@@ -88,6 +89,7 @@ class Postulacion:
             E(f["estado"]), f["motivo"], f["origen"], f["navegador_id"],
             bool(f["envio_pulsado"]), de_texto(f["creada"]), de_texto(f["actualizada"]),
             de_texto(f["tomada_en"]), de_texto(f["terminada_en"]), f["afinidad"],
+            f["nivel_ia"],
         )  # fmt: skip
 
 
@@ -195,10 +197,10 @@ class Cola:
             with self.base.transaccion() as cx:
                 pid = cx.execute(
                     "INSERT INTO postulaciones(usuario_id, id_corto, tipo, plataforma, estado, "
-                    "origen, afinidad, creada, actualizada) VALUES (?, ?, 'postular', ?, ?, ?, "
-                    "?, ?, ?)",
+                    "origen, afinidad, creada, actualizada, nivel_ia) VALUES (?, ?, 'postular', "
+                    "?, ?, ?, ?, ?, ?, (SELECT nivel_ia FROM usuarios WHERE id = ?))",
                     (usuario_id, id_corto, plataforma, E.EN_COLA, origen, afinidad,
-                     a_texto(ahora), a_texto(ahora)),
+                     a_texto(ahora), a_texto(ahora), usuario_id),
                 ).lastrowid  # fmt: skip
                 self.paso(cx, pid, "encolada", ahora, E.EN_COLA, origen)
         except sqlite3.IntegrityError:  # carrera con otro toque: gana el primero
@@ -221,8 +223,9 @@ class Cola:
         with self.base.transaccion() as cx:
             pid = cx.execute(
                 "INSERT INTO postulaciones(usuario_id, tipo, plataforma, estado, origen, creada, "
-                "actualizada) VALUES (?, 'completar_perfil', ?, ?, 'sistema', ?, ?)",
-                (usuario_id, plataforma, E.EN_COLA, a_texto(ahora), a_texto(ahora)),
+                "actualizada, nivel_ia) VALUES (?, 'completar_perfil', ?, ?, 'sistema', ?, ?, "
+                "(SELECT nivel_ia FROM usuarios WHERE id = ?))",
+                (usuario_id, plataforma, E.EN_COLA, a_texto(ahora), a_texto(ahora), usuario_id),
             ).lastrowid
             self.paso(cx, pid, "encolada", ahora, E.EN_COLA, "completar_perfil")
         return pid

@@ -1,0 +1,55 @@
+# Banco de pruebas del motor genérico (change motor-generico-autorreparable, tareas 1.1 y 1.3).
+#
+# Cada copia dice dónde se sirve (`paginas`, URL → archivo de esta carpeta), qué responde el
+# sitio falso a cada POST (`envios`, URL → archivo; null: una respuesta vacía de una SPA), desde
+# qué URL empieza el motor (`inicio`), el POST que cuenta como el envío de la postulación
+# (`envio_final`) y lo que el motor debe lograr (`resultado`):
+#   enviada                    llegó a la página de gracias con un solo envío contado
+#   barrera:<motivo>           se detuvo sin escribir ni enviar nada (ats_con_cuenta, captcha…)
+#
+# tests/asistente/test_motor_generico.py::test_el_banco_no_baja falla si la cantidad de copias
+# que el motor completa como se espera baja de `minimo`. Al sumar una copia que el motor ya
+# completa, se sube `minimo`.
+minimo: 5
+copias:
+  greenhouse:
+    paginas:
+      https://job-boards.greenhouse.io/prueba/jobs/101: greenhouse.html
+    envios:
+      https://job-boards.greenhouse.io/prueba/jobs/101/enviar: greenhouse_gracias.html
+    inicio: https://job-boards.greenhouse.io/prueba/jobs/101
+    envio_final: https://job-boards.greenhouse.io/prueba/jobs/101/enviar
+    resultado: enviada
+  ashby:
+    paginas:
+      https://jobs.ashbyhq.com/prueba/4b3b7cc7/: ashby_vacante.html
+      https://jobs.ashbyhq.com/prueba/4b3b7cc7/application: ashby.html
+    envios:
+      https://jobs.ashbyhq.com/api/enviar: null
+    inicio: https://jobs.ashbyhq.com/prueba/4b3b7cc7/
+    envio_final: https://jobs.ashbyhq.com/api/enviar
+    resultado: enviada
+  typeform:
+    paginas:
+      https://prueba.typeform.com/to/AbCdEf: typeform.html
+    envios:
+      https://prueba.typeform.com/api/enviar: null
+    inicio: https://prueba.typeform.com/to/AbCdEf
+    envio_final: https://prueba.typeform.com/api/enviar
+    resultado: enviada
+  pandape:
+    paginas:
+      https://prueba.pandape.computrabajo.com/ApplyCT/101: pandape.html
+    envios:
+      https://prueba.pandape.computrabajo.com/Apply: pandape_paso2.html
+      https://prueba.pandape.computrabajo.com/Apply/Enviar: pandape_gracias.html
+    inicio: https://prueba.pandape.computrabajo.com/ApplyCT/101
+    envio_final: https://prueba.pandape.computrabajo.com/Apply/Enviar
+    resultado: enviada
+  workday_cuenta:
+    paginas:
+      https://prueba.wd12.myworkdayjobs.com/es/prueba/job/Bogota/Practicante/apply/applyManually: workday_cuenta.html
+    envios: {}
+    inicio: https://prueba.wd12.myworkdayjobs.com/es/prueba/job/Bogota/Practicante/apply/applyManually
+    envio_final: null
+    resultado: barrera:ats_con_cuenta

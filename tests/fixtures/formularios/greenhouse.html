@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Job Application for Data Engineering Intern</title>
+<!-- Copia recortada de job-boards.greenhouse.io/{tablero}/jobs/{id} (reconocimiento del 2026-10-21,
+     docs/asistente/portales.md, sección «LinkedIn»). Se conserva el marcado del formulario
+     (form#application-form, label[for] con «*», aria-required, autocomplete, react-select con
+     input[role=combobox] y su <input required> oculto, grupos de archivo con «Attach», reCAPTCHA
+     Enterprise invisible) y se quitan los estilos, la marca de la empresa y los scripts del sitio.
+     Los ids de las preguntas son inventados (los reales son números largos). El script del final
+     imita a react-select: las opciones no están en el DOM hasta abrir la lista, y la ciudad se
+     busca escribiendo. El formulario se envía por POST a /enviar, que responde la página de gracias
+     falsa. Con data-ignora="si" en una lista, la opción pulsada no queda elegida. -->
+<style>
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .select__single-value:empty { display: none; }
+  .select__menu { border: 1px solid #ccc; }
+  .select__menu [role=option] { padding: 4px; }
+  .requerido { opacity: 0; pointer-events: none; position: absolute; bottom: 0; left: 0; width: 100%; }
+  .select__container { position: relative; }
+  .error-text:empty { display: none; }
+  .recaptcha-oculto { visibility: hidden; position: absolute; top: -10000px; }
+</style></head>
+<body>
+<header><a href="/prueba">Back to jobs</a></header>
+<main class="job-post">
+  <div class="job__header">
+    <h1 class="section-header">Data Engineering Intern</h1>
+    <p class="job__location">Bogotá, Colombia</p>
+    <a class="btn--apply" href="#application-form">Apply</a>
+  </div>
+  <div class="job__description">
+    <p>We are looking for an intern to support our data platform team.</p>
+  </div>
+
+  <div class="application--container">
+    <h2 class="section-header">Apply for this job</h2>
+    <p><span aria-hidden="true">*</span> indicates a required field</p>
+    <button type="button" class="btn--autofill">Autofill my application</button>
+    <form method="post" action="/prueba/jobs/101/enviar" id="application-form" novalidate>
+      <div class="field">
+        <label id="first_name-label" for="first_name">First Name<span aria-hidden="true">*</span></label>
+        <input id="first_name" aria-label="First Name" aria-describedby="first_name-description first_name-error first_name-help" aria-invalid="false" aria-errormessage="first_name-error" aria-required="true" type="text" maxlength="255" autocomplete="given-name" value="">
+        <p id="first_name-error" class="error-text"></p>
+      </div>
+      <div class="field">
+        <label id="last_name-label" for="last_name">Last Name<span aria-hidden="true">*</span></label>
+        <input id="last_name" aria-label="Last Name" aria-describedby="last_name-description last_name-error last_name-help" aria-invalid="false" aria-errormessage="last_name-error" aria-required="true" type="text" maxlength="255" autocomplete="family-name" value="">
+        <p id="last_name-error" class="error-text"></p>
+      </div>
+      <div class="field">
+        <label id="email-label" for="email">Email<span aria-hidden="true">*</span></label>
+        <input id="email" aria-label="Email" aria-describedby="email-description email-error email-help" aria-invalid="false" aria-errormessage="email-error" aria-required="true" type="text" maxlength="255" autocomplete="email" value="">
+        <p id="email-error" class="error-text"></p>
+      </div>
+      <fieldset>
+        <legend>Phone</legend>
+        <div class="select" data-combo data-paises="si">
+          <label id="country-label" for="country">Country<span aria-hidden="true">*</span></label>
+          <div class="select__container">
+            <span id="react-select-country-live-region"></span><span aria-live="polite" aria-atomic="false" aria-relevant="additions text" role="log"></span>
+            <div class="select__control">
+              <div class="select__value-container">
+                <div class="select__placeholder" id="react-select-country-placeholder"></div>
+                <div class="select__single-value"></div>
+                <div class="select__input-container" data-value=""><input autocapitalize="none" autocomplete="off" autocorrect="off" id="country" spellcheck="false" tabindex="0" type="text" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-errormessage="country-error" aria-invalid="false" aria-labelledby="country-label" aria-required="true" role="combobox" aria-activedescendant="" aria-describedby="react-select-country-placeholder" value=""></div>
+              </div>
+              <div class="select__indicators"><button type="button" aria-label="Toggle flyout" tabindex="-1">▾</button></div>
+            </div>
+            <input required tabindex="-1" aria-hidden="true" value="" class="requerido">
+          </div>
+        </div>
+        <div class="field">
+          <label id="phone-label" for="phone">Phone<span aria-hidden="true">*</span></label>
+          <input id="phone" aria-label="Phone" aria-describedby="phone-description phone-error phone-help" aria-invalid="false" aria-errormessage="phone-error" aria-required="true" type="tel" maxlength="255">
+          <p id="phone-error" class="error-text"></p>
+        </div>
+      </fieldset>
+      <div class="select" data-combo data-buscar='["Medellín, Antioquia, Colombia", "Medellín de Bravo, Veracruz, Mexico", "Bogotá, Bogotá D.C., Colombia", "Cartagena, Bolívar, Colombia", "Cali, Valle del Cauca, Colombia"]'>
+        <label id="candidate-location-label" for="candidate-location">Location (City)<span aria-hidden="true">*</span></label>
+        <div class="select__container">
+          <span id="react-select-candidate-location-live-region"></span><span aria-live="polite" aria-atomic="false" aria-relevant="additions text" role="log"></span>
+          <div class="select__control">
+            <div class="select__value-container">
+              <div class="select__placeholder" id="react-select-candidate-location-placeholder"></div>
+              <div class="select__single-value"></div>
+              <div class="select__input-container" data-value=""><input autocapitalize="none" autocomplete="off" autocorrect="off" id="candidate-location" spellcheck="false" tabindex="0" type="text" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-errormessage="candidate-location-error" aria-invalid="false" aria-labelledby="candidate-location-label" aria-required="true" role="combobox" aria-activedescendant="" aria-describedby="react-select-candidate-location-placeholder" value=""></div>
+            </div>
+            <div class="select__indicators"></div>
+          </div>
+          <input required tabindex="-1" aria-hidden="true" value="" class="requerido">
+        </div>
+        <button type="button">Locate me</button>
+      </div>
+      <div class="file-upload" role="group" aria-labelledby="upload-label-resume" aria-required="true">
+        <div id="upload-label-resume" class="label">Resume/CV<span>*</span></div>
+        <div class="file-upload__wrapper">
+          <button type="button" class="btn--pill">Attach</button><label for="resume" class="visually-hidden">Attach</label><input id="resume" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf">
+          <button type="button" data-testid="resume-dropbox">Dropbox</button>
+          <button type="button">Google Drive</button>
+          <button type="button" data-testid="resume-text">Enter manually</button><label for="resume_text" class="visually-hidden">Enter manually</label>
+          <p id="accepted-filetypes">Accepted file types: pdf, doc, docx, txt, rtf</p>
+        </div>
+      </div>
+      <div class="file-upload" role="group" aria-labelledby="upload-label-cover_letter" aria-required="false">
+        <div id="upload-label-cover_letter" class="label">Cover Letter</div>
+        <div class="file-upload__wrapper">
+          <button type="button" class="btn--pill">Attach</button><label for="cover_letter" class="visually-hidden">Attach</label><input id="cover_letter" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf">
+          <button type="button" data-testid="cover_letter-dropbox">Dropbox</button>
+          <button type="button">Google Drive</button>
+          <p>Accepted file types: pdf, doc, docx, txt, rtf</p>
+        </div>
+      </div>
+      <hr>
+      <div class="select" data-combo data-opciones='["Yes", "No"]'>
+        <label id="question_101-label" for="question_101">Are you legally authorized to work in Colombia?<span aria-hidden="true">*</span></label>
+        <div class="select__container">
+          <div class="select__control">
+            <div class="select__value-container">
+              <div class="select__placeholder" id="react-select-question_101-placeholder">Select...</div>
+              <div class="select__single-value"></div>
+              <div class="select__input-container" data-value=""><input autocapitalize="none" autocomplete="off" autocorrect="off" id="question_101" spellcheck="false" tabindex="0" type="text" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-errormessage="question_101-error" aria-invalid="false" aria-labelledby="question_101-label" aria-required="true" role="combobox" aria-activedescendant="" aria-describedby="react-select-question_101-placeholder" value=""></div>
+            </div>
+            <div class="select__indicators"><button type="button" aria-label="Toggle flyout" tabindex="-1">▾</button></div>
+          </div>
+          <input required tabindex="-1" aria-hidden="true" value="" class="requerido">
+        </div>
+      </div>
+      <div class="select" data-combo data-opciones='["Yes", "No"]'>
+        <label id="question_102-label" for="question_102"> Are you located in Bogotá? <span aria-hidden="true">*</span></label>
+        <div class="select__container">
+          <div class="select__control">
+            <div class="select__value-container">
+              <div class="select__placeholder" id="react-select-question_102-placeholder">Select...</div>
+              <div class="select__single-value"></div>
+              <div class="select__input-container" data-value=""><input autocapitalize="none" autocomplete="off" autocorrect="off" id="question_102" spellcheck="false" tabindex="0" type="text" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-errormessage="question_102-error" aria-invalid="false" aria-labelledby="question_102-label" aria-required="true" role="combobox" aria-activedescendant="" aria-describedby="react-select-question_102-placeholder" value=""></div>
+            </div>
+            <div class="select__indicators"><button type="button" aria-label="Toggle flyout" tabindex="-1">▾</button></div>
+          </div>
+          <input required tabindex="-1" aria-hidden="true" value="" class="requerido">
+        </div>
+      </div>
+      <div class="field">
+        <label id="question_103-label" for="question_103">What university are you currently pursuing your bachelor's degree? <span aria-hidden="true">*</span></label>
+        <input id="question_103" aria-label="What university are you currently pursuing your bachelor's degree? " aria-describedby="question_103-description question_103-error question_103-help" aria-invalid="false" aria-errormessage="question_103-error" aria-required="true" type="text" maxlength="255" value="">
+        <p id="question_103-error" class="error-text"></p>
+      </div>
+      <div class="select" data-combo data-opciones='["Below 3", "3.0-3.09", "3.1 - 3.19", "3.2 - 3.29", "3.3 - 3.39", "3.4 - 3.49", "3.5 - 3.59", "3.6 - 3.69", "3.7 - 3.79", "3.8 - 3.89", "3.9 - 3.99", "4.0 - 4.09", "4.1 - 4.19", "4.2 - 4.29", "4.3 - 4.39", "4.4 - 4.49", "4.5 - 4.59", "4.6 - 4.69", "4.7 - 4.79", "4.8 - 4.89", "4.9 - 4.99", "5.0", "N/A"]'>
+        <label id="question_104-label" for="question_104">Please list your current cumulative GPA. <span aria-hidden="true">*</span></label>
+        <div class="select__container">
+          <div class="select__control">
+            <div class="select__value-container">
+              <div class="select__placeholder" id="react-select-question_104-placeholder">Select...</div>
+              <div class="select__single-value"></div>
+              <div class="select__input-container" data-value=""><input autocapitalize="none" autocomplete="off" autocorrect="off" id="question_104" spellcheck="false" tabindex="0" type="text" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-errormessage="question_104-error" aria-invalid="false" aria-labelledby="question_104-label" aria-required="true" role="combobox" aria-activedescendant="" aria-describedby="react-select-question_104-placeholder" value=""></div>
+            </div>
+            <div class="select__indicators"><button type="button" aria-label="Toggle flyout" tabindex="-1">▾</button></div>
+          </div>
+          <input required tabindex="-1" aria-hidden="true" value="" class="requerido">
+        </div>
+      </div>
+      <div class="file-upload" role="group" aria-labelledby="upload-label-question_105" aria-required="true">
+        <div id="upload-label-question_105" class="label">Please upload a copy of your unofficial university transcripts.<span>*</span></div>
+        <div class="file-upload__wrapper">
+          <button type="button" class="btn--pill">Attach</button><label for="question_105" class="visually-hidden">Attach</label><input id="question_105" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf">
+          <button type="button" data-testid="question_105-dropbox">Dropbox</button>
+          <button type="button">Google Drive</button>
+          <p>Accepted file types: pdf, doc, docx, txt, rtf</p>
+        </div>
+      </div>
+      <div class="select" data-combo data-opciones='["A1", "A2", "B1", "B2", "C1", "C2"]'>
+        <label id="question_106-label" for="question_106">What is your English level?<span aria-hidden="true">*</span></label>
+        <div class="select__container">
+          <div class="select__control">
+            <div class="select__value-container">
+              <div class="select__placeholder" id="react-select-question_106-placeholder">Select...</div>
+              <div class="select__single-value"></div>
+              <div class="select__input-container" data-value=""><input autocapitalize="none" autocomplete="off" autocorrect="off" id="question_106" spellcheck="false" tabindex="0" type="text" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-errormessage="question_106-error" aria-invalid="false" aria-labelledby="question_106-label" aria-required="true" role="combobox" aria-activedescendant="" aria-describedby="react-select-question_106-placeholder" value=""></div>
+            </div>
+            <div class="select__indicators"><button type="button" aria-label="Toggle flyout" tabindex="-1">▾</button></div>
+          </div>
+          <input required tabindex="-1" aria-hidden="true" value="" class="requerido">
+        </div>
+      </div>
+      <div class="field">
+        <label id="question_107-label" for="question_107">What are your monthly pay expectations in Colombian Pesos?<span aria-hidden="true">*</span></label>
+        <input id="question_107" aria-label="What are your monthly pay expectations in Colombian Pesos?" aria-describedby="question_107-description question_107-error question_107-help" aria-invalid="false" aria-errormessage="question_107-error" aria-required="true" type="text" maxlength="255" value="">
+        <p id="question_107-error" class="error-text"></p>
+      </div>
+      <div class="select" data-combo data-opciones='["Company Website", "LinkedIn", "Indeed", "Glassdoor", "Referral from a Friend or Colleague", "TikTok", "Facebook", "Instagram", "University Career Fair", "Other"]'>
+        <label id="question_108-label" for="question_108">How did you hear about this opportunity?
+
+
+<span aria-hidden="true">*</span></label>
+        <div class="select__container">
+          <div class="select__control">
+            <div class="select__value-container">
+              <div class="select__placeholder" id="react-select-question_108-placeholder">Select...</div>
+              <div class="select__single-value"></div>
+              <div class="select__input-container" data-value=""><input autocapitalize="none" autocomplete="off" autocorrect="off" id="question_108" spellcheck="false" tabindex="0" type="text" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-errormessage="question_108-error" aria-invalid="false" aria-labelledby="question_108-label" aria-required="true" role="combobox" aria-activedescendant="" aria-describedby="react-select-question_108-placeholder" value=""></div>
+            </div>
+            <div class="select__indicators"><button type="button" aria-label="Toggle flyout" tabindex="-1">▾</button></div>
+          </div>
+          <input required tabindex="-1" aria-hidden="true" value="" class="requerido">
+        </div>
+      </div>
+      <div class="file-upload" role="group" aria-labelledby="upload-label-question_109" aria-required="false">
+        <div id="upload-label-question_109" class="label">Optional additional documents to support your application.
+</div>
+        <div class="file-upload__wrapper">
+          <button type="button" class="btn--pill">Attach</button><label for="question_109" class="visually-hidden">Attach</label><input id="question_109" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf">
+          <p>Accepted file types: pdf, doc, docx, txt, rtf</p>
+        </div>
+      </div>
+      <hr>
+      <div class="ai-disclosure">
+        <p>We use AI-powered Talent Matching and external tools to compare your application against our job requirements.</p>
+        <a target="_blank" href="/prueba/ai_opt_out" rel="noopener noreferrer">Learn more</a>
+      </div>
+      <textarea id="g-recaptcha-response-100000" name="g-recaptcha-response" class="g-recaptcha-response" style="display: none;"></textarea>
+      <div role="alert" class="form-errors" id="errores"></div>
+      <div><button type="submit" aria-disabled="false">Submit application</button></div>
+    </form>
+  </div>
+</main>
+<div class="recaptcha-oculto" id="recaptcha-reto"><iframe title="recaptcha challenge expires in two minutes" src="https://www.google.com/recaptcha/enterprise/bframe?hl=en&amp;k=prueba" width="400" height="580" name="c-prueba"></iframe></div>
+<div class="grecaptcha-badge" style="width: 256px; height: 60px; position: fixed; visibility: hidden; bottom: 14px; right: -186px;"><iframe title="reCAPTCHA" src="https://www.google.com/recaptcha/enterprise/anchor?ar=1&amp;k=prueba&amp;size=invisible" width="256" height="60"></iframe></div>
+<footer><p>Powered by Greenhouse</p></footer>
+<script>
+(function () {
+  function norm(t) { return String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(); }
+  var PAISES = ["Afghanistan", "Argentina", "Bolivia", "Brazil", "Canada", "Chile", "Colombia", "Costa Rica", "Ecuador", "El Salvador", "Guatemala", "Honduras", "Mexico", "Panama", "Paraguay", "Peru", "Spain", "United States", "Uruguay", "Venezuela"];
+  for (var n = 1; n <= 100; n++) PAISES.push("Territory " + n);
+  document.querySelectorAll("[data-combo]").forEach(function (caja) {
+    var input = caja.querySelector("[role=combobox]");
+    var oculto = caja.querySelector(".requerido");
+    var mostrado = caja.querySelector(".select__single-value");
+    var marcador = caja.querySelector(".select__placeholder");
+    var fijas = caja.dataset.paises ? PAISES : (caja.dataset.opciones ? JSON.parse(caja.dataset.opciones) : null);
+    var buscables = caja.dataset.buscar ? JSON.parse(caja.dataset.buscar) : null;
+    var lista = null, temporizador = null;
+    function cerrar() {
+      if (lista) lista.remove();
+      lista = null;
+      input.setAttribute("aria-expanded", "false");
+      input.removeAttribute("aria-controls");
+    }
+    function mostrar(opciones) {
+      cerrar();
+      lista = document.createElement("div");
+      lista.id = "react-select-" + input.id + "-listbox";
+      lista.className = "select__menu";
+      lista.setAttribute("role", "listbox");
+      if (!opciones.length) {
+        var aviso = document.createElement("div");
+        aviso.className = "select__menu-notice";
+        aviso.textContent = buscables ? "Type to search" : "No options";
+        lista.appendChild(aviso);
+      }
+      opciones.forEach(function (texto, i) {
+        var op = document.createElement("div");
+        op.setAttribute("role", "option");
+        op.id = lista.id + "-option-" + i;
+        op.textContent = texto;
+        op.addEventListener("click", function () { elegir(texto); });
+        lista.appendChild(op);
+      });
+      caja.querySelector(".select__container").appendChild(lista);
+      input.setAttribute("aria-expanded", "true");
+      input.setAttribute("aria-controls", lista.id);
+    }
+    function elegir(texto) {
+      cerrar();
+      input.value = "";
+      if (caja.dataset.ignora === "si") return;
+      mostrado.textContent = texto;
+      marcador.style.display = "none";
+      oculto.value = texto;
+      input.setAttribute("aria-invalid", "false");
+    }
+    function filtradas() {
+      var t = norm(input.value);
+      if (buscables) return t.length < 2 ? [] : buscables.filter(function (o) { return norm(o).indexOf(t) !== -1; });
+      return fijas.filter(function (o) { return norm(o).indexOf(t) !== -1; });
+    }
+    function abrir() { mostrar(buscables ? filtradas() : fijas); }
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown" && !lista) abrir();
+      else if (e.key === "Escape") cerrar();
+    });
+    caja.querySelector(".select__control").addEventListener("mousedown", function () { if (!lista) abrir(); });
+    input.addEventListener("input", function () {
+      clearTimeout(temporizador);
+      if (buscables) temporizador = setTimeout(function () { mostrar(filtradas()); }, 300);
+      else mostrar(filtradas());
+    });
+    input.addEventListener("blur", function () { setTimeout(cerrar, 150); });
+  });
+
+  // Validación propia del tablero: marca los obligatorios vacíos sin enviar
+  var form = document.getElementById("application-form");
+  form.addEventListener("submit", function (e) {
+    var faltan = 0;
+    form.querySelectorAll("input[aria-required=true]:not([role=combobox])").forEach(function (el) {
+      var vacio = !el.value.trim();
+      el.setAttribute("aria-invalid", vacio ? "true" : "false");
+      var error = document.getElementById(el.id + "-error");
+      if (error) error.textContent = vacio ? "This field is required." : "";
+      if (vacio) faltan++;
+    });
+    form.querySelectorAll("[data-combo]").forEach(function (caja) {
+      var vacio = !caja.querySelector(".requerido").value;
+      caja.querySelector("[role=combobox]").setAttribute("aria-invalid", vacio ? "true" : "false");
+      if (vacio) faltan++;
+    });
+    form.querySelectorAll("[role=group][aria-required=true] input[type=file]").forEach(function (el) {
+      if (!el.files.length) faltan++;
+    });
+    if (faltan) {
+      e.preventDefault();
+      document.getElementById("errores").textContent = "Please complete all required fields.";
+    }
+  });
+})();
+</script>
+</body></html>

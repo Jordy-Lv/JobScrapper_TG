@@ -21,6 +21,13 @@ from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
+from buscador_vacantes.asistente.pantalla import (  # noqa: E402
+    Boton,
+    Consulta,
+    ConsultaReparacion,
+    Peticion,
+    Resumen,
+)
 from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     REDACTAR,
     Origen,
@@ -216,6 +223,44 @@ def test_formulario_con_dato_faltante_pregunta_y_reanuda(mundo):
     assert not resultado.faltan
     assert resultado.respuestas[1].texto == "No"
     assert resultado.cv is not None and resultado.cv.name == "CV_Ana_Perez.pdf"
+
+
+@respx.mock
+def test_como_te_enteraste_y_autorizacion_para_trabajar_sin_ia(mundo):
+    respx.get(URL_CT).mock(
+        return_value=httpx.Response(200, text=(FIXTURES / "computrabajo.html").read_text("utf-8"))
+    )
+    mundo.vincular()
+    toque = mundo.nucleo.tocar(mundo.usuario, id_corto("computrabajo:1"))
+    pid = toque.postulacion.id
+    navegador = mundo.base.cx.execute("SELECT id FROM navegadores").fetchone()[0]
+    mundo.nucleo.cola.tomar(pid, navegador, T0)
+    mundo.nucleo.cola.iniciar(pid, navegador, T0)
+    p = mundo.nucleo.cola.obtener(pid)
+    preguntas = [
+        Pregunta("How did you hear about this opportunity?", "opciones",
+                 ["Indeed", "Computrabajo", "Other"]),
+        Pregunta("Are you legally authorized to work in Colombia?", "opciones", ["Yes", "No"]),
+    ]  # fmt: skip
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    # La fuente sale de la plataforma de la vacante; la autorización se le pregunta al usuario
+    assert [(r.campo, r.texto) for r in resultado.respuestas] == [
+        ("fuente_vacante", "Computrabajo")
+    ]
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert pendiente["campo"] == "autorizacion_trabajo:colombia"
+    mundo.nucleo.cola.esperar_usuario(pid, navegador, T0)
+    assert mundo.nucleo.responder_pendiente(mundo.usuario.id, pendiente["id"], "Sí")
+    # La respuesta sirve para cualquier otra pregunta por Colombia, aunque la redacten distinto
+    mundo.nucleo.cola.tomar(pid, navegador, T0 + timedelta(minutes=3))
+    mundo.nucleo.cola.iniciar(pid, navegador, T0 + timedelta(minutes=3))
+    p = mundo.nucleo.cola.obtener(pid)
+    otra = Pregunta("Are you eligible to work legally in Colombia?", "opciones", ["Yes", "No"])
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, [otra]))
+    assert not resultado.faltan and resultado.respuestas[0].texto == "Yes"
+    assert mundo.nucleo.datos_usuario(mundo.usuario.id).cuestionario[
+        "autorizacion_trabajo:colombia"
+    ] == "Sí"
 
 
 def test_clave_gemini_cifrada(mundo):
@@ -730,3 +775,169 @@ def test_cuestionario_de_elempleo_se_redacta_en_una_sola_llamada(mundo):
         ("Sí", Origen.IA),
     ]
     assert "(máximo 2000 caracteres)" in ruta.calls[0].request.content.decode("utf-8")
+
+
+# --- árbitro de pantallas (entender_pagina) ---------------------------------------------------
+
+URL_ENTENDER = (
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
+)
+
+
+def consulta_de_pantalla():
+    peticion = Peticion(
+        "desconocida", None, "en", "https://empresa.co/jobs/1?token=SECRETO",
+        [Pregunta("City")], [Boton(indice=0, texto="Quick apply")], None,
+        Resumen(encabezados=["Backend Engineer"]), None, False,
+    )  # fmt: skip
+    return Consulta(peticion)
+
+
+@respx.mock
+def test_arbitro_de_pantalla_usa_la_clave_del_usuario_y_valida_el_esquema(mundo):
+    pid = en_curso(mundo)
+    p = mundo.nucleo.cola.obtener(pid)
+    ruta = respx.post(URL_ENTENDER).mock(return_value=gemini({
+        "clase": "intermedia",
+        "acciones": [{"accion": "borrar", "indice": 0}, {"accion": "avanzar", "indice": 0}],
+        "motivo": "Hay que avanzar",
+    }))  # fmt: skip
+    decision = asyncio.run(mundo.nucleo.arbitrar_pantalla(p, consulta_de_pantalla()))
+    assert decision.clase == "intermedia"
+    assert [(a.accion, a.indice) for a in decision.acciones] == [("avanzar", 0)]
+    assert ruta.call_count == 1
+    cuerpo = ruta.calls[0].request.content.decode("utf-8")
+    assert "Backend Engineer" in cuerpo and "Quick apply" in cuerpo
+    assert "SECRETO" not in cuerpo and "ana@gmail.com" not in cuerpo
+    uso = mundo.base.cx.execute("SELECT tarea, ok FROM ia_uso").fetchall()
+    assert [tuple(f) for f in uso] == [("entender_pagina", 1)]
+
+
+def test_arbitro_de_pantalla_sin_clave_devuelve_none(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p = mundo.nucleo.cola.obtener(pid)
+    assert asyncio.run(mundo.nucleo.arbitrar_pantalla(p, consulta_de_pantalla())) is None
+
+
+@respx.mock
+def test_arbitro_de_pantalla_con_falla_de_la_ia_devuelve_none(mundo):
+    pid = en_curso(mundo)
+    p = mundo.nucleo.cola.obtener(pid)
+    respx.post(url__startswith="https://generativelanguage").mock(
+        return_value=gemini({"clase": "inventada"})
+    )
+    assert asyncio.run(mundo.nucleo.arbitrar_pantalla(p, consulta_de_pantalla())) is None
+
+
+# --- reparación de un paso fallido (reparar_flujo) --------------------------------------------
+
+URL_REPARAR = (
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
+)
+
+
+def consulta_de_reparacion():
+    return ConsultaReparacion(consulta_de_pantalla().peticion, "clic:postular", "no se encontró")
+
+
+REPARACION = {
+    "clase": "formulario",
+    "acciones": [{"accion": "cerrar_modal", "indice": 0}, {"accion": "tocar_todo", "indice": 0}],
+    "motivo": "Un aviso tapa el botón",
+    "diagnostico": "El aviso de cookies cubre el botón",
+}
+
+
+@respx.mock
+def test_reparar_usa_la_clave_del_usuario_y_registra_su_uso(mundo):
+    pid = en_curso(mundo)
+    p = mundo.nucleo.cola.obtener(pid)
+    ruta = respx.post(URL_REPARAR).mock(return_value=gemini(REPARACION))
+    r = asyncio.run(mundo.nucleo.reparar_pantalla(p, consulta_de_reparacion()))
+    assert [(a.accion, a.indice) for a in r.acciones] == [("cerrar_modal", 0)]
+    assert r.diagnostico == "El aviso de cookies cubre el botón"
+    cuerpo = ruta.calls[0].request.content.decode("utf-8")
+    assert "clic:postular" in cuerpo and "ana@gmail.com" not in cuerpo
+    uso = mundo.base.cx.execute("SELECT usuario_id, tarea FROM ia_uso").fetchall()
+    assert [tuple(f) for f in uso] == [(mundo.usuario.id, "reparar_flujo")]
+
+
+@respx.mock
+def test_reparar_sin_clave_del_usuario_y_clave_duenio_apagada_es_sin_ia(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p = mundo.nucleo.cola.obtener(pid)
+    duenio = mundo.nucleo.usuarios.crear(999, "Dueño", T0)
+    mundo.nucleo.guardar_clave_gemini(duenio.id, "clave_duenio")
+    mundo.nucleo.config.dueno_telegram_id = 999
+    ruta = respx.post(url__startswith="https://generativelanguage").mock(
+        return_value=gemini(REPARACION)
+    )
+    assert asyncio.run(mundo.nucleo.reparar_pantalla(p, consulta_de_reparacion())) is None
+    assert ruta.call_count == 0  # la clave del dueño no se toca si no se activó
+
+
+@respx.mock
+def test_reparar_con_clave_duenio_usa_la_del_dueno_y_queda_a_su_nombre(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p = mundo.nucleo.cola.obtener(pid)
+    duenio = mundo.nucleo.usuarios.crear(999, "Dueño", T0)
+    mundo.nucleo.guardar_clave_gemini(duenio.id, "clave_duenio")
+    mundo.nucleo.config.dueno_telegram_id = 999
+    mundo.nucleo.config.autorreparacion.clave_duenio = True
+    ruta = respx.post(URL_REPARAR).mock(return_value=gemini(REPARACION))
+    r = asyncio.run(mundo.nucleo.reparar_pantalla(p, consulta_de_reparacion()))
+    assert r is not None and ruta.call_count == 1
+    assert ruta.calls[0].request.headers["x-goog-api-key"] == "clave_duenio"
+    uso = mundo.base.cx.execute("SELECT usuario_id, tarea FROM ia_uso").fetchall()
+    assert [tuple(f) for f in uso] == [(duenio.id, "reparar_flujo")]
+
+
+@respx.mock
+def test_reparar_prefiere_la_clave_del_usuario_aunque_este_la_del_dueno(mundo):
+    pid = en_curso(mundo)
+    p = mundo.nucleo.cola.obtener(pid)
+    duenio = mundo.nucleo.usuarios.crear(999, "Dueño", T0)
+    mundo.nucleo.guardar_clave_gemini(duenio.id, "clave_duenio")
+    mundo.nucleo.config.dueno_telegram_id = 999
+    mundo.nucleo.config.autorreparacion.clave_duenio = True
+    ruta = respx.post(URL_REPARAR).mock(return_value=gemini(REPARACION))
+    asyncio.run(mundo.nucleo.reparar_pantalla(p, consulta_de_reparacion()))
+    assert ruta.calls[0].request.headers["x-goog-api-key"] == "clave"
+
+
+# --- dominios barrera y parches en los selectores (6.3) -------------------------------------
+
+
+def test_vacante_de_un_dominio_barrera_va_al_respaldo_sin_abrir_la_pagina(mundo):
+    from buscador_vacantes.asistente.recetas import marcar_barrera, quitar_barrera
+
+    mundo.vincular()
+    marcar_barrera(mundo.base, "co.computrabajo.com", "ats_con_cuenta", T0)
+    toque = mundo.nucleo.tocar(mundo.usuario, id_corto("computrabajo:1"))
+    assert toque.camino == Camino.RESPALDO and toque.motivo == "ats_con_cuenta"
+    assert toque.postulacion.estado == E.RESPALDO and toque.postulacion.motivo == "ats_con_cuenta"
+    # El dueño quita el dominio y la siguiente vacante vuelve a ir sola
+    assert quitar_barrera(mundo.base, "co.computrabajo.com")
+    otra = mundo.nucleo.tocar(mundo.usuario, id_corto("linkedin:1"))
+    assert otra.motivo != "ats_con_cuenta"
+
+
+def test_los_selectores_llevan_los_parches_antepuestos_y_otra_version(mundo):
+    from buscador_vacantes.asistente.recetas import proponer_parche, resultado_parches
+
+    contenido = {"postular": [{"nombre": "aplicar", "accion": "ir", "selector": ["a.viejo"]}]}
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO selectores(plataforma, version, contenido_json, cargado_en) "
+            "VALUES ('computrabajo', '2026.10.06-2', ?, 'x')",
+            (json.dumps(contenido),),
+        )
+    assert mundo.nucleo.selectores("computrabajo") == ("2026.10.06-2", contenido)
+    pid = proponer_parche(mundo.base, "computrabajo", "aplicar", "a.nuevo", T0)
+    version, parchado = mundo.nucleo.selectores("computrabajo")
+    assert version == f"2026.10.06-2+p{pid}"
+    assert parchado["postular"][0]["selector"] == ["a.nuevo", "a.viejo"]
+    # Descartado, vuelven los selectores revisados y la versión original
+    resultado_parches(mundo.base, [pid], False, T0)
+    assert mundo.nucleo.selectores("computrabajo") == ("2026.10.06-2", contenido)
+    assert mundo.nucleo.selectores("magneto") is None

@@ -1,0 +1,73 @@
+{
+  "version": "1",
+  "nota": "Reglas del motor genérico de la extensión (change motor-generico-autorreparable). Son datos: la extensión los interpreta y no trae listas propias, salvo las mínimas de seguridad (contraseñas, autocomplete de contraseña y campos ocultos), que no se pueden apagar desde aquí. Los textos se comparan sin tildes, en minúsculas y por palabra completa.",
+  "textos": {
+    "avanzar": {
+      "es": ["siguiente", "continuar", "seguir", "proximo", "revisar", "comenzar", "empezar", "ok"],
+      "en": ["next", "continue", "review", "start", "ok", "proceed"],
+      "pt": ["proximo", "continuar", "avancar", "prosseguir", "revisar", "comecar"]
+    },
+    "enviar": {
+      "es": ["enviar", "enviar solicitud", "enviar postulacion", "enviar candidatura", "postular", "postularme", "aplicar", "finalizar"],
+      "en": ["submit", "submit application", "send application", "apply", "send", "finish"],
+      "pt": ["enviar", "enviar candidatura", "candidatar-se", "candidatar", "finalizar", "concluir"]
+    },
+    "nunca": {
+      "es": ["cancelar", "volver", "atras", "regresar", "guardar borrador", "guardar para despues", "subir", "adjuntar", "autocompletar", "rellenar automaticamente", "ubicarme", "usar mi ubicacion", "iniciar sesion", "ingresar", "postular con", "aplicar con", "continuar con", "compartir", "ingresar manualmente", "eliminar", "borrar", "quitar"],
+      "en": ["cancel", "back", "go back", "previous", "save draft", "save for later", "upload", "attach", "autofill", "auto-fill", "autofill my application", "autofill from resume", "locate me", "use my location", "sign in", "log in", "login", "apply with", "continue with", "share", "dropbox", "google drive", "enter manually", "remove", "delete", "clear"],
+      "pt": ["cancelar", "voltar", "anterior", "salvar rascunho", "enviar arquivo", "anexar", "preencher automaticamente", "entrar", "fazer login", "candidatar-se com", "continuar com", "compartilhar", "remover", "excluir"]
+    },
+    "intermedia": {
+      "es": ["aplicar", "aplicar ahora", "postular", "postularme", "postulate", "solicitar", "me interesa", "quiero postularme", "solicitar manualmente"],
+      "en": ["apply", "apply now", "apply for this job", "i'm interested", "im interested", "apply manually"],
+      "pt": ["candidatar-se", "candidatar", "quero me candidatar", "aplicar"]
+    },
+    "exito": {
+      "es": ["gracias por postularte", "gracias por tu postulacion", "gracias por aplicar", "hemos recibido tu postulacion", "recibimos tu postulacion", "tu postulacion fue enviada", "tu postulacion ha sido enviada", "postulacion enviada", "solicitud enviada", "candidatura enviada", "recibimos tu candidatura", "hemos recibido tu candidatura"],
+      "en": ["thank you for applying", "thanks for applying", "application received", "application submitted", "application has been submitted", "application was submitted", "we have received your application", "we've received your application", "thank you for your application", "thanks for your application", "thank you for filling the application", "thank you for your interest in joining"],
+      "pt": ["obrigado por se candidatar", "obrigada por se candidatar", "candidatura enviada", "candidatura enviada com sucesso", "recebemos sua candidatura", "recebemos a sua candidatura"]
+    },
+    "barrera": {
+      "es": ["crear cuenta", "crea tu cuenta", "crear una cuenta", "inicia sesion para postular", "inicia sesion para postularte", "inicia sesion para aplicar", "registrate para postular", "registrate para aplicar", "verificar contrasena"],
+      "en": ["create account", "create an account", "create your account", "sign in to apply", "log in to apply", "login to apply", "register to apply", "verify new password"],
+      "pt": ["criar conta", "crie sua conta", "criar uma conta", "entre para se candidatar", "faca login para se candidatar", "cadastre-se para se candidatar"]
+    },
+    "oauth": {
+      "es": ["postular con linkedin", "aplicar con linkedin", "continuar con google", "continuar con linkedin", "iniciar sesion con google", "iniciar sesion con linkedin", "continuar con microsoft"],
+      "en": ["apply with linkedin", "apply with google", "apply with indeed", "continue with google", "continue with linkedin", "continue with microsoft", "sign in with google", "sign in with linkedin", "log in with google"],
+      "pt": ["candidatar-se com linkedin", "continuar com google", "continuar com linkedin", "entrar com google", "entrar com linkedin"]
+    },
+    "verificacion": {
+      "es": ["codigo de verificacion", "ingresa el codigo", "introduce el codigo", "codigo que enviamos"],
+      "en": ["verification code", "enter the code", "security code", "one-time code", "code we sent"],
+      "pt": ["codigo de verificacao", "digite o codigo", "insira o codigo", "codigo que enviamos"]
+    },
+    "captcha": {
+      "es": ["no soy un robot", "verifica que eres humano", "demuestra que eres humano"],
+      "en": ["i'm not a robot", "im not a robot", "verify you are human", "prove you are human"],
+      "pt": ["nao sou um robo", "verifique se voce e humano"]
+    },
+    "cookies_rechazar": {
+      "es": ["rechazar", "rechazar todas", "rechazar todo", "declinar", "solo necesarias", "solo las necesarias", "usar solo las necesarias"],
+      "en": ["reject", "reject all", "decline", "decline all", "only necessary", "necessary only", "use necessary cookies only"],
+      "pt": ["rejeitar", "rejeitar todos", "recusar", "recusar todos", "apenas necessarios"]
+    }
+  },
+  "url_exito": ["/confirmation", "/confirmacion", "/confirmed", "/thank", "/thanks", "/gracias", "/obrigado", "/success", "/exito", "submitted", "application_confirmation"],
+  "trampas": ["beecatcher", "honeypot", "honey_pot", "hpot", "bot_field", "botfield", "leave_blank", "leave-this-blank", "do_not_fill", "dejar_vacio"],
+  "captcha": {
+    "desafio": [
+      "iframe[src*='recaptcha/api2/bframe']",
+      "iframe[src*='recaptcha/enterprise/bframe']",
+      "iframe[src*='recaptcha/api2/anchor']",
+      "iframe[src*='recaptcha/enterprise/anchor']",
+      "iframe[src*='hcaptcha.com']",
+      "iframe[src*='challenges.cloudflare.com']",
+      "iframe[title*='captcha' i]"
+    ],
+    "tamano_minimo": 30
+  },
+  "cookies": {
+    "banner": ["#onetrust-banner-sdk", "#onetrust-consent-sdk", "#CybotCookiebotDialog", "[id*='cookie' i]", "[class*='cookie' i]", "[aria-label*='cookie' i]"]
+  }
+}

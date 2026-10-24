@@ -17,7 +17,7 @@ from typing import Any
 
 from buscador_vacantes.asistente.afinidad import Afinidad, calcular_afinidad, obtener_requisitos
 from buscador_vacantes.asistente.api import ResultadoFormulario
-from buscador_vacantes.asistente.campos import CAMPOS, RESERVADO, DatosUsuario
+from buscador_vacantes.asistente.campos import RESERVADO, DatosUsuario, es_guardable
 from buscador_vacantes.asistente.cifrado import Cifrador, ClaveInvalida
 from buscador_vacantes.asistente.cola import ESPERANDO, Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal
@@ -28,14 +28,38 @@ from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina
 from buscador_vacantes.asistente.espera import Causa, Entrada, NavegadorLatido, causa
 from buscador_vacantes.asistente.ia import ClaveInvalida as ClaveIAInvalida
-from buscador_vacantes.asistente.ia import ClienteIA
+from buscador_vacantes.asistente.ia import (
+    ClienteIA,
+    CuotaAgotada,
+    ErrorIA,
+    Parte,
+    TopeAlcanzado,
+)
+from buscador_vacantes.asistente.ia import datos as delimitar
+from buscador_vacantes.asistente.pantalla import (
+    INSTRUCCION_ENTENDER_PAGINA,
+    INSTRUCCION_REPARAR_FLUJO,
+    Consulta,
+    ConsultaReparacion,
+    DecisionPagina,
+    Reparacion,
+    texto_consulta,
+    texto_reparacion,
+)
 from buscador_vacantes.asistente.preferencias import Preferencias
+from buscador_vacantes.asistente.recetas import (
+    aplicar_parches,
+    barrera_de,
+    host_de,
+    parches_aplicables,
+)
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
     Origen,
     Pregunta,
     Respuesta,
     aprendida,
+    detectar_idioma,
     elegir_opcion,
     normalizar_pregunta,
     recordar,
@@ -231,7 +255,14 @@ class Nucleo:
         fila = self.base.cx.execute(
             "SELECT version, contenido_json FROM selectores WHERE plataforma = ?", (plataforma,)
         ).fetchone()
-        return (fila["version"], json.loads(fila["contenido_json"])) if fila else None
+        if not fila:
+            return None
+        version, contenido = fila["version"], json.loads(fila["contenido_json"])
+        parches = parches_aplicables(self.base, plataforma)
+        if parches:  # los candidatos y firmes van antepuestos; la versión cambia para que la
+            contenido = aplicar_parches(contenido, parches)  # extensión vuelva a bajarlos
+            version = f"{version}+p{max(p['id'] for p in parches)}"
+        return version, contenido
 
     def espera(self, pid: int) -> Causa | None:
         """Por qué una postulación en cola todavía no sale hacia la extensión (None si nada)."""
@@ -264,6 +295,8 @@ class Nucleo:
 
     def camino_automatico(self, usuario_id: int, vacante: VacanteIndexada) -> str | None:
         """None si se puede postular sola; si no, el motivo del respaldo."""
+        if barrera := barrera_de(self.base, host_de(vacante.url)):
+            return barrera  # el host exige cuenta u OAuth: al respaldo sin abrir la página
         if vacante.plataforma is None:
             return "plataforma_no_soportada"
         ajustes = self.config.plataformas.get(vacante.plataforma)
@@ -309,6 +342,13 @@ class Nucleo:
 
     def cliente_ia(self, usuario_id: int) -> ClienteIA:
         return self.ia[self.proveedor_de(usuario_id)]
+
+    def nivel_de(self, postulacion: Postulacion) -> str:
+        """El nivel de IA con que corre la postulación: el copiado al encolar, o el menor al que
+        bajó la cuota del usuario hoy."""
+        return self.preferencias.nivel_efectivo(
+            postulacion.usuario_id, postulacion.nivel_ia, self.ahora()
+        )
 
     async def _ia(self, usuario_id: int) -> tuple[ClienteIA | None, str | None]:
         clave = self.clave_gemini(usuario_id)
@@ -357,8 +397,12 @@ class Nucleo:
             return ResultadoFormulario(faltan=[Respuesta(p, falta=True) for p in preguntas])
         vacante = self.indice.obtener(postulacion.id_corto) if postulacion.id_corto else None
         cliente, clave = await self._ia(usuario.id)
+        nivel = self.nivel_de(postulacion)
         ctx = Contexto(self.base, usuario.id, datos, self.ahora(), cliente, clave,
-                       vacante.resumen if vacante else "")  # fmt: skip
+                       vacante.resumen if vacante else "",
+                       postulacion.plataforma, detectar_idioma(preguntas),
+                       nivel, getattr(self.config.niveles_ia, nivel).clasificar_preguntas
+                       )  # fmt: skip
         resultado = ResultadoFormulario()
         previas = self._redacciones_previas(postulacion.id)
         estados: dict[str, str] = {}  # pregunta normalizada → estado de la redacción reutilizada
@@ -417,6 +461,59 @@ class Nucleo:
         else:
             resultado.cv = self.cv_base_de(usuario, datos)
         return resultado
+
+    async def arbitrar_pantalla(
+        self, postulacion: Postulacion, consulta: Consulta
+    ) -> DecisionPagina | None:
+        """Árbitro de las pantallas que las reglas no entienden (tarea `entender_pagina`, con la
+        clave del usuario). None: sin clave o la IA falló, y la pantalla va a respaldo."""
+        cliente, clave = await self._ia(postulacion.usuario_id)
+        if cliente is None:
+            return None
+        try:
+            return await cliente.generar(
+                "entender_pagina", clave, postulacion.usuario_id, INSTRUCCION_ENTENDER_PAGINA,
+                [Parte(delimitar("pantalla", texto_consulta(consulta)))], DecisionPagina,
+                nivel=self.nivel_de(postulacion),
+            )  # fmt: skip
+        except ClaveIAInvalida:
+            self.marcar_clave_invalida(postulacion.usuario_id)
+        except ErrorIA:
+            pass
+        return None
+
+    async def reparar_pantalla(
+        self, postulacion: Postulacion, consulta: ConsultaReparacion
+    ) -> Reparacion | None:
+        """Corrección de un paso que falló antes del envío (tarea `reparar_flujo`). Usa la clave
+        del usuario; si no tiene clave o cuota y `autorreparacion.clave_duenio` está encendido,
+        la del dueño, que paga solo esta tarea (su entrada no lleva datos personales) y queda
+        registrada a su nombre. None: sin IA disponible o la IA falló."""
+        candidatos = [postulacion.usuario_id]
+        if self.config.autorreparacion.clave_duenio:
+            duenio = self.usuarios.obtener(self.config.dueno_telegram_id)
+            if duenio is not None and duenio.id != postulacion.usuario_id:
+                candidatos.append(duenio.id)
+        partes = [Parte(delimitar("pantalla", texto_reparacion(consulta)))]
+        for usuario_id in candidatos:
+            # La clave del dueño paga una reparación con el nivel normal: el nivel del usuario no
+            # decide cuánto gasta el dueño
+            nivel = self.nivel_de(postulacion) if usuario_id == postulacion.usuario_id else "normal"
+            cliente, clave = await self._ia(usuario_id)
+            if cliente is None:
+                continue
+            try:
+                return await cliente.generar(
+                    "reparar_flujo", clave, usuario_id, INSTRUCCION_REPARAR_FLUJO, partes,
+                    Reparacion, nivel=nivel,
+                )  # fmt: skip
+            except ClaveIAInvalida:
+                self.marcar_clave_invalida(usuario_id)
+            except (CuotaAgotada, TopeAlcanzado):
+                continue
+            except ErrorIA:
+                return None
+        return None
 
     def cv_base_de(self, usuario: Usuario, datos: DatosUsuario) -> Path:
         contacto = self.contacto(datos)
@@ -567,7 +664,7 @@ class Nucleo:
         if not fila or fila["respondida_en"]:
             return False
         recordar(self.base, usuario_id, fila["pregunta"], respuesta, ahora)
-        if fila["campo"] in CAMPOS and respuesta != RESERVADO:
+        if es_guardable(fila["campo"]) and respuesta != RESERVADO:
             # Un dato del perfil (salario, disponibilidad…) sirve para cualquier redacción
             datos = self.datos_usuario(usuario_id)
             if datos is not None:

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Protocol
 
 from buscador_vacantes.asistente import preguntas_tarjeta as pt
-from buscador_vacantes.asistente import progreso, resumen_postulacion, tarjeta, vinculos
+from buscador_vacantes.asistente import progreso, recetas, resumen_postulacion, tarjeta, vinculos
 from buscador_vacantes.asistente import tarjeta_postulacion as tp
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.campos import RESERVADO
@@ -39,6 +39,7 @@ from buscador_vacantes.asistente.enlaces import PREFIJO_VACANTE
 from buscador_vacantes.asistente.ia import ClaveInvalida, CuotaAgotada, ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Toque
+from buscador_vacantes.asistente.preferencias import NIVELES_IA
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
     ErrorPegado,
@@ -1729,6 +1730,7 @@ class Conversacion:
         p = self.n.cola.obtener(pid)
         vacante = self.n.indice.obtener(p.id_corto) if p and p.id_corto else None
         clave = self.n.clave_gemini(usuario.id)
+        nivel = self.n.nivel_de(p) if p else "normal"
         ctx = Contexto(
             self.n.base,
             usuario.id,
@@ -1737,6 +1739,8 @@ class Conversacion:
             self.n.cliente_ia(usuario.id) if clave else None,
             clave,
             vacante.resumen if vacante else "",
+            nivel=nivel,
+            clasificar_preguntas=getattr(self.config.niveles_ia, nivel).clasificar_preguntas,
         )
         self._esperar(usuario, None)
         resueltas = [(pregunta, await resolver(pregunta, ctx)) for pregunta in preguntas]
@@ -1928,6 +1932,8 @@ class Conversacion:
                 elif args[0] == "borrar":
                     self.n.guardar_clave_gemini(usuario.id, None)
                     await self._enviar(usuario, "🗑 Clave de Gemini borrada.")
+                elif args[0] == "nueva":  # «Configurar IA» de la card de respaldo
+                    await self._c_clave(usuario, [])
             case "provpag":
                 guardado = self.n.base.kv_obtener(f"prov_msg:{usuario.id}")
                 if guardado:
@@ -2130,6 +2136,11 @@ class Conversacion:
                 with self.n.base.transaccion() as cx:
                     cx.execute("UPDATE usuarios SET pausado = ? WHERE id = ?", (nuevo, usuario.id))
                 return "Postulaciones en pausa" if nuevo else "Postulaciones reanudadas"
+            case "ia":
+                if args and args[0] in NIVELES_IA:
+                    self.n.preferencias.fijar_nivel_ia(usuario.id, args[0])
+                    await self._c_ia(usuario, ["nivel"])
+                    return f"Nivel {t.NOMBRES_NIVEL_IA[args[0]]}"
         return None
 
     async def _avisar_ya_vinculado(self, usuario: Usuario) -> bool:
@@ -2195,6 +2206,7 @@ class Conversacion:
             "navegadores": self._c_navegadores,
             "automatico": self._c_automatico,
             "pausa": self._c_pausa,
+            "ia": self._c_ia,
             "borrarme": self._c_borrarme,
         }.get(comando)
         if dueno:
@@ -2204,6 +2216,7 @@ class Conversacion:
                 "reactivar": self._a_reactivar,
                 "stats": self._a_stats,
                 "plataformas": self._a_plataformas,
+                "barreras": self._a_barreras,
             }.get(comando)
         if manejador is None:
             await self._enviar(
@@ -2401,6 +2414,37 @@ class Conversacion:
         texto = await self.al_boton(usuario.telegram_id, cb("pausa"))
         await self._enviar(usuario, f"⏯ {texto}.")
 
+    async def _c_ia(self, usuario: Usuario, args) -> None:
+        """`/ia nivel`: los tres niveles con su consumo, el uso de hoy y el nivel actual."""
+        if args and args[0].lower() != "nivel":
+            await self._enviar(usuario, "Usa /ia nivel para ver y cambiar tu nivel de IA.")
+            return
+        resumen = self.n.preferencias.resumen_nivel_ia(
+            usuario.id, self.config.niveles_ia, self.n.ahora()
+        )
+        lineas = [
+            "<b>Nivel de IA de tus postulaciones</b>",
+            "Cuánta IA usa cada postulación (llamadas aproximadas):",
+        ]
+        botones = []
+        for nivel in resumen["niveles"]:
+            actual = nivel["clave"] == resumen["nivel"]
+            lineas.append(
+                f"{'✅' if actual else '▫️'} <b>{nivel['nombre']}</b> · "
+                f"~{nivel['llamadas_estimadas']} llamadas por postulación"
+            )
+            botones.append(
+                [(f"{'✅ ' if actual else ''}{nivel['nombre']}", cb("ia", nivel["clave"]))]
+            )
+        hoy = resumen["hoy"]
+        lineas += [
+            "",
+            f"Hoy llevas {hoy['llamadas']} llamadas y {hoy['tokens']} tokens.",
+            "El cambio vale para las postulaciones siguientes; las que ya están en curso "
+            "terminan con el nivel con que empezaron.",
+        ]
+        await self._enviar(usuario, "\n".join(lineas), botones)
+
     async def _c_borrarme(self, usuario: Usuario, args) -> None:
         await self._enviar(
             usuario,
@@ -2476,6 +2520,19 @@ class Conversacion:
             lineas.append(f"• {nombre}: {'automática' if ajustes.automatica else 'solo paquete'}")
         await self._enviar(usuario, "\n".join(lineas))
 
+    async def _a_barreras(self, usuario: Usuario, args) -> None:
+        """Dominios que exigen cuenta u OAuth: sus vacantes van al respaldo sin abrir la página."""
+        if len(args) == 2 and args[0] == "quitar":
+            if recetas.quitar_barrera(self.n.base, args[1].lower()):
+                self.n.usuarios.auditar(
+                    usuario.telegram_id, "barrera_quitada", args[1], self.n.ahora()
+                )
+        lista = recetas.barreras(self.n.base)
+        lineas = [f"• {t.e(b['host'])}: {t.e(b['motivo'])}" for b in lista]
+        await self._enviar(
+            usuario, "\n".join(["<b>Dominios barrera</b>", *lineas]) if lista else t.BARRERAS_VACIAS
+        )
+
     # --- avisos del núcleo ------------------------------------------------------------
 
     async def notificar(self, evento: Evento | dict) -> None:
@@ -2487,7 +2544,47 @@ class Conversacion:
         except Exception:  # noqa: BLE001 - un aviso fallido no debe tumbar la API ni la cola
             log.exception("No se pudo enviar el aviso %s", evento)
 
+    async def _avisar_duenio(self, d: dict) -> None:
+        """Lo que aprende el motor genérico y el dueño debe saber (eventos sin usuario)."""
+        if not self.config.dueno_telegram_id:
+            return
+        base = self.n.base
+        portal = t.NOMBRES_PLATAFORMA.get(d.get("plataforma", ""), d.get("plataforma", ""))
+        selector = d.get("selector")
+        if selector is None and d.get("parche_id"):
+            fila = base.cx.execute(
+                "SELECT selector_json FROM parches_flujo WHERE id = ?", (d["parche_id"],)
+            ).fetchone()
+            selector = fila["selector_json"] if fila else ""
+        if not isinstance(selector, str):
+            selector = json.dumps(selector, ensure_ascii=False)
+        match d["tipo"]:
+            case "receta_apagada":
+                fila = base.cx.execute(
+                    "SELECT host FROM recetas WHERE id = ?", (d["receta_id"],)
+                ).fetchone()
+                texto = t.AVISO_RECETA_APAGADA.format(
+                    host=t.e(fila["host"] if fila else d["receta_id"]), pid=d["postulacion_id"]
+                )
+            case "parche_nuevo":
+                texto = t.AVISO_PARCHE_NUEVO.format(
+                    portal=t.e(portal), paso=t.e(d["paso"]), selector=t.e(selector),
+                    pid=d["postulacion_id"],
+                )  # fmt: skip
+            case "parche_firme":
+                texto = t.AVISO_PARCHE_FIRME.format(
+                    portal=t.e(portal), paso=t.e(d["paso"]), selector=t.e(selector)
+                )
+            case "dominio_barrera":
+                texto = t.AVISO_DOMINIO_BARRERA.format(host=t.e(d["host"]), motivo=t.e(d["motivo"]))
+            case _:
+                return
+        await self._enviar(self.config.dueno_telegram_id, texto)
+
     async def _avisar_dict(self, d: dict) -> None:
+        if d["tipo"] in t.AVISOS_DUENIO:
+            await self._avisar_duenio(d)
+            return
         usuario = self.n.usuarios.por_id(d["usuario_id"]) if "usuario_id" in d else None
         if usuario is None:
             return
@@ -2627,6 +2724,9 @@ class Conversacion:
             afinidad=fila["afinidad"], requisitos=requisitos,
             respuestas=[dict(r) for r in respuestas], pasos=[x["paso"] for x in pasos],
             cv_adjunto=adjunto, confirmada=confirmada, folio=f"P-{p.id}",
+            nivel_bajado=next(  # el último «de>a» que anotó la API de la extensión
+                (x["detalle"].partition(">")[2] for x in reversed(pasos)
+                 if x["paso"] == "nivel_bajado" and x["detalle"]), None),
         )  # fmt: skip
         if fila["tomada_en"] and fila["terminada_en"]:
             tardo = de_texto(fila["terminada_en"]) - de_texto(fila["tomada_en"])
@@ -2802,10 +2902,15 @@ class Conversacion:
         ):
             await self._cerrar_card(usuario, p.id, tp.BLOQUEO, motivo=ev.detalle)
         elif ev.estado in CON_RESPALDO:
-            motivo = ev.detalle if ev.tipo == "respaldo" else str(ev.estado)
+            motivo = (
+                ev.detalle
+                if ev.tipo == "respaldo" or (ev.detalle or "") in t.MOTIVOS_RESPALDO
+                else str(ev.estado)
+            )
             await self._cerrar_card(usuario, p.id, tp.RESPALDO, motivo=motivo)
             if (
                 ev.estado in (E.FORMULARIO_DESCONOCIDO, E.BLOQUEADA)
+                and motivo not in t.MOTIVOS_SIN_ALERTA
                 and self.config.dueno_telegram_id
             ):
                 await self._enviar(

@@ -32,20 +32,97 @@ CAMPOS: dict[str, str] = {
     "ingles_nivel": "nivel de inglés",
     "equipo_propio": "si tiene computador propio y conexión a internet",
     "experiencia_meses": "meses o años de experiencia laboral",
-    "enlace_portafolio": "enlace a GitHub, portafolio o LinkedIn",
+    "enlace_portafolio": "enlace a GitHub o portafolio",
+    "nombre_pila": "nombre de pila (first name, given name)",
+    "apellido": "apellido o apellidos (last name, family name)",
+    "pais": "país de residencia",
+    "enlace_linkedin": "enlace al perfil de LinkedIn",
+    "salario_usd": "aspiración salarial en dólares (USD)",
+    "promedio": "promedio académico (GPA, nota media)",
+    "fuente_vacante": "cómo o dónde se enteró de la vacante (la plataforma de la que vino)",
 }
 CAMPOS_PARAMETRO = {
     "conoce": "si tiene conocimiento de una herramienta o tecnología (parámetro: cuál)",
     "idioma": "nivel en un idioma distinto del inglés (parámetro: cuál)",
+    "autorizacion_trabajo": "si está legalmente autorizado para trabajar en un país (parámetro: "
+    "el país)",
 }
-CONTACTO = {"nombre", "correo", "telefono", "documento"}  # nunca van a la IA
+# nunca van a la IA
+CONTACTO = {
+    "nombre", "nombre_pila", "apellido", "correo", "telefono", "documento", "enlace_linkedin",
+}  # fmt: skip
 RESERVADO = "__reservado__"  # «Prefiero no decirlo»: nunca se muestra ni se envía como valor
+
+
+# Clave de la plataforma (`postulaciones.plataforma`) → cómo se llama en «¿cómo te enteraste?»
+NOMBRES_FUENTE = {
+    "computrabajo": "Computrabajo",
+    "magneto": "Magneto",
+    "elempleo": "elempleo",
+    "linkedin": "LinkedIn",
+}
+_PARTICULAS = {"de", "del", "la", "las", "los", "y", "san", "santa", "da", "dos"}
+_SEGUNDO_NOMBRE = {
+    "maria", "jose", "juan", "luis", "carlos", "andres", "ana", "camila", "alejandra", "fernanda",
+    "paola", "isabel", "sofia", "david", "felipe", "alberto", "antonio", "eduardo", "fernando",
+    "javier", "miguel", "angel", "esteban", "daniela", "valentina", "nicolas", "sebastian",
+    "santiago", "manuel", "jesus", "stephanie", "katherine", "lucia", "paula",
+}  # fmt: skip
 
 
 def es_campo_valido(campo: str, parametro: str | None) -> bool:
     if campo in CAMPOS:
         return True
     return campo in CAMPOS_PARAMETRO and bool(parametro)
+
+
+def clave_cuestionario(campo: str, parametro: str | None = None) -> str:
+    """Clave con la que se guarda el dato en el cuestionario: la autorización para trabajar es
+    una por país («autorizacion_trabajo:colombia»)."""
+    if campo == "autorizacion_trabajo" and parametro:
+        return f"{campo}:{normalizar_texto(parametro)}"
+    return campo
+
+
+def es_guardable(campo: str | None) -> bool:
+    """True si la respuesta a una pregunta de este campo se guarda en el cuestionario."""
+    if not campo:
+        return False
+    base, _, pais = campo.partition(":")
+    return campo in CAMPOS or (base == "autorizacion_trabajo" and bool(pais))
+
+
+def nombre_fuente(plataforma: str | None) -> str | None:
+    if not plataforma:
+        return None
+    return NOMBRES_FUENTE.get(plataforma, plataforma)
+
+
+def separar_nombre(completo: str | None) -> tuple[str | None, str | None]:
+    """(nombre de pila, apellidos) de un nombre completo, con la convención hispana: «Ana María
+    Pérez Gómez» → («Ana María», «Pérez Gómez»). Es una heurística: el usuario puede dar
+    cada parte por separado en su cuestionario y eso manda."""
+    palabras = (completo or "").split()
+    unidades: list[str] = []
+    pendiente: list[str] = []
+    for palabra in palabras:  # «de la Cruz» es una sola unidad
+        pendiente.append(palabra)
+        if normalizar_texto(palabra) not in _PARTICULAS:
+            unidades.append(" ".join(pendiente))
+            pendiente = []
+    if pendiente:
+        unidades.append(" ".join(pendiente))
+    if not unidades:
+        return None, None
+    if len(unidades) == 1:
+        return unidades[0], None
+    if len(unidades) == 2:
+        return unidades[0], unidades[1]
+    if len(unidades) == 3:
+        if normalizar_texto(unidades[1]) in _SEGUNDO_NOMBRE:
+            return f"{unidades[0]} {unidades[1]}", unidades[2]
+        return unidades[0], f"{unidades[1]} {unidades[2]}"
+    return " ".join(unidades[:2]), " ".join(unidades[2:])
 
 
 @dataclass
@@ -55,7 +132,7 @@ class DatosUsuario:
 
     def valor(self, campo: str, parametro: str | None = None) -> str | None:
         """Valor del campo para este usuario, o None si no se conoce (nunca se inventa)."""
-        directo = self.cuestionario.get(campo)
+        directo = self.cuestionario.get(clave_cuestionario(campo, parametro))
         if directo == RESERVADO:
             return None
         if directo not in (None, ""):
@@ -65,6 +142,15 @@ class DatosUsuario:
         match campo:
             case "nombre":
                 return p.nombre
+            case "nombre_pila":
+                return separar_nombre(self.cuestionario.get("nombre") or p.nombre)[0]
+            case "apellido":
+                return separar_nombre(self.cuestionario.get("nombre") or p.nombre)[1]
+            case "enlace_linkedin":
+                for enlace in p.enlaces:
+                    if normalizar_texto(enlace.tipo) == "linkedin" or "linkedin.com" in enlace.url:
+                        return enlace.url
+                return None
             case "ciudad":
                 return p.ciudad
             case "institucion":

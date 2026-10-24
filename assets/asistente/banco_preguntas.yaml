@@ -58,7 +58,7 @@
 - {pregunta: "Años de experiencia", campo: experiencia_meses}
 - {pregunta: "Enlace a tu GitHub", campo: enlace_portafolio}
 - {pregunta: "Portafolio", campo: enlace_portafolio}
-- {pregunta: "Perfil de LinkedIn", campo: enlace_portafolio}
+- {pregunta: "Perfil de LinkedIn", campo: enlace_linkedin}
 - {pregunta: "¿Tienes conocimientos en Excel?", campo: conoce, parametro: Excel}
 - {pregunta: "¿Manejas Excel avanzado?", campo: conoce, parametro: Excel}
 - {pregunta: "¿Tienes conocimientos en SQL?", campo: conoce, parametro: SQL}
@@ -67,3 +67,234 @@
 - {pregunta: "¿Manejas Power BI?", campo: conoce, parametro: Power BI}
 - {pregunta: "¿Tienes conocimientos en redes?", campo: conoce, parametro: Redes}
 - {pregunta: "¿Tienes conocimientos en soporte técnico?", campo: conoce, parametro: Soporte técnico}
+
+# --- Datos de postulación ampliados (formularios de ATS en español, inglés y portugués) ---
+# «Nombre» a secas no se siembra: es el nombre completo o el de pila según el formulario.
+# La autorización para trabajar lleva el país como parámetro; el resto de países y formulaciones
+# los reconoce `respuestas.autorizacion_trabajo`.
+
+- {pregunta: "Nombre de pila", campo: nombre_pila}
+- {pregunta: "Primer nombre", campo: nombre_pila}
+- {pregunta: "First name", campo: nombre_pila}
+- {pregunta: "Your first name", campo: nombre_pila}
+- {pregunta: "Given name", campo: nombre_pila}
+- {pregunta: "Primeiro nome", campo: nombre_pila}
+- {pregunta: "Apellido", campo: apellido}
+- {pregunta: "Apellidos", campo: apellido}
+- {pregunta: "Last name", campo: apellido}
+- {pregunta: "Your last name", campo: apellido}
+- {pregunta: "Family name", campo: apellido}
+- {pregunta: "Surname", campo: apellido}
+- {pregunta: "Sobrenome", campo: apellido}
+- {pregunta: "Full name", campo: nombre}
+- {pregunta: "Your name", campo: nombre}
+- {pregunta: "Legal name", campo: nombre}
+- {pregunta: "Nombre Completo", campo: nombre}
+- {pregunta: "Nome completo", campo: nombre}
+- {pregunta: "Email address", campo: correo}
+- {pregunta: "Your email", campo: correo}
+- {pregunta: "E-mail", campo: correo}
+- {pregunta: "Dirección de correo electrónico", campo: correo}
+- {pregunta: "Endereço de e-mail", campo: correo}
+- {pregunta: "Phone", campo: telefono}
+- {pregunta: "Phone number", campo: telefono}
+- {pregunta: "Mobile phone", campo: telefono}
+- {pregunta: "Mobile number", campo: telefono}
+- {pregunta: "Cell phone", campo: telefono}
+- {pregunta: "Teléfono celular", campo: telefono}
+- {pregunta: "Número de teléfono", campo: telefono}
+- {pregunta: "Telefone", campo: telefono}
+- {pregunta: "Telefone celular", campo: telefono}
+- {pregunta: "ID number", campo: documento}
+- {pregunta: "National ID number", campo: documento}
+- {pregunta: "Número de identificación", campo: documento}
+- {pregunta: "Número de cédula", campo: documento}
+- {pregunta: "Country", campo: pais}
+- {pregunta: "Country of residence", campo: pais}
+- {pregunta: "Country/Region", campo: pais}
+- {pregunta: "País", campo: pais}
+- {pregunta: "País de residencia", campo: pais}
+- {pregunta: "País de residência", campo: pais}
+- {pregunta: "In which country do you live?", campo: pais}
+- {pregunta: "¿En qué país vives?", campo: pais}
+- {pregunta: "Em que país você mora?", campo: pais}
+- {pregunta: "City", campo: ciudad}
+- {pregunta: "Ciudad", campo: ciudad}
+- {pregunta: "Cidade", campo: ciudad}
+- {pregunta: "Current city", campo: ciudad}
+- {pregunta: "Current location", campo: ciudad}
+- {pregunta: "Location", campo: ciudad}
+- {pregunta: "Location (City)", campo: ciudad}
+- {pregunta: "City of residence", campo: ciudad}
+- {pregunta: "Where are you located?", campo: ciudad}
+- {pregunta: "Where do you live?", campo: ciudad}
+- {pregunta: "Cidade de residência", campo: ciudad}
+- {pregunta: "Onde você mora?", campo: ciudad}
+- {pregunta: "Expected salary", campo: salario}
+- {pregunta: "Salary expectation", campo: salario}
+- {pregunta: "Salary expectations", campo: salario}
+- {pregunta: "Desired salary", campo: salario}
+- {pregunta: "Desired compensation", campo: salario}
+- {pregunta: "What are your salary expectations?", campo: salario}
+- {pregunta: "What is your expected monthly salary?", campo: salario}
+- {pregunta: "What are your monthly pay expectations in Colombian Pesos?", campo: salario}
+- {pregunta: "Aspiración salarial mensual", campo: salario}
+- {pregunta: "Aspiración salarial en pesos colombianos", campo: salario}
+- {pregunta: "Pretensão salarial", campo: salario}
+- {pregunta: "Pretensão salarial mensal", campo: salario}
+- {pregunta: "Qual é a sua pretensão salarial?", campo: salario}
+- {pregunta: "Expectativa salarial", campo: salario}
+- {pregunta: "Salário desejado", campo: salario}
+- {pregunta: "Expected salary in USD", campo: salario_usd}
+- {pregunta: "Salary expectations (USD)", campo: salario_usd}
+- {pregunta: "Desired salary in USD", campo: salario_usd}
+- {pregunta: "What are your salary expectations in USD?", campo: salario_usd}
+- {pregunta: "Aspiración salarial en dólares", campo: salario_usd}
+- {pregunta: "Salario esperado en USD", campo: salario_usd}
+- {pregunta: "Pretensão salarial em dólares", campo: salario_usd}
+- {pregunta: "When can you start?", campo: disponibilidad_inicio}
+- {pregunta: "Earliest start date", campo: disponibilidad_inicio}
+- {pregunta: "Available start date", campo: disponibilidad_inicio}
+- {pregunta: "Start date", campo: disponibilidad_inicio}
+- {pregunta: "Availability to start", campo: disponibilidad_inicio}
+- {pregunta: "Notice period", campo: disponibilidad_inicio}
+- {pregunta: "Fecha de disponibilidad para iniciar", campo: disponibilidad_inicio}
+- {pregunta: "Quando você pode começar?", campo: disponibilidad_inicio}
+- {pregunta: "Disponibilidade para iniciar", campo: disponibilidad_inicio}
+- {pregunta: "Are you available full time?", campo: horario}
+- {pregunta: "Are you available to work full time?", campo: horario}
+- {pregunta: "Disponibilidade de horário", campo: horario}
+- {pregunta: "Você tem disponibilidade de tempo integral?", campo: horario}
+- {pregunta: "Are you open to working onsite?", campo: modalidades}
+- {pregunta: "Are you open to remote work?", campo: modalidades}
+- {pregunta: "Are you open to a hybrid work model?", campo: modalidades}
+- {pregunta: "Preferred work model", campo: modalidades}
+- {pregunta: "Você aceita trabalho híbrido?", campo: modalidades}
+- {pregunta: "Qual modalidade de trabalho você prefere?", campo: modalidades}
+- {pregunta: "Are you willing to relocate?", campo: traslado}
+- {pregunta: "Are you open to relocation?", campo: traslado}
+- {pregunta: "Você tem disponibilidade para viajar?", campo: traslado}
+- {pregunta: "Você tem disponibilidade para mudar de cidade?", campo: traslado}
+- {pregunta: "Are you currently studying?", campo: estudia_actualmente}
+- {pregunta: "Are you currently a student?", campo: estudia_actualmente}
+- {pregunta: "Are you currently enrolled in a university?", campo: estudia_actualmente}
+- {pregunta: "Você estuda atualmente?", campo: estudia_actualmente}
+- {pregunta: "Atualmente você é estudante?", campo: estudia_actualmente}
+- {pregunta: "University", campo: institucion}
+- {pregunta: "School", campo: institucion}
+- {pregunta: "Institution", campo: institucion}
+- {pregunta: "Which university do you attend?", campo: institucion}
+- {pregunta: "What university are you currently pursuing your bachelor's degree?", campo: institucion}
+- {pregunta: "Universidade", campo: institucion}
+- {pregunta: "Instituição de ensino", campo: institucion}
+- {pregunta: "Degree", campo: programa}
+- {pregunta: "Major", campo: programa}
+- {pregunta: "Field of study", campo: programa}
+- {pregunta: "What are you studying?", campo: programa}
+- {pregunta: "What is your major?", campo: programa}
+- {pregunta: "Curso", campo: programa}
+- {pregunta: "Qual curso você faz?", campo: programa}
+- {pregunta: "Current semester", campo: semestre}
+- {pregunta: "What semester are you in?", campo: semestre}
+- {pregunta: "Which semester are you in?", campo: semestre}
+- {pregunta: "Em qual semestre você está?", campo: semestre}
+- {pregunta: "Type of internship", campo: tipo_practica}
+- {pregunta: "What type of internship are you looking for?", campo: tipo_practica}
+- {pregunta: "Tipo de estágio", campo: tipo_practica}
+- {pregunta: "Qual tipo de estágio você procura?", campo: tipo_practica}
+- {pregunta: "What is your English level?", campo: ingles_nivel}
+- {pregunta: "English level", campo: ingles_nivel}
+- {pregunta: "English proficiency", campo: ingles_nivel}
+- {pregunta: "English proficiency level", campo: ingles_nivel}
+- {pregunta: "Level of English", campo: ingles_nivel}
+- {pregunta: "Do you speak English?", campo: ingles_nivel}
+- {pregunta: "Nível de inglês", campo: ingles_nivel}
+- {pregunta: "Qual é o seu nível de inglês?", campo: ingles_nivel}
+- {pregunta: "Você fala inglês?", campo: ingles_nivel}
+- {pregunta: "Do you have your own computer?", campo: equipo_propio}
+- {pregunta: "Do you have a computer and internet access?", campo: equipo_propio}
+- {pregunta: "Você tem computador próprio?", campo: equipo_propio}
+- {pregunta: "Você possui computador e internet?", campo: equipo_propio}
+- {pregunta: "Years of experience", campo: experiencia_meses}
+- {pregunta: "Total years of experience", campo: experiencia_meses}
+- {pregunta: "How many years of experience do you have?", campo: experiencia_meses}
+- {pregunta: "How much experience do you have?", campo: experiencia_meses}
+- {pregunta: "Anos de experiência", campo: experiencia_meses}
+- {pregunta: "Quantos anos de experiência você tem?", campo: experiencia_meses}
+- {pregunta: "GitHub", campo: enlace_portafolio}
+- {pregunta: "GitHub URL", campo: enlace_portafolio}
+- {pregunta: "GitHub profile", campo: enlace_portafolio}
+- {pregunta: "Link do GitHub", campo: enlace_portafolio}
+- {pregunta: "Portfolio", campo: enlace_portafolio}
+- {pregunta: "Portfolio URL", campo: enlace_portafolio}
+- {pregunta: "Link to your portfolio", campo: enlace_portafolio}
+- {pregunta: "GitHub or portfolio link", campo: enlace_portafolio}
+- {pregunta: "Personal website", campo: enlace_portafolio}
+- {pregunta: "Personal website or portfolio", campo: enlace_portafolio}
+- {pregunta: "Website", campo: enlace_portafolio}
+- {pregunta: "Portfólio", campo: enlace_portafolio}
+- {pregunta: "Site pessoal", campo: enlace_portafolio}
+- {pregunta: "Sitio web", campo: enlace_portafolio}
+- {pregunta: "LinkedIn", campo: enlace_linkedin}
+- {pregunta: "LinkedIn Profile", campo: enlace_linkedin}
+- {pregunta: "LinkedIn URL", campo: enlace_linkedin}
+- {pregunta: "LinkedIn profile URL", campo: enlace_linkedin}
+- {pregunta: "Link to your LinkedIn profile", campo: enlace_linkedin}
+- {pregunta: "Perfil do LinkedIn", campo: enlace_linkedin}
+- {pregunta: "URL del perfil de LinkedIn", campo: enlace_linkedin}
+- {pregunta: "Enlace a tu LinkedIn", campo: enlace_linkedin}
+- {pregunta: "Enlace de LinkedIn", campo: enlace_linkedin}
+- {pregunta: "GPA", campo: promedio}
+- {pregunta: "Please list your current cumulative GPA.", campo: promedio}
+- {pregunta: "What is your GPA?", campo: promedio}
+- {pregunta: "Cumulative GPA", campo: promedio}
+- {pregunta: "Grade point average", campo: promedio}
+- {pregunta: "Promedio académico", campo: promedio}
+- {pregunta: "Promedio acumulado", campo: promedio}
+- {pregunta: "Promedio ponderado", campo: promedio}
+- {pregunta: "¿Cuál es tu promedio?", campo: promedio}
+- {pregunta: "Média acadêmica", campo: promedio}
+- {pregunta: "Qual é a sua média?", campo: promedio}
+- {pregunta: "How did you hear about this opportunity?", campo: fuente_vacante}
+- {pregunta: "How did you hear about us?", campo: fuente_vacante}
+- {pregunta: "How did you hear about this job?", campo: fuente_vacante}
+- {pregunta: "How did you hear about this role?", campo: fuente_vacante}
+- {pregunta: "How did you find out about this position?", campo: fuente_vacante}
+- {pregunta: "Where did you hear about this job?", campo: fuente_vacante}
+- {pregunta: "Where did you find this job posting?", campo: fuente_vacante}
+- {pregunta: "Source", campo: fuente_vacante}
+- {pregunta: "¿Cómo te enteraste de esta oferta?", campo: fuente_vacante}
+- {pregunta: "¿Cómo te enteraste de esta vacante?", campo: fuente_vacante}
+- {pregunta: "¿Cómo te enteraste de nosotros?", campo: fuente_vacante}
+- {pregunta: "¿Dónde viste esta oferta?", campo: fuente_vacante}
+- {pregunta: "¿Por qué medio te enteraste de la vacante?", campo: fuente_vacante}
+- {pregunta: "Fuente de la vacante", campo: fuente_vacante}
+- {pregunta: "Como você soube desta vaga?", campo: fuente_vacante}
+- {pregunta: "Como você ficou sabendo da vaga?", campo: fuente_vacante}
+- {pregunta: "Onde você viu esta vaga?", campo: fuente_vacante}
+- {pregunta: "Are you legally authorized to work in Colombia?", campo: autorizacion_trabajo, parametro: Colombia}
+- {pregunta: "Do you have the legal right to work in Colombia?", campo: autorizacion_trabajo, parametro: Colombia}
+- {pregunta: "Are you eligible to work in Colombia?", campo: autorizacion_trabajo, parametro: Colombia}
+- {pregunta: "¿Tienes autorización para trabajar en Colombia?", campo: autorizacion_trabajo, parametro: Colombia}
+- {pregunta: "¿Estás autorizado para trabajar legalmente en Colombia?", campo: autorizacion_trabajo, parametro: Colombia}
+- {pregunta: "Você tem autorização para trabalhar na Colômbia?", campo: autorizacion_trabajo, parametro: Colombia}
+- {pregunta: "Are you legally authorized to work in the United States?", campo: autorizacion_trabajo, parametro: Estados Unidos}
+- {pregunta: "Do you have the legal right to work in the United States?", campo: autorizacion_trabajo, parametro: Estados Unidos}
+
+- {pregunta: "Do you have experience with Excel?", campo: conoce, parametro: Excel}
+- {pregunta: "Are you proficient in Excel?", campo: conoce, parametro: Excel}
+- {pregunta: "Você tem conhecimento em Excel?", campo: conoce, parametro: Excel}
+- {pregunta: "Do you know SQL?", campo: conoce, parametro: SQL}
+- {pregunta: "Do you have experience with SQL?", campo: conoce, parametro: SQL}
+- {pregunta: "Você tem conhecimento em SQL?", campo: conoce, parametro: SQL}
+- {pregunta: "Do you know Python?", campo: conoce, parametro: Python}
+- {pregunta: "Do you have experience with Python?", campo: conoce, parametro: Python}
+- {pregunta: "Você sabe programar em Python?", campo: conoce, parametro: Python}
+- {pregunta: "Do you have experience with Java?", campo: conoce, parametro: Java}
+- {pregunta: "Você tem conhecimento em Java?", campo: conoce, parametro: Java}
+- {pregunta: "Do you have experience with Power BI?", campo: conoce, parametro: Power BI}
+- {pregunta: "Você tem experiência com Power BI?", campo: conoce, parametro: Power BI}
+- {pregunta: "Do you have experience with networking?", campo: conoce, parametro: Redes}
+- {pregunta: "Você tem conhecimento em redes?", campo: conoce, parametro: Redes}
+- {pregunta: "Do you have technical support experience?", campo: conoce, parametro: Soporte técnico}
+- {pregunta: "Você tem experiência com suporte técnico?", campo: conoce, parametro: Soporte técnico}

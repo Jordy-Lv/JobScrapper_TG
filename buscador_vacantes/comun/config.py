@@ -374,7 +374,15 @@ class Operacion(Modelo):
 
 
 NombreTarea = Literal[
-    "leer_cv", "requisitos", "adaptar_cv", "carta", "responder", "clasificar_pregunta"
+    "leer_cv",
+    "requisitos",
+    "adaptar_cv",
+    "carta",
+    "responder",
+    "clasificar_pregunta",
+    "entender_pagina",
+    "reparar_flujo",
+    "revisar_respuestas",
 ]
 ProtocoloIA = Literal["gemini", "openai", "anthropic"]
 
@@ -458,6 +466,65 @@ class AsistenteMensajesEfimeros(Modelo):
     max_por_min: int = Field(6, ge=1)  # envíos de estos botones por usuario y minuto
 
 
+class AsistenteMotorGenerico(Modelo):
+    """Bucle genérico de la extensión: lee cada pantalla, la llena y avanza sin pasos declarados."""
+
+    activo: bool = True
+    # Un paso declarado que falla antes del envío sigue con el bucle genérico
+    respaldo_declarado: bool = False
+    max_pantallas: int = Field(12, ge=1)
+    max_pantallas_una_pregunta: int = Field(40, ge=1)  # formularios de una pregunta por pantalla
+    max_minutos: float = Field(10, gt=0)
+    max_arbitro: int = Field(6, ge=0)  # llamadas a entender_pagina por postulación
+    max_reparaciones: int = Field(2, ge=0)  # llamadas a reparar_flujo por postulación
+
+
+class NivelIA(Modelo):
+    """Preset de uso de IA de una postulación (Ahorro, Normal o Máximo)."""
+
+    max_arbitro: int = Field(ge=0)  # llamadas a entender_pagina por postulación
+    max_reparaciones: int = Field(ge=0)  # llamadas a reparar_flujo por postulación
+    clasificar_preguntas: bool  # clasificar con IA las preguntas nuevas; si no, van a la card
+    modelo: Literal["ligero", "configurado", "maximo"]
+    requisitos_en_redactor: bool = False  # el redactor recibe los requisitos de la vacante
+    ejemplos_estilo: bool = False  # el redactor recibe respuestas del usuario como ejemplo de tono
+    doble_redaccion: bool = False  # dos versiones de las respuestas largas
+    revisor_final: bool = False  # tarea revisar_respuestas antes del envío
+    carta_opcional: bool = False  # adjunta una carta en PDF si el formulario la acepta
+    llamadas_estimadas: int = Field(ge=0)  # por postulación, solo para mostrar el costo
+
+
+class AsistenteNivelesIA(Modelo):
+    ahorro: NivelIA = NivelIA(
+        max_arbitro=0, max_reparaciones=0, clasificar_preguntas=False, modelo="ligero",
+        llamadas_estimadas=2,
+    )  # fmt: skip
+    normal: NivelIA = NivelIA(
+        max_arbitro=3, max_reparaciones=1, clasificar_preguntas=True, modelo="configurado",
+        llamadas_estimadas=6,
+    )  # fmt: skip
+    maximo: NivelIA = NivelIA(
+        max_arbitro=6, max_reparaciones=2, clasificar_preguntas=True, modelo="maximo",
+        requisitos_en_redactor=True, ejemplos_estilo=True, doble_redaccion=True,
+        revisor_final=True, carta_opcional=True, llamadas_estimadas=14,
+    )  # fmt: skip
+
+
+class AsistenteAutorreparacion(Modelo):
+    # La clave del dueño paga una reparación cuando el usuario no tiene clave o cuota (su
+    # entrada no lleva datos personales)
+    clave_duenio: bool = False
+
+
+class AsistenteEnsayo(Modelo):
+    plataformas: list[str] = Field(default_factory=list)  # en ensayo para todos los usuarios
+
+
+class AsistenteVigia(Modelo):
+    activo: bool = False
+    hora: str = Field("05:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
 class TareaIA(Modelo):
     modelo: str = Field(min_length=1)
     temperatura: float = Field(0.3, ge=0, le=2)
@@ -466,6 +533,9 @@ class TareaIA(Modelo):
     pensamiento: Literal["low", "medium", "high"] | None = "low"
     # Modelos de respaldo si el principal está saturado, sin cuota o retirado (en orden)
     respaldo: list[str] = Field(default_factory=list)
+    # Solo el nivel Máximo: modelo completo y más razonamiento; None: los de arriba
+    modelo_maximo: str | None = Field(None, min_length=1)
+    razonamiento_maximo: Literal["low", "medium", "high"] | None = None
 
 
 class ProveedorIA(Modelo):
@@ -530,10 +600,27 @@ class Asistente(Modelo):
     detalle: AsistenteDetalle = Field(default_factory=AsistenteDetalle)
     mensajes_efimeros: AsistenteMensajesEfimeros = Field(default_factory=AsistenteMensajesEfimeros)
     preguntas_tipicas: dict[str, list[str]] = Field(default_factory=dict)
+    motor_generico: AsistenteMotorGenerico = Field(default_factory=AsistenteMotorGenerico)
+    niveles_ia: AsistenteNivelesIA = Field(default_factory=AsistenteNivelesIA)
+    autorreparacion: AsistenteAutorreparacion = Field(default_factory=AsistenteAutorreparacion)
+    ensayo: AsistenteEnsayo = Field(default_factory=AsistenteEnsayo)
+    vigia: AsistenteVigia = Field(default_factory=AsistenteVigia)
     ia: AsistenteIA
 
     @model_validator(mode="after")
     def _activo_completo(self) -> Asistente:
+        desconocidas = sorted(set(self.ensayo.plataformas) - set(self.plataformas))
+        if desconocidas:
+            raise ValueError(f"ensayo.plataformas desconocidas: {', '.join(desconocidas)}")
+        # Los topes de motor_generico son el máximo absoluto de cualquier nivel
+        for nombre, nivel in self.niveles_ia:
+            for campo in ("max_arbitro", "max_reparaciones"):
+                tope = getattr(self.motor_generico, campo)
+                if getattr(nivel, campo) > tope:
+                    raise ValueError(
+                        f"niveles_ia.{nombre}.{campo} ({getattr(nivel, campo)}) supera el tope "
+                        f"de motor_generico.{campo} ({tope})"
+                    )
         if self.enlace_canal and not self.activo:
             raise ValueError("enlace_canal requiere activo: true")
         if self.activo and not self.bot_usuario:

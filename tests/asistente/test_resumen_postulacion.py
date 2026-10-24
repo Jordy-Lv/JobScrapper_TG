@@ -53,6 +53,18 @@ def test_tarjeta_confirmada_con_duracion_y_folio():
     assert " · 1 min 15 s" in tarjeta(largo)
 
 
+def test_tarjeta_dice_que_uso_un_nivel_menor_por_la_cuota():
+    bajada = DatosResumen(vacante(), "computrabajo", CUANDO, nivel_bajado="normal")
+    assert "Usé el nivel Normal porque se agotó tu cuota de IA de hoy</blockquote>" in tarjeta(
+        bajada
+    )
+    incierta = DatosResumen(
+        vacante(), "computrabajo", CUANDO, confirmada=False, nivel_bajado="ahorro"
+    )
+    assert "Usé el nivel Ahorro porque se agotó tu cuota de IA de hoy" in tarjeta(incierta)
+    assert "cuota" not in tarjeta(DatosResumen(vacante(), "computrabajo", CUANDO))
+
+
 def test_tarjeta_confirmada_omite_duracion_y_folio_si_faltan():
     texto = tarjeta(DatosResumen(vacante(), "computrabajo", CUANDO))
     assert "Folio" not in texto and " s" not in texto.split("\n")[7]

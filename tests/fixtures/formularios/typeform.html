@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Technical Support Application</title>
+<!-- Copia recortada de {cuenta}.typeform.com/to/{id} (reconocimiento del 2026-10-21,
+     docs/asistente/portales.md, sección «LinkedIn»): una pregunta por pantalla, títulos con «*» a los
+     que apunta aria-labelledby, botones [data-qa=start-button] y [data-qa^=ok-button-visible],
+     pantalla de bienvenida y de gracias. De las 17 preguntas reales quedan 9 (texto corto, correo,
+     teléfono, texto largo, opción múltiple y el CV obligatorio). La opción múltiple usa role=radio
+     con aria-checked. El script del final pasa de pantalla si la actual está respondida, y al final
+     hace POST a /api/enviar y muestra la pantalla de gracias falsa. -->
+<style>
+  .oculto { display: none; }
+  .file-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  [role=radio][aria-checked=true] { font-weight: bold; }
+</style></head>
+<body>
+<main id="root">
+  <section class="screen" data-qa="welcome-screen">
+    <h1 id="bienvenida-title">Hi! Welcome and thank you for your interest in the company. Let's complete a few questions to kickstart the process :)</h1>
+    <button type="button" data-qa="start-button" class="avanzar">Start</button>
+    <p>press <strong>Enter ↵</strong></p>
+  </section>
+
+  <section class="screen oculto" data-qa="question-1">
+    <h2 id="q1-title"><span>1→</span> Full Name<span aria-hidden="true">*</span></h2>
+    <input type="text" aria-labelledby="q1-title" data-obligatoria placeholder="Type your answer here...">
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-2">
+    <h2 id="q2-title"><span>2→</span> Email Address<span aria-hidden="true">*</span></h2>
+    <input type="email" aria-labelledby="q2-title" data-obligatoria autocomplete="email">
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-3">
+    <h2 id="q3-title"><span>3→</span> Phone Number<span aria-hidden="true">*</span></h2>
+    <input type="tel" aria-labelledby="q3-title" data-obligatoria autocomplete="tel">
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-4">
+    <h2 id="q4-title"><span>4→</span> The city you live in<span aria-hidden="true">*</span></h2>
+    <input type="text" aria-labelledby="q4-title" data-obligatoria placeholder="Type your answer here...">
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-5">
+    <h2 id="q5-title"><span>5→</span> Your LinkedIn profile <span aria-hidden="true">*</span></h2>
+    <input type="text" aria-labelledby="q5-title" data-obligatoria placeholder="Type your answer here...">
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-6">
+    <h2 id="q6-title"><span>6→</span> Tell us a bit about your background in Technical Support: what kind of work have you done in this field?<span aria-hidden="true">*</span></h2>
+    <textarea aria-labelledby="q6-title" data-obligatoria placeholder="Type your answer here..."></textarea>
+    <p class="ayuda">Shift ⇧ + Enter ↵ to make a line break</p>
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-7">
+    <h2 id="q7-title"><span>7→</span> How many years of experience do you have in tech support?<span aria-hidden="true">*</span></h2>
+    <div role="radiogroup" aria-labelledby="q7-title" aria-required="true" data-obligatoria>
+      <div role="radio" aria-checked="false" tabindex="0" data-qa="choice"><span>A</span> &lt;1 year</div>
+      <div role="radio" aria-checked="false" tabindex="0" data-qa="choice"><span>B</span> 1-2 years</div>
+      <div role="radio" aria-checked="false" tabindex="0" data-qa="choice"><span>C</span> 2-5 years</div>
+      <div role="radio" aria-checked="false" tabindex="0" data-qa="choice"><span>D</span> 5+ years</div>
+    </div>
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-8">
+    <h2 id="q8-title"><span>8→</span> Please upload your CV (10 MB max, .pdf format only)<span aria-hidden="true">*</span></h2>
+    <div class="uploader">
+      <button type="button">Choose file</button>
+      <span>or drag here · Size limit: 10MB</span>
+      <input type="file" class="file-input" aria-labelledby="q8-title" accept=".pdf" data-obligatoria>
+    </div>
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-9">
+    <h2 id="q9-title"><span>9→</span> How did you find us?<span aria-hidden="true">*</span></h2>
+    <input type="text" aria-labelledby="q9-title" data-obligatoria placeholder="Type your answer here...">
+    <div role="alert" class="aviso"></div>
+    <button type="button" data-qa="ok-button-visible deep-purple-ok-button-visible" class="avanzar">OK</button>
+  </section>
+
+  <section class="screen oculto" data-qa="question-10">
+    <h2 id="q10-title">To ensure the accuracy of your information, please review your application by clicking the arrows before submitting.</h2>
+    <button type="button" data-qa="submit-button deep-purple-submit-button" class="enviar">Submit</button>
+  </section>
+
+  <section class="screen oculto" data-qa="thankyou-screen">
+    <h1>Thank you for filling the application! One of our recruiters will be in touch with you soon.</h1>
+    <p>All done! Thanks for your time.</p>
+  </section>
+</main>
+<script>
+(function () {
+  var pantallas = [].slice.call(document.querySelectorAll(".screen"));
+  var actual = 0;
+  function mostrar(n) {
+    pantallas[actual].classList.add("oculto");
+    actual = n;
+    pantallas[actual].classList.remove("oculto");
+  }
+  function respondida(seccion) {
+    var campo = seccion.querySelector("[data-obligatoria]");
+    if (!campo) return true;
+    if (campo.getAttribute("role") === "radiogroup") return Boolean(campo.querySelector("[aria-checked=true]"));
+    if (campo.type === "file") return campo.files.length > 0;
+    return campo.value.trim() !== "";
+  }
+  pantallas.forEach(function (seccion, n) {
+    seccion.querySelectorAll("[role=radio]").forEach(function (radio) {
+      radio.addEventListener("click", function () {
+        seccion.querySelectorAll("[role=radio]").forEach(function (r) { r.setAttribute("aria-checked", "false"); });
+        radio.setAttribute("aria-checked", "true");
+      });
+    });
+    var avanzar = seccion.querySelector(".avanzar");
+    if (avanzar) avanzar.addEventListener("click", function () {
+      var aviso = seccion.querySelector(".aviso");
+      if (!respondida(seccion)) {
+        if (aviso) aviso.textContent = "Please fill this in";
+        return;
+      }
+      if (aviso) aviso.textContent = "";
+      mostrar(n + 1);
+    });
+    var enviar = seccion.querySelector(".enviar");
+    if (enviar) enviar.addEventListener("click", function () {
+      enviar.disabled = true;
+      fetch("/api/enviar", { method: "POST", body: "{}" }).then(function () { mostrar(n + 1); });
+    });
+  });
+})();
+</script>
+</body></html>

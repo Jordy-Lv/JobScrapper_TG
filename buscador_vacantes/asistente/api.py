@@ -18,13 +18,13 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from buscador_vacantes.asistente import vinculos
+from buscador_vacantes.asistente import pantalla, recetas, reglas_motor, vinculos
 from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal, EstadoCuenta
 from buscador_vacantes.asistente.datos import BaseAsistente
@@ -75,6 +75,18 @@ class Nucleo(Protocol):
         self, postulacion: Postulacion, preguntas: list[Pregunta]
     ) -> ResultadoFormulario: ...
 
+    async def arbitrar_pantalla(
+        self, postulacion: Postulacion, consulta: pantalla.Consulta
+    ) -> pantalla.DecisionPagina | None:
+        """Árbitro de las pantallas que las reglas no entienden; None: sin IA o falló."""
+        ...
+
+    async def reparar_pantalla(
+        self, postulacion: Postulacion, consulta: pantalla.ConsultaReparacion
+    ) -> pantalla.Reparacion | None:
+        """Corrección de un paso fallido antes del envío; None: sin IA o falló."""
+        ...
+
     async def notificar(self, evento: Evento | dict) -> None: ...
 
 
@@ -107,6 +119,10 @@ class PreferenciasPortalCuerpo(BaseModel):
     revisar_respuestas: bool = False
 
 
+class NivelIACuerpo(BaseModel):
+    nivel: Literal["ahorro", "normal", "maximo"]
+
+
 class Campo(BaseModel):
     texto: str = Field(max_length=1000)
     tipo: str = Field("texto", max_length=20)
@@ -114,10 +130,40 @@ class Campo(BaseModel):
     obligatoria: bool = True
     nombre: str | None = Field(None, max_length=200)
     maximo: int | None = Field(None, ge=1, le=100000)  # maxlength del campo, si lo tiene
+    # Del esquema ampliado de la extensión 1.2 (la 1.1.x no los manda)
+    ayuda: str | None = Field(None, max_length=500)
+    autocomplete: str | None = Field(None, max_length=100)
+    accept: str | None = Field(None, max_length=200)
+    idioma: str | None = Field(None, max_length=10)
+    busqueda: bool = False  # lista demasiado larga para leerla: se escribe el valor y se elige
 
 
 class Formulario(BaseModel):
     campos: list[Campo] = Field(max_length=80)
+
+
+class Pantalla(BaseModel):
+    """Una pantalla del bucle genérico. Nunca trae valores de campos."""
+
+    numero: int = Field(1, ge=1, le=1000)
+    clase: str = Field(max_length=20)
+    motivo: str | None = Field(None, max_length=60)
+    idioma: str | None = Field(None, max_length=10)
+    url: str = Field("", max_length=2000)
+    campos: list[Campo] = Field(default_factory=list, max_length=80)
+    botones: list[pantalla.Boton] = Field(default_factory=list, max_length=300)
+    sugerido: pantalla.Sugerido | None = None
+    firma: list[str] = Field(default_factory=list, max_length=100)
+    resumen: pantalla.Resumen = Field(default_factory=pantalla.Resumen)
+    exito: pantalla.Exito | None = None
+    correccion: bool = False  # vuelta única tras un error de validación
+
+
+class Reparar(Pantalla):
+    """La pantalla donde falló un paso, con el paso y su motivo. Nunca trae valores de campos."""
+
+    paso: str = Field(max_length=60)
+    fallo: str = Field("", max_length=500)
 
 
 class Paso(BaseModel):
@@ -129,7 +175,15 @@ class Verificacion(BaseModel):
     estado: str = Field(pattern="^(pendiente|resuelta)$")
 
 
+class Parche(BaseModel):
+    """El selector que reemplazó al de un paso declarado que falló. Solo datos."""
+
+    paso: str = Field(max_length=60)
+    selector: Any = None
+
+
 class Resultado(BaseModel):
+    parche: Parche | None = None
     estado: str
     motivo: str | None = Field(None, max_length=500)
     html: str | None = None  # evidencia, con los valores de los campos borrados
@@ -316,6 +370,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
     limite_vincular = Limitador(LIMITE_VINCULAR_POR_MINUTO)
     limite_ping = Limitador(LIMITE_PING_POR_MINUTO)
     descargas_cv: dict[str, tuple[Path, datetime]] = {}
+    trazas = recetas.Trazas()
 
     @app.middleware("http")
     async def tamano_maximo(request: Request, siguiente):
@@ -354,8 +409,13 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         """Resuelve el formulario sin dejar que la espera cuente como navegador caído: la
         llamada puede durar más que `navegador_caido_min` (la IA con reintentos, el CV).
         Registra cuánto tardó, para saber si ahí está el cuello de botella."""
+        return await con_latido(
+            p, nav, nucleo.resolver_formulario(p, preguntas), "formulario_resuelto"
+        )
+
+    async def con_latido(p: Postulacion, nav: vinculos.Navegador, corrutina, paso: str):
         inicio = time.perf_counter()
-        tarea = asyncio.ensure_future(nucleo.resolver_formulario(p, preguntas))
+        tarea = asyncio.ensure_future(corrutina)
         try:
             while True:
                 terminadas, _ = await asyncio.wait({tarea}, timeout=LATIDO_FORMULARIO_S)
@@ -368,10 +428,75 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         latir(nav)
         resultado = tarea.result()
         nucleo.cola.registrar_paso(
-            p.id, nav.id, "formulario_resuelto", f"{time.perf_counter() - inicio:.1f} s",
-            nucleo.ahora(),
+            p.id, nav.id, paso, f"{time.perf_counter() - inicio:.1f} s", nucleo.ahora()
         )
+        anotar_nivel_bajado(p, nav)
         return resultado
+
+    def nivel_de(p: Postulacion) -> str:
+        return nucleo.preferencias.nivel_efectivo(p.usuario_id, p.nivel_ia, nucleo.ahora())
+
+    def anotar_nivel_bajado(p: Postulacion, nav: vinculos.Navegador) -> None:
+        """Si la cuota del usuario bajó el nivel de esta postulación (en esta llamada o antes),
+        queda el paso `nivel_bajado` con «de>a»; la card del resumen lo cuenta."""
+        origen, actual = nucleo.preferencias.nivel_guardado(p.nivel_ia), nivel_de(p)
+        if origen == actual:
+            return
+        detalle = f"{origen}>{actual}"
+        ya = nucleo.base.cx.execute(
+            "SELECT 1 FROM postulacion_pasos WHERE postulacion_id = ? AND paso = 'nivel_bajado' "
+            "AND detalle = ?",
+            (p.id, detalle),
+        ).fetchone()
+        if ya is None:
+            nucleo.cola.registrar_paso(p.id, nav.id, "nivel_bajado", detalle, nucleo.ahora())
+
+    def postulacion_en_curso(pid: int, nav: vinculos.Navegador) -> Postulacion:
+        p = postulacion_de(pid, nav)
+        if p.navegador_id != nav.id or p.estado != E.EN_CURSO:
+            raise HTTPException(409, "la postulación no está en curso en este navegador")
+        return p
+
+    def preguntas_de(
+        p: Postulacion, campos: list[Campo], idioma: str | None = None
+    ) -> list[Pregunta]:
+        """`idioma` es el de la página (lo que informa la pantalla) para los campos que no
+        traen el suyo."""
+        forzadas = campos_obligatorios(nucleo.selectores(p.plataforma))
+        return [
+            Pregunta(c.texto, c.tipo, c.opciones, c.obligatoria or c.nombre in forzadas,
+                     c.nombre, c.maximo, c.ayuda, c.autocomplete, c.accept, c.idioma or idioma,
+                     c.busqueda)
+            for c in campos
+        ]  # fmt: skip
+
+    def anotar_pantalla(pid: int, cuerpo: Pantalla, decision: pantalla.Decision) -> None:
+        """Lo que pasó en la pantalla, sin valores, para la receta del sitio si se envía."""
+        accion = decision.accion or {}
+        trazas.visitar(pid, cuerpo.url)
+        if accion.get("tipo") == "exito" and cuerpo.exito:
+            trazas.senal(pid, cuerpo.exito.senal)
+        elif accion.get("tipo") in ("avanzar", "enviar"):
+            boton = next((b for b in cuerpo.botones if b.indice == accion.get("indice")), None)
+            firma = sorted({recetas.clave_campo(c.nombre, c.texto) for c in cuerpo.campos
+                            if c.tipo != "archivo"})  # fmt: skip
+            trazas.agregar(pid, cuerpo.numero, cuerpo.url, recetas.PantallaReceta(
+                firma=firma, mapeo=decision.mapeo,
+                boton=recetas.BotonReceta(texto=boton.texto, clase=boton.clase,
+                                          selector=boton.selector) if boton else None,
+            ))  # fmt: skip
+
+    def respuesta_reparacion(motivo: str, diagnostico: str = "") -> dict[str, Any]:
+        return {"acciones": [], "diagnostico": diagnostico,
+                "accion": {"tipo": "respaldo", "motivo": motivo}}  # fmt: skip
+
+    def publicar_cv(cv: Path | None) -> str | None:
+        """Enlace de un solo uso (10 min) para que la extensión baje el CV."""
+        if cv is None:
+            return None
+        token = secrets.token_urlsafe(24)
+        descargas_cv[token] = (cv, nucleo.ahora() + VIGENCIA_CV)
+        return f"{PREFIJO}/cv/{token}"
 
     # --- ping ---
 
@@ -512,6 +637,10 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             "version_minima": version_minima,
             "actualizar": actualizar,
             "selectores": selectores,
+            # Versión de las reglas del motor genérico (None: motor apagado)
+            "motor_generico": reglas_motor.reglas().version
+            if nucleo.config.motor_generico.activo
+            else None,
             "cuentas": cuentas_ok,
             "latido_s": nucleo.config.extension.latido_s,
             # Accesos del botón de chat del popup
@@ -530,6 +659,13 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             raise HTTPException(404, "plataforma no soportada")
         version, contenido = datos_selectores
         return {"version": version, "selectores": contenido}
+
+    @app.get(PREFIJO + "/motor_generico")
+    async def motor_generico(nav: vinculos.Navegador = Depends(navegador_actual)):
+        if not nucleo.config.motor_generico.activo:
+            raise HTTPException(404, "motor genérico apagado")
+        actuales = reglas_motor.reglas()
+        return {"version": actuales.version, "reglas": actuales.model_dump(exclude={"nota"})}
 
     # --- engranaje de cada portal (preferencias y cuenta) ---
 
@@ -563,6 +699,21 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         )  # fmt: skip
         return {"ok": True}
 
+    # --- nivel de uso de IA del usuario (el selector del popup) ---
+
+    @app.get(PREFIJO + "/nivel_ia")
+    async def ver_nivel_ia(nav: vinculos.Navegador = Depends(navegador_actual)):
+        return nucleo.preferencias.resumen_nivel_ia(
+            nav.usuario_id, nucleo.config.niveles_ia, nucleo.ahora()
+        )
+
+    @app.post(PREFIJO + "/nivel_ia")
+    async def guardar_nivel_ia(
+        cuerpo: NivelIACuerpo, nav: vinculos.Navegador = Depends(navegador_actual)
+    ):
+        nucleo.preferencias.fijar_nivel_ia(nav.usuario_id, cuerpo.nivel)
+        return {"ok": True, "nivel": cuerpo.nivel}
+
     @app.post(PREFIJO + "/cuenta/{plataforma}/olvidar")
     async def olvidar_cuenta(plataforma: str, nav: vinculos.Navegador = Depends(navegador_actual)):
         """Desasocia la cuenta de ese portal; la próxima sesión detectada vuelve a pedirse
@@ -593,39 +744,114 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
     async def formulario(
         pid: int, cuerpo: Formulario, nav: vinculos.Navegador = Depends(navegador_actual)
     ):
-        p = postulacion_de(pid, nav)
-        if p.navegador_id != nav.id or p.estado != E.EN_CURSO:
-            raise HTTPException(409, "la postulación no está en curso en este navegador")
-        forzadas = campos_obligatorios(nucleo.selectores(p.plataforma))
-        preguntas = [
-            Pregunta(
-                c.texto,
-                c.tipo,
-                c.opciones,
-                c.obligatoria or c.nombre in forzadas,
-                c.nombre,
-                c.maximo,
-            )
-            for c in cuerpo.campos
-        ]
+        p = postulacion_en_curso(pid, nav)
+        preguntas = preguntas_de(p, cuerpo.campos)
         resultado = await resolver_con_latido(p, nav, preguntas)
         if resultado.revisar or any(r.pregunta.obligatoria for r in resultado.faltan):
             nucleo.cola.esperar_usuario(pid, nav.id, nucleo.ahora())
             return {"esperar_usuario": True}
-        respuestas = []
-        for indice, pregunta in enumerate(preguntas):
-            r = next((x for x in resultado.respuestas if x.pregunta is pregunta), None)
-            if r is None or r.falta:
-                continue
-            respuestas.append({"indice": indice, "valor": r.valor, "opcion": r.opcion,
-                               "origen": r.origen})  # fmt: skip
-        cv_url = None
-        if resultado.cv is not None:
-            token = secrets.token_urlsafe(24)
-            descargas_cv[token] = (resultado.cv, nucleo.ahora() + VIGENCIA_CV)
-            cv_url = f"{PREFIJO}/cv/{token}"
+        respuestas = pantalla.respuestas_de(preguntas, resultado)
+        cv_url = publicar_cv(resultado.cv)
         return {"esperar_usuario": False, "respuestas": respuestas, "cv_url": cv_url,
                 "cv_nombre": resultado.cv.name if resultado.cv else None}  # fmt: skip
+
+    @app.post(PREFIJO + "/postulaciones/{pid}/pantalla")
+    async def pantalla_actual(
+        pid: int, cuerpo: Pantalla, nav: vinculos.Navegador = Depends(navegador_actual)
+    ):
+        """Decisión de una pantalla del bucle genérico: respuestas y siguiente acción.
+
+        Las reglas deciden la clase y el botón; si dudan, decide el árbitro (con tope por
+        postulación). Si el servidor no puede decidir, responde `respaldo` y la extensión se
+        detiene sin pulsar nada."""
+        motor = nucleo.config.motor_generico
+        if not motor.activo:
+            raise HTTPException(404, "el motor genérico está apagado")
+        p = postulacion_en_curso(pid, nav)
+        peticion = pantalla.Peticion(
+            cuerpo.clase, cuerpo.motivo, cuerpo.idioma, cuerpo.url,
+            preguntas_de(p, cuerpo.campos, cuerpo.idioma), cuerpo.botones, cuerpo.sugerido,
+            cuerpo.resumen, cuerpo.exito, cuerpo.correccion,
+        )  # fmt: skip
+
+        async def resolver(preguntas):
+            return await nucleo.resolver_formulario(p, preguntas)
+
+        async def arbitrar(consulta: pantalla.Consulta):
+            nucleo.cola.registrar_paso(
+                pid, nav.id, "arbitro",
+                f"{cuerpo.clase}; {len(cuerpo.botones)} botones", nucleo.ahora(),
+            )  # fmt: skip
+            return await nucleo.arbitrar_pantalla(p, consulta)
+
+        hechas = nucleo.base.cx.execute(
+            "SELECT COUNT(*) FROM postulacion_pasos WHERE postulacion_id = ? AND paso = 'arbitro'",
+            (pid,),
+        ).fetchone()[0]
+        # Los topes de `motor_generico` son el máximo absoluto; el nivel del usuario puede bajarlos
+        nivel = nivel_de(p)
+        tope = min(motor.max_arbitro, getattr(nucleo.config.niveles_ia, nivel).max_arbitro)
+        decision = await con_latido(
+            p, nav,
+            pantalla.decidir(
+                peticion, resolver, arbitrar if hechas < tope else None,
+                "nivel_ahorro" if nivel == "ahorro" else "tope_arbitro",
+            ),
+            "pantalla_resuelta",
+        )  # fmt: skip
+        if decision.esperar_usuario:
+            nucleo.cola.esperar_usuario(pid, nav.id, nucleo.ahora())
+            return {"esperar_usuario": True}
+        anotar_pantalla(pid, cuerpo, decision)
+        return {"esperar_usuario": False, "respuestas": decision.respuestas,
+                "cv_url": publicar_cv(decision.cv),
+                "cv_nombre": decision.cv.name if decision.cv else None,
+                "documentos": {}, "accion": decision.accion}  # fmt: skip
+
+    @app.post(PREFIJO + "/postulaciones/{pid}/reparar")
+    async def reparar(
+        pid: int, cuerpo: Reparar, nav: vinculos.Navegador = Depends(navegador_actual)
+    ):
+        """Corrección de un paso que falló ANTES del envío, con índices y acciones de la lista
+        cerrada. Tope de reparaciones por postulación según su nivel de IA (y `max_reparaciones`).
+        Sin IA, sin cuota o sin reparación posible responde `respaldo` y la extensión se detiene
+        sin pulsar nada."""
+        motor = nucleo.config.motor_generico
+        if not motor.activo:
+            raise HTTPException(404, "el motor genérico está apagado")
+        p = postulacion_en_curso(pid, nav)
+        hechas = nucleo.base.cx.execute(
+            "SELECT COUNT(*) FROM postulacion_pasos WHERE postulacion_id = ? "
+            "AND paso = 'reparacion'",
+            (pid,),
+        ).fetchone()[0]
+        nivel = nivel_de(p)
+        tope = min(
+            motor.max_reparaciones, getattr(nucleo.config.niveles_ia, nivel).max_reparaciones
+        )
+        if hechas >= tope:
+            return respuesta_reparacion(
+                "nivel_ahorro" if nivel == "ahorro" else "tope_reparaciones"
+            )
+        nucleo.cola.registrar_paso(
+            pid, nav.id, "reparacion", f"{cuerpo.paso}: {cuerpo.fallo}"[:200], nucleo.ahora()
+        )
+        peticion = pantalla.Peticion(
+            cuerpo.clase, cuerpo.motivo, cuerpo.idioma, cuerpo.url,
+            preguntas_de(p, cuerpo.campos, cuerpo.idioma), cuerpo.botones, cuerpo.sugerido,
+            cuerpo.resumen, cuerpo.exito, cuerpo.correccion,
+        )  # fmt: skip
+        consulta = pantalla.ConsultaReparacion(peticion, cuerpo.paso, cuerpo.fallo)
+        veredicto = await con_latido(
+            p, nav, nucleo.reparar_pantalla(p, consulta), "reparacion_resuelta"
+        )
+        if veredicto is None:
+            return respuesta_reparacion("sin_ia")
+        acciones = pantalla.acciones_validas(veredicto.acciones, cuerpo.botones, cuerpo.resumen)
+        if not acciones:
+            return respuesta_reparacion("sin_reparacion", veredicto.diagnostico)
+        return {"acciones": [a.model_dump() for a in acciones],
+                "diagnostico": veredicto.diagnostico, "accion": None}  # fmt: skip
 
     @app.get(PREFIJO + "/cv/{token}")
     async def descargar_cv(token: str, nav: vinculos.Navegador = Depends(navegador_actual)):
@@ -679,6 +905,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             _guardar_evidencia(nucleo, pid, cuerpo.html[:MAX_HTML_EVIDENCIA], ahora)
         if cuerpo.confirmacion:
             nucleo.cola.registrar_paso(pid, nav.id, "confirmacion", cuerpo.confirmacion, ahora)
+        await _aprender(nucleo, trazas, pid, estado, cuerpo, ahora)
         await nucleo.notificar(evento)
         return {"ok": True}
 
@@ -696,6 +923,90 @@ def _portales_guardados(base: BaseAsistente, navegador_id: int) -> dict[str, dic
     return json.loads(fila["portales_json"]) if fila and fila["portales_json"] else {}
 
 
+async def _aprender(
+    nucleo: Nucleo, trazas: recetas.Trazas, pid: int, estado: E, cuerpo: Resultado, ahora: datetime
+) -> None:
+    """Lo que enseña el resultado: refuerza o apaga la receta y los parches que llevó el
+    trabajo, guarda la receta de un envío con señal explícita, un parche candidato si el
+    bucle genérico reparó un paso declarado, y recuerda el dominio que exige cuenta."""
+    base = nucleo.base
+    fila = base.cx.execute(
+        "SELECT tipo, plataforma, id_corto, receta_id, parches_json FROM postulaciones "
+        "WHERE id = ?",
+        (pid,),
+    ).fetchone()
+    ultima = trazas.ultima_url(pid)
+    traza = trazas.sacar(pid)
+    trazas.olvidar(pid)
+    if fila is None:
+        return
+    ok, fallo = estado == E.ENVIADA, estado == E.FORMULARIO_DESCONOCIDO
+    if fila["receta_id"] and (ok or fallo):
+        if recetas.registrar_resultado_receta(base, fila["receta_id"], ok):
+            await nucleo.notificar({"tipo": "receta_apagada", "receta_id": fila["receta_id"],
+                                    "postulacion_id": pid})  # fmt: skip
+    ids = json.loads(fila["parches_json"]) if fila["parches_json"] else []
+    if ids and (ok or fallo):
+        for cambio in recetas.resultado_parches(base, ids, ok, ahora):
+            await nucleo.notificar({"tipo": f"parche_{cambio['estado']}", "parche_id": cambio["id"],
+                                    "plataforma": cambio["plataforma"], "paso": cambio["paso"],
+                                    "postulacion_id": pid})  # fmt: skip
+    vacante = nucleo.vacante(fila["id_corto"]) if fila["id_corto"] else None
+    url = traza[0] if traza else (vacante or {}).get("url")
+    host = recetas.host_de(url)
+    if ok and fila["tipo"] == "postular" and traza:
+        recetas.guardar_receta(
+            base, host=host, ruta=recetas.ruta_patron(url),
+            familia=recetas.familia_de_host(host, fila["plataforma"]), receta=traza[1],
+            origen="real", ahora=ahora, enviada=True,
+        )  # fmt: skip
+    if ok and cuerpo.parche and fila["plataforma"]:
+        reparo = base.cx.execute(
+            "SELECT 1 FROM postulacion_pasos WHERE postulacion_id = ? "
+            "AND paso IN ('respaldo_generico', 'reparacion')",
+            (pid,),
+        ).fetchone()
+        parche_id = reparo and recetas.proponer_parche(
+            base, fila["plataforma"], cuerpo.parche.paso, cuerpo.parche.selector, ahora, pid
+        )
+        if parche_id:
+            await nucleo.notificar({"tipo": "parche_nuevo", "parche_id": parche_id,
+                                    "plataforma": fila["plataforma"], "paso": cuerpo.parche.paso,
+                                    "postulacion_id": pid})  # fmt: skip
+    if estado in (E.BLOQUEADA, E.RESPALDO, E.FORMULARIO_DESCONOCIDO) and cuerpo.motivo in (
+        recetas.MOTIVOS_BARRERA
+    ):
+        host = recetas.host_de(ultima) or host  # el sitio donde apareció la barrera
+        if recetas.marcar_barrera(base, host, cuerpo.motivo, ahora):
+            await nucleo.notificar({"tipo": "dominio_barrera", "host": host,
+                                    "motivo": cuerpo.motivo, "postulacion_id": pid})  # fmt: skip
+
+
+def _con_aprendizaje(nucleo: Nucleo, p: Postulacion, trabajo: dict[str, Any]) -> None:
+    """La receta del sitio (o de su familia) y los parches de la plataforma que lleva el
+    trabajo; queda anotado cuáles para premiarlos o descartarlos con el resultado."""
+    receta = None
+    if p.tipo == "postular" and p.id_corto:
+        url = (nucleo.vacante(p.id_corto) or {}).get("url")
+        host = recetas.host_de(url)
+        if host:
+            receta = recetas.receta_para(
+                nucleo.base, host, recetas.familia_de_host(host, p.plataforma),
+                recetas.ruta_patron(url),
+            )  # fmt: skip
+    parches = recetas.parches_aplicables(nucleo.base, p.plataforma) if p.plataforma else []
+    if receta:
+        trabajo["receta"] = receta
+    if parches:
+        trabajo["parches"] = parches
+    with nucleo.base.transaccion() as cx:
+        cx.execute(
+            "UPDATE postulaciones SET receta_id = ?, parches_json = ? WHERE id = ?",
+            (receta["id"] if receta else None,
+             json.dumps([x["id"] for x in parches]) if parches else None, p.id),
+        )  # fmt: skip
+
+
 def _trabajo(nucleo: Nucleo, p: Postulacion) -> dict[str, Any]:
     trabajo: dict[str, Any] = {"id": p.id, "tipo": p.tipo, "plataforma": p.plataforma}
     fila = nucleo.base.cx.execute(
@@ -703,10 +1014,22 @@ def _trabajo(nucleo: Nucleo, p: Postulacion) -> dict[str, Any]:
     ).fetchone()
     # Sin la autorización del usuario la extensión no toca el CV guardado en el portal
     trabajo["actualizar_cv_portal"] = bool(fila and fila["actualizar_cv_portal"])
+    motor = nucleo.config.motor_generico
+    if motor.activo:
+        # Topes del bucle genérico y si respalda a los flujos declarados (la extensión 1.1.x
+        # ignora esta clave)
+        trabajo["motor_generico"] = {
+            "respaldo_declarado": motor.respaldo_declarado,
+            "max_pantallas": motor.max_pantallas,
+            "max_pantallas_una_pregunta": motor.max_pantallas_una_pregunta,
+            "max_minutos": motor.max_minutos,
+        }
     if p.id_corto:
         vacante = nucleo.vacante(p.id_corto) or {}
         trabajo["url"] = vacante.get("url")
         trabajo["titulo"] = vacante.get("titulo")
+    if motor.activo:
+        _con_aprendizaje(nucleo, p, trabajo)
     return trabajo
 
 

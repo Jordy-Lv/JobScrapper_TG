@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Desarrollador de Automatizaciones Jr @ Empresa de prueba</title>
+<!-- Copia recortada de jobs.ashbyhq.com/{org}/{id}/application, armada con el DOM leído en el
+     navegador integrado el 2026-10-21 y el esquema de non-user-graphql (docs/asistente/portales.md,
+     sección «LinkedIn»). Es una SPA de React: no hay <form>; cada campo tiene label[for] y
+     required, y name/id son la ruta del campo (_systemfield_*, UUID). Hay dos input[type=file]: el
+     primero, sin etiqueta, es «Autofill from resume»; el CV es #_systemfield_resume. Los iframes del
+     reCAPTCHA Enterprise invisible están desde que carga, ocultos. El script del final imita el
+     envío: valida los obligatorios, hace POST a /api/enviar y muestra la página de gracias falsa
+     sin el formulario. -->
+<style>
+  .oculto { display: none; }
+  .ashby-application-form-autofill-input-root input[type=file],
+  .ashby-application-form-field-entry input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  ._invalid { border-color: red; }
+</style></head>
+<body>
+<div id="root">
+  <div class="ashby-job-posting-header">
+    <h1 class="ashby-job-posting-heading">Desarrollador de Automatizaciones Jr</h1>
+    <nav role="tablist">
+      <a role="tab" aria-selected="false" href="/prueba/4b3b7cc7/">Overview</a>
+      <a role="tab" aria-selected="true" href="/prueba/4b3b7cc7/application">Application</a>
+    </nav>
+  </div>
+  <div class="ashby-application-form-container" id="formulario">
+    <div class="ashby-application-form-autofill-input-root">
+      <p class="ashby-application-form-autofill-input-title">Autofill from resume</p>
+      <p class="ashby-application-form-autofill-input-description">Upload your resume here to autofill key application fields.</p>
+      <button type="button" class="ashby-application-form-autofill-uploader">Upload file</button>
+      <input type="file" tabindex="-1">
+    </div>
+    <div class="ashby-application-form-section-container">
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title _required" for="_systemfield_name">Nombre Completo</label>
+        <input type="text" id="_systemfield_name" name="_systemfield_name" required placeholder="Type here...">
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title _required" for="_systemfield_email">Email</label>
+        <input type="email" id="_systemfield_email" name="_systemfield_email" required placeholder="Type here...">
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title" for="846a53c3-9d35-402d-aa0a-ed7c4b8c0f5e">Teléfono</label>
+        <input type="tel" id="846a53c3-9d35-402d-aa0a-ed7c4b8c0f5e" name="846a53c3-9d35-402d-aa0a-ed7c4b8c0f5e" placeholder="Type here...">
+      </div>
+      <div class="ashby-application-form-field-entry">
+        <label class="ashby-application-form-question-title _required" for="_systemfield_resume">Curriculum</label>
+        <div class="_container_uploader">
+          <button type="button">Upload File</button>
+          <span>or drag and drop here</span>
+          <input type="file" id="_systemfield_resume" name="_systemfield_resume" required>
+        </div>
+      </div>
+    </div>
+    <div class="ashby-application-form-submit-container">
+      <p role="alert" class="ashby-application-form-error" id="error"></p>
+      <button type="submit" class="ashby-application-form-submit-button">Submit Application</button>
+    </div>
+  </div>
+  <template id="gracias">
+    <div class="ashby-application-form-success-container">
+      <h2>Application submitted</h2>
+      <p>Thank you for applying. We've received your application and will be in touch.</p>
+    </div>
+  </template>
+</div>
+<div style="visibility: hidden; position: absolute; width: 256px; height: 60px;"><iframe title="reCAPTCHA" src="https://www.google.com/recaptcha/enterprise/anchor?ar=1&amp;k=prueba&amp;size=invisible" width="256" height="60"></iframe></div>
+<div style="visibility: hidden; position: absolute; top: -10000px;"><iframe title="recaptcha challenge expires in two minutes" src="https://www.google.com/recaptcha/enterprise/bframe?hl=en&amp;k=prueba" width="400" height="580"></iframe></div>
+<script>
+(function () {
+  var boton = document.querySelector(".ashby-application-form-submit-button");
+  boton.addEventListener("click", function () {
+    var faltan = 0;
+    document.querySelectorAll("#formulario [required]").forEach(function (el) {
+      var vacio = el.type === "file" ? !el.files.length : !el.value.trim();
+      el.classList.toggle("_invalid", vacio);
+      el.setAttribute("aria-invalid", vacio ? "true" : "false");
+      if (vacio) faltan++;
+    });
+    if (faltan) {
+      document.getElementById("error").textContent = "Missing entry for required field";
+      return;
+    }
+    boton.disabled = true;
+    fetch("/api/enviar", { method: "POST", body: "{}" }).then(function () {
+      var raiz = document.getElementById("formulario");
+      raiz.replaceWith(document.getElementById("gracias").content.cloneNode(true));
+    });
+  });
+})();
+</script>
+</body></html>

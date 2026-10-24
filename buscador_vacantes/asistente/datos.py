@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-ESQUEMA_VERSION = 4
+ESQUEMA_VERSION = 6
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS esquema_version (version INTEGER NOT NULL);
@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
     automatico_umbral INTEGER,                 -- NULL: modo automático desactivado
     pausado INTEGER NOT NULL DEFAULT 0,
     vacante_pendiente TEXT,                    -- id_corto a retomar al terminar el alta
-    aviso_inactividad_en TEXT
+    aviso_inactividad_en TEXT,
+    nivel_ia TEXT NOT NULL DEFAULT 'normal'    -- ahorro | normal | maximo (esquema 6)
 );
 
 CREATE TABLE IF NOT EXISTS codigos_vinculo (
@@ -129,6 +130,9 @@ CREATE TABLE IF NOT EXISTS postulaciones (
     terminada_en TEXT,
     seguimiento TEXT,
     recordado INTEGER NOT NULL DEFAULT 0,
+    receta_id INTEGER,                         -- receta que llevó el trabajo (esquema 5)
+    parches_json TEXT,                         -- ids de los parches que llevó (esquema 5)
+    nivel_ia TEXT,                             -- nivel del usuario al encolar (esquema 6)
     UNIQUE (usuario_id, id_corto)
 );
 CREATE INDEX IF NOT EXISTS postulaciones_estado ON postulaciones(estado, creada);
@@ -233,6 +237,42 @@ CREATE TABLE IF NOT EXISTS auditoria (
     detalle TEXT
 );
 
+-- Lo que el asistente aprende de cada postulación (esquema 5). Sin valores ni contacto.
+CREATE TABLE IF NOT EXISTS recetas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    host TEXT NOT NULL,
+    ruta_patron TEXT NOT NULL,
+    familia TEXT NOT NULL,
+    firma TEXT NOT NULL,                       -- claves de los campos de la primera pantalla
+    receta_json TEXT NOT NULL,
+    exitos INTEGER NOT NULL DEFAULT 0,
+    fallos_seguidos INTEGER NOT NULL DEFAULT 0,
+    activa INTEGER NOT NULL DEFAULT 1,
+    origen TEXT NOT NULL DEFAULT 'real',       -- real | ensayo
+    actualizada TEXT NOT NULL,
+    UNIQUE (host, ruta_patron, firma)
+);
+CREATE INDEX IF NOT EXISTS recetas_familia ON recetas(familia, activa);
+
+CREATE TABLE IF NOT EXISTS parches_flujo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plataforma TEXT NOT NULL,
+    paso TEXT NOT NULL,
+    selector_json TEXT NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'candidato',  -- candidato | firme | descartado
+    exitos INTEGER NOT NULL DEFAULT 0,
+    postulacion_id INTEGER,                    -- la que terminó enviada y lo originó
+    creado TEXT NOT NULL,
+    actualizado TEXT NOT NULL,
+    UNIQUE (plataforma, paso, selector_json)
+);
+
+CREATE TABLE IF NOT EXISTS dominios_barrera (
+    host TEXT PRIMARY KEY,
+    motivo TEXT NOT NULL,                      -- ats_con_cuenta | oauth | mensajeria
+    creado TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bajas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL
@@ -292,9 +332,31 @@ class BaseAsistente:
                 self.cx.execute("ALTER TABLE vacantes ADD COLUMN ficha_json TEXT")
         if version < 4:
             self._a_v4()
+        if version < 5:
+            self._a_v5()
+        if version < 6:
+            self._a_v6()
 
     def _columnas(self, tabla: str) -> set[str]:
         return {f["name"] for f in self.cx.execute(f"PRAGMA table_info({tabla})")}
+
+    def _a_v6(self) -> None:
+        """Nivel de uso de IA del usuario y el que llevó cada postulación al encolarse."""
+        if "nivel_ia" not in self._columnas("usuarios"):
+            self.cx.execute(
+                "ALTER TABLE usuarios ADD COLUMN nivel_ia TEXT NOT NULL DEFAULT 'normal'"
+            )
+        if "nivel_ia" not in self._columnas("postulaciones"):
+            self.cx.execute("ALTER TABLE postulaciones ADD COLUMN nivel_ia TEXT")
+
+    def _a_v5(self) -> None:
+        """Recetas, parches y dominios barrera (tablas nuevas) y qué receta y parches llevó cada
+        postulación."""
+        columnas = self._columnas("postulaciones")
+        if "receta_id" not in columnas:
+            self.cx.execute("ALTER TABLE postulaciones ADD COLUMN receta_id INTEGER")
+        if "parches_json" not in columnas:
+            self.cx.execute("ALTER TABLE postulaciones ADD COLUMN parches_json TEXT")
 
     def _a_v4(self) -> None:
         """Redactor por formulario: tipos de pendiente, revisión por portal y una respuesta por

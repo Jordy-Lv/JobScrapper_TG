@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Postulación</title>
+<!-- INVENTADO: el paso que sigue al correo en Pandapé no se vio en el reconocimiento (habría que
+     enviar el correo). Imita el marcado de pandape.html (ASP.NET y jQuery Validate) para probar el
+     teléfono con selector de prefijo, la fecha por placeholder, una lista nativa, el CV y una
+     casilla obligatoria. «Enviar candidatura» hace POST a /Apply/Enviar. -->
+</head>
+<body class="app">
+<header class="header-mf"><div class="container cols"><a href="/"><span>Empresa de prueba</span></a></div></header>
+<main class="main">
+  <section class="app-cv">
+    <div class="container">
+      <h1 class="font-2xl">Completa tu candidatura</h1>
+      <form method="post" action="/Apply/Enviar" enctype="multipart/form-data">
+        <input type="hidden" name="actionFrom" value="SetData">
+        <div class="form-group">
+          <label for="Name">Nombre *</label>
+          <input type="text" id="Name" name="Name" autocomplete="given-name" data-val="true" data-val-required="Campo obligatorio">
+        </div>
+        <div class="form-group">
+          <label for="Surname">Apellidos *</label>
+          <input type="text" id="Surname" name="Surname" autocomplete="family-name" data-val="true" data-val-required="Campo obligatorio">
+        </div>
+        <div class="form-group phone">
+          <label for="Phone">Teléfono celular *</label>
+          <div class="input-group">
+            <select id="PhonePrefix" name="PhonePrefix" aria-label="Prefijo">
+              <option value="">Prefijo</option>
+              <option value="54">Argentina (+54)</option>
+              <option value="57">Colombia (+57)</option>
+              <option value="52">México (+52)</option>
+            </select>
+            <input type="tel" id="Phone" name="Phone" data-val="true" data-val-required="Campo obligatorio">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="Availability">Fecha de disponibilidad para iniciar</label>
+          <input type="text" id="Availability" name="Availability" placeholder="dd/mm/aaaa">
+        </div>
+        <div class="form-group">
+          <label for="Source">¿Cómo te enteraste de esta oferta? *</label>
+          <select id="Source" name="Source" data-val="true" data-val-required="Campo obligatorio">
+            <option value="">Selecciona una opción</option>
+            <option value="1">Computrabajo</option>
+            <option value="2">LinkedIn</option>
+            <option value="3">Referido</option>
+            <option value="4">Otro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="Cv">Adjunta tu hoja de vida (PDF) *</label>
+          <input type="file" id="Cv" name="Cv" accept=".pdf,.doc,.docx" data-val="true" data-val-required="Campo obligatorio">
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="Privacy" name="Privacy" value="true" data-val="true" data-val-required="Debes aceptar"> Acepto la política de privacidad *</label>
+        </div>
+        <button type="submit" class="btn btn-blue">Enviar candidatura</button>
+      </form>
+    </div>
+  </section>
+</main>
+</body></html>
