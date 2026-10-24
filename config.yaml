@@ -1052,7 +1052,7 @@ asistente:
     comprobar_cada_h: 24
     cache_min: 10
   politica:
-    version: 2
+    version: 3
     # Borrador de la tarea 2.2: el administrador debe revisarlo y aprobarlo antes del piloto.
     # Cambiar el texto exige subir la versión: todos los usuarios lo aceptan de nuevo.
     texto: |-
@@ -1066,7 +1066,10 @@ asistente:
       se arma con ella (formación, experiencia, proyectos, habilidades, idiomas); tus datos
       de contacto (correo, teléfono y, si lo das, tu documento); tus respuestas al
       cuestionario; el correo de tus cuentas de Computrabajo, Magneto y elempleo; tu clave
-      de Gemini (cifrada); y el historial de tus postulaciones con las respuestas enviadas.
+      de Gemini (cifrada); los documentos PDF que decidas guardar además de tu hoja de vida
+      (certificado de notas, carta de presentación, portafolio u otros; cifrados, y los
+      puedes ver y borrar con /documentos); y el historial de tus postulaciones con las
+      respuestas enviadas.
 
       2. Para qué: solo para preparar y enviar las postulaciones que tú pidas tocando
       "Postularme" (o las de tu modo automático, si lo activas), adaptar levemente tu hoja

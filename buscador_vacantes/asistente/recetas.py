@@ -238,6 +238,26 @@ def receta_para(
             **receta.model_dump()}  # fmt: skip
 
 
+def pantalla_de_receta(
+    base: BaseAsistente, receta_id: int | None, claves: set[str]
+) -> PantallaReceta | None:
+    """La pantalla de la receta del trabajo cuya firma coincide (80 %) con las claves de los
+    campos de la pantalla actual, o None: sin receta, apagada, o el sitio cambió."""
+    if not receta_id:
+        return None
+    fila = base.cx.execute(
+        "SELECT receta_json FROM recetas WHERE id = ? AND activa = 1", (receta_id,)
+    ).fetchone()
+    if fila is None:
+        return None
+    mejor, puntos = None, 0.0
+    for pantalla in Receta.model_validate_json(fila["receta_json"]).pantallas:
+        coincidencia = similitud(set(pantalla.firma), claves)
+        if coincidencia >= UMBRAL_FIRMA and coincidencia > puntos:
+            mejor, puntos = pantalla, coincidencia
+    return mejor
+
+
 def registrar_resultado_receta(base: BaseAsistente, receta_id: int, ok: bool) -> bool:
     """Un éxito la refuerza; un fallo suma uno seguido y a los 2 la desactiva. True si se acaba
     de desactivar (el dueño debe saberlo)."""

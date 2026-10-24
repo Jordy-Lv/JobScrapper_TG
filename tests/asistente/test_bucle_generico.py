@@ -114,6 +114,75 @@ def preparar(api, servidor_falso: ServidorFalso | None = None, **opciones) -> Se
 # --- 4.1: las copias hasta la página de gracias, con un solo envío ---------------------------
 
 
+def respuestas_por_clave(servidor_falso: ServidorFalso, pantallas: list[dict]) -> dict[str, str]:
+    """Lo que el servidor habría resuelto de antemano, por la clave de cada campo."""
+    from buscador_vacantes.asistente.recetas import clave_campo
+
+    resueltas = {}
+    for cuerpo in pantallas:
+        for r in servidor_falso.decidir(cuerpo):
+            campo = cuerpo["campos"][r["indice"]]
+            texto = campo["opciones"][r["opcion"]] if "opcion" in r else r["valor"]
+            resueltas[clave_campo(campo["nombre"], campo["texto"])] = texto
+    return resueltas
+
+
+def completas(pantallas: list[dict], resueltas: dict[str, str]) -> list[dict]:
+    """Las pantallas con campos cuyos campos están todos en el esquema anticipado."""
+    from buscador_vacantes.asistente.recetas import clave_campo
+
+    return [
+        c for c in pantallas
+        if c["campos"] and all(clave_campo(f["nombre"], f["texto"]) in resueltas
+                               for f in c["campos"])
+    ]  # fmt: skip
+
+
+def test_esquema_anticipado_no_consulta_al_servidor_por_los_campos_ya_resueltos(tmp_path, api):
+    datos = ESPERADO["copias"]["typeform"]
+    servidor_falso = preparar(api)
+    ejecutar(tmp_path / "primera", api, sitio_de("typeform"), trabajo(datos["inicio"]))
+    assert final(api)["estado"] == "enviada", [final(api), pasos(api)]
+    consultadas = api.de("pantalla")
+    resueltas = respuestas_por_clave(servidor_falso, consultadas)
+    resueltas_de_antemano = completas(consultadas, resueltas)
+    assert resueltas_de_antemano  # el servidor sabe responder varias pantallas del formulario
+    api.llamadas.clear()
+    # Segunda vuelta: el trabajo trae las respuestas que el servidor resolvió al tocar ⚡
+    sitio = sitio_de("typeform")
+    pedido = {**trabajo(datos["inicio"], pid=51), "esquema": {"respuestas": resueltas}}
+    ejecutar(tmp_path / "segunda", api, sitio, pedido)
+    assert final(api)["estado"] == "enviada", [final(api), pasos(api)]
+    assert sitio.contados(datos["envio_final"]) == 1 and len(api.de("envio")) == 1
+    # Solo se consulta por lo que no estaba en el esquema
+    nuevas = api.de("pantalla")
+    assert len(nuevas) == len(consultadas) - len(resueltas_de_antemano)
+    assert not [c for c in completas(nuevas, resueltas)]
+    anticipadas = [p for p in api.de("paso") if "esquema anticipado" in (p["detalle"] or "")]
+    assert len(anticipadas) == len(resueltas_de_antemano)
+    assert api.de("tomar") and not api.de("verificacion")
+
+
+def test_esquema_anticipado_con_un_campo_que_no_esta_consulta_al_servidor(tmp_path, api):
+    from buscador_vacantes.asistente.recetas import clave_campo
+
+    datos = ESPERADO["copias"]["typeform"]
+    servidor_falso = preparar(api)
+    ejecutar(tmp_path / "primera", api, sitio_de("typeform"), trabajo(datos["inicio"]))
+    consultadas = api.de("pantalla")
+    resueltas = respuestas_por_clave(servidor_falso, consultadas)
+    antes = completas(consultadas, resueltas)
+    quitada = clave_campo(antes[0]["campos"][0]["nombre"], antes[0]["campos"][0]["texto"])
+    del resueltas[quitada]  # el servidor no resolvió ese campo
+    api.llamadas.clear()
+    pedido = {**trabajo(datos["inicio"], pid=52), "esquema": {"respuestas": resueltas}}
+    ejecutar(tmp_path / "segunda", api, sitio_de("typeform"), pedido)
+    assert final(api)["estado"] == "enviada", [final(api), pasos(api)]
+    despues = completas(consultadas, resueltas)
+    assert len(despues) == len(antes) - 1
+    assert len(api.de("pantalla")) == len(consultadas) - len(despues)
+
+
 @pytest.mark.parametrize("copia", ["greenhouse", "ashby", "typeform"])
 def test_las_copias_llegan_a_la_pagina_de_gracias_con_un_solo_envio(tmp_path, api, copia):
     datos = ESPERADO["copias"][copia]

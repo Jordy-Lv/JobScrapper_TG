@@ -26,14 +26,15 @@ class Contacto:
     enlaces: tuple[str, ...] = ()
 
 
-def nombre_archivo(nombre: str) -> str:
-    """CV_<Nombre>_<Apellido>.pdf, sin tildes ni caracteres especiales (igual en toda oferta)."""
+def nombre_archivo(nombre: str, prefijo: str = "CV") -> str:
+    """CV_<Nombre>_<Apellido>.pdf, sin tildes ni caracteres especiales (igual en toda oferta).
+    Con otro prefijo («Carta») nombra los demás documentos del mismo modo."""
     ascii_ = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
     partes = [p for p in re.split(r"[^A-Za-z0-9]+", ascii_) if p]
     if not partes:
-        return "CV.pdf"
+        return f"{prefijo}.pdf"
     seleccion = [partes[0]] + ([partes[2]] if len(partes) >= 4 else partes[1:2])
-    return "CV_" + "_".join(p.capitalize() for p in seleccion) + ".pdf"
+    return f"{prefijo}_" + "_".join(p.capitalize() for p in seleccion) + ".pdf"
 
 
 class _Documento(FPDF):
@@ -147,3 +148,26 @@ def generar_pdf(cv: CVFinal, contacto: Contacto) -> bytes:
             proyectos -= 1
         else:
             logros -= 1
+
+
+def generar_pdf_carta(texto: str, contacto: Contacto, cargo: str | None = None) -> bytes:
+    """Carta de presentación de una página: contacto, asunto con el cargo y el texto en párrafos."""
+    doc = _Documento()
+    doc.set_title("Carta de presentación")
+    doc.add_page()
+    doc.set_font("Liberation", "B", 16)
+    doc.cell(0, 8, contacto.nombre, new_x="LMARGIN", new_y="NEXT")
+    datos = [d for d in (contacto.ciudad, contacto.correo, contacto.telefono) if d]
+    if datos:
+        doc.set_text_color(*GRIS)
+        doc.parrafo(" · ".join(datos), tamano=9.5)
+        doc.set_text_color(0, 0, 0)
+    doc.ln(6)
+    if cargo:
+        doc.parrafo(f"Asunto: postulación a {cargo}", "B", 11)
+        doc.ln(3)
+    for parrafo in (p.strip() for p in texto.split("\n\n")):
+        if parrafo:
+            doc.parrafo(" ".join(parrafo.split()), tamano=11)
+            doc.ln(3)
+    return bytes(doc.output())

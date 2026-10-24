@@ -16,8 +16,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from buscador_vacantes.asistente.recetas import clave_campo
+from buscador_vacantes.asistente.recetas import BotonReceta, clave_campo
 from buscador_vacantes.asistente.respuestas import Pregunta
+from buscador_vacantes.comun.normalizar import normalizar_texto
 
 MS_ESPERA = 1500  # pausa que se pide cuando el árbitro decide esperar
 MAX_TEXTO_EXITO = 200
@@ -185,6 +186,8 @@ class Peticion:
     resumen: Resumen
     exito: Exito | None
     correccion: bool
+    # El botón que la receta del sitio pulsó en esta pantalla; las reglas dudan y ella no
+    boton_receta: BotonReceta | None = None
 
     @property
     def pide_archivo(self) -> bool:
@@ -267,6 +270,19 @@ def _por_reglas(peticion: Peticion) -> dict[str, Any] | None:
     return _accion_boton(boton, peticion.sugerido.accion) if boton else None
 
 
+def _por_receta(peticion: Peticion) -> dict[str, Any] | None:
+    """El botón de la receta del sitio, si sigue en la pantalla con el mismo texto. Su clase
+    manda: uno `nunca` o de inicio de sesión con un tercero no se pulsa."""
+    receta = peticion.boton_receta
+    if receta is None or not receta.texto:
+        return None
+    texto = normalizar_texto(receta.texto)
+    boton = next((b for b in peticion.botones if normalizar_texto(b.texto) == texto), None)
+    if boton is None or boton.clase not in ("enviar", "avanzar", "intermedia"):
+        return None  # sin la clase de las reglas, ni una receta decide que un clic envía
+    return _accion_boton(boton, boton.clase)
+
+
 def _por_arbitro(decision: DecisionPagina, peticion: Peticion) -> Decision:
     if decision.clase == "exito":
         texto = " ".join(decision.motivo.split())[:MAX_TEXTO_EXITO] or None
@@ -311,7 +327,7 @@ async def decidir(
         if peticion.pide_archivo:
             decision.cv = resultado.cv
 
-    accion = _por_reglas(peticion)
+    accion = _por_reglas(peticion) or _por_receta(peticion)
     if accion is not None:
         decision.accion = accion
         return decision

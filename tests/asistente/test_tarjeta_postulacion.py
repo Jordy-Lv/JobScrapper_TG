@@ -281,6 +281,20 @@ def pendiente_dato(opciones=("SENA", "ITM")):
             "tipo": "dato"}  # fmt: skip
 
 
+def test_documento_obligatorio_que_falta_ofrece_enviarlo_o_dejar_en_respaldo():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 6, "n": 1, "total": 1})
+    d = datos(pendiente={"id": 6, "tipo": "documento", "opciones": [],
+                         "pregunta": "Please upload your <transcripts>"})  # fmt: skip
+    texto = tp.texto(card, d)
+    assert "Documento necesario" in texto and "Pregunta rápida" not in texto
+    assert "<b>Please upload your &lt;transcripts&gt;</b>" in texto
+    assert "Envíame el PDF" in texto and "déjala en respaldo" in texto
+    assert tp.botones(card, d, cb) == [
+        [(tp.BOTON_ENVIAR_DOCUMENTO, cb("docp", 6))],
+        [(tp.BOTON_DOCUMENTO_RESPALDO, cb("docr", 6))],
+    ]
+
+
 def test_pregunta_de_dato_con_sugerencias_escribir_y_reservado():
     card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 4, "n": 1, "total": 1})
     d = datos(pendiente=pendiente_dato())

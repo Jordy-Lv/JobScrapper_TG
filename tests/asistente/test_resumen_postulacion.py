@@ -53,6 +53,12 @@ def test_tarjeta_confirmada_con_duracion_y_folio():
     assert " · 1 min 15 s" in tarjeta(largo)
 
 
+def test_tarjeta_indica_que_el_revisor_de_ia_ajusto_respuestas():
+    con = DatosResumen(vacante(), "computrabajo", CUANDO, revisadas=2)
+    assert "El revisor de IA ajustó 2 respuesta(s) antes de enviar" in tarjeta(con)
+    assert "revisor" not in tarjeta(DatosResumen(vacante(), "computrabajo", CUANDO))
+
+
 def test_tarjeta_dice_que_uso_un_nivel_menor_por_la_cuota():
     bajada = DatosResumen(vacante(), "computrabajo", CUANDO, nivel_bajado="normal")
     assert "Usé el nivel Normal porque se agotó tu cuota de IA de hoy</blockquote>" in tarjeta(

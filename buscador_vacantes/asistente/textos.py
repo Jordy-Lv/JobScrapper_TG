@@ -19,11 +19,25 @@ AYUDA = (
     "/automatico [umbral] · postular solo a lo que encaja contigo\n"
     "/pausa · pausar o reanudar tus postulaciones\n"
     "/ia nivel · cuánta IA usan tus postulaciones (Ahorro, Normal o Máximo)\n"
+    "/documentos · tu certificado de notas, carta y otros PDF para los formularios\n"
     "/borrarme · borrar todos tus datos"
 )
 
 NOMBRES_NIVEL_IA = {"ahorro": "Ahorro", "normal": "Normal", "maximo": "Máximo"}
+AVISO_RESPUESTAS_REVISADAS = "🔎 El revisor de IA ajustó {n} respuesta(s) antes de enviar"
 AVISO_NIVEL_BAJADO = "Usé el nivel {nivel} porque se agotó tu cuota de IA de hoy"
+
+DOCUMENTOS_VACIO = (
+    "No tienes documentos guardados.\n"
+    "Algunos formularios piden además del CV un certificado de notas, una carta o un "
+    "portafolio. Guárdalos aquí una vez y los adjunto donde corresponda; los guardo cifrados y "
+    "puedes borrarlos cuando quieras."
+)
+DOCUMENTOS_ELEGIR_TIPO = "¿Qué documento vas a guardar?"
+DOCUMENTOS_PEDIR_NOMBRE = "¿Cómo se llama este documento? (por ejemplo «Certificado de inglés»)"
+DOCUMENTOS_PEDIR_PDF = (
+    "Envíame el PDF como archivo (máximo {max_mb:g} MB). Para cancelar usa /documentos."
+)
 
 AYUDA_ADMIN = (
     "\n\n<b>Administración</b>\n/usuarios · /suspender ID · /reactivar ID · /stats · "
@@ -203,6 +217,7 @@ ESTADOS = {
     "incierta": "❔ Sin confirmación: verifícala en el portal",
     "fallida": "❌ El portal rechazó el envío",
     "respaldo": "📋 Paquete para postular a mano",
+    "ensayada": "🧪 Ensayada: no se envió nada",
     "cancelada": "🚫 Cancelada",
     "completado": "✅ Perfil completado",
 }

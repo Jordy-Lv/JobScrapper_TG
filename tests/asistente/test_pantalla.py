@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 pytest.importorskip("pypdf", reason="requiere uv sync --group asistente")
@@ -12,8 +14,10 @@ from buscador_vacantes.asistente.pantalla import (  # noqa: E402
     Reparacion,
     Resumen,
     acciones_validas,
+    decidir,
     texto_consulta,
 )
+from buscador_vacantes.asistente.recetas import BotonReceta  # noqa: E402
 from buscador_vacantes.asistente.respuestas import Pregunta  # noqa: E402
 
 BOTONES = [Boton(indice=0, texto="Compartir"), Boton(indice=1, texto="Quick apply", clase="enviar")]
@@ -145,3 +149,40 @@ def test_texto_de_la_consulta_trae_la_pagina_y_nunca_la_consulta_de_la_url():
 def test_acciones_ya_construidas_se_conservan():
     d = DecisionPagina(clase="intermedia", acciones=[AccionPagina(accion="avanzar", indice=1)])
     assert [(a.accion, a.indice) for a in d.acciones] == [("avanzar", 1)]
+
+
+# --- el botón de la receta cuando las reglas dudan ---------------------------------------------
+
+
+def peticion_con_receta(botones, receta_boton):
+    return Peticion(
+        "formulario", None, "en", "https://empresa.co/apply", [], botones, None, RESUMEN, None,
+        False, receta_boton,
+    )  # fmt: skip
+
+
+def decidir_sin_ia(peticion):
+    async def resolver(preguntas):
+        raise AssertionError("no hay campos que resolver")
+
+    async def arbitrar(consulta):
+        raise AssertionError("la receta decide: no se consulta al árbitro")
+
+    return asyncio.run(decidir(peticion, resolver, arbitrar))
+
+
+def test_la_receta_elige_el_boton_cuando_las_reglas_no_sugieren_ninguno():
+    botones = [Boton(indice=0, texto="Back", clase="avanzar"),
+               Boton(indice=1, texto="Submit application", clase="enviar")]  # fmt: skip
+    d = decidir_sin_ia(peticion_con_receta(botones, BotonReceta(texto="submit  Application")))
+    assert d.accion == {"tipo": "enviar", "indice": 1}
+
+
+def test_la_receta_no_pulsa_un_boton_sin_clase_ni_uno_prohibido():
+    sin_clase = [Boton(indice=0, texto="Submit application")]
+    prohibido = [Boton(indice=0, texto="Submit application", clase="nunca")]
+    otro_texto = [Boton(indice=0, texto="Enviar solicitud", clase="enviar")]
+    for botones in (sin_clase, prohibido, otro_texto):
+        peticion = peticion_con_receta(botones, BotonReceta(texto="Submit application"))
+        with pytest.raises(AssertionError, match="árbitro"):  # sigue el camino de siempre
+            decidir_sin_ia(peticion)

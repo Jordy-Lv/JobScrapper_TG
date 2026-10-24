@@ -45,6 +45,8 @@ SEGUIMIENTO_RESPALDO = (("postulada", "Ya me postulé"), ("descartada", "No me i
 BOTON_GUIA = "Generar guía para entrevista"
 BOTON_ESCRIBIR = "✍️ Escribir yo"
 BOTON_RESERVADO = "Prefiero no decirlo"
+BOTON_ENVIAR_DOCUMENTO = "📎 Enviar documento"
+BOTON_DOCUMENTO_RESPALDO = "Dejar en respaldo"
 
 Botones = list[list[tuple[str, str]]]
 Cb = Callable[..., str]
@@ -114,6 +116,13 @@ def _pregunta(card: Card, d: Datos) -> list[str]:
     if (avance.get("total") or 0) > 1:
         titulo += f" ({avance.get('n', 1)} de {avance['total']})"
     pendiente = d.pendiente or {}
+    if pendiente.get("tipo") == "documento":
+        return [
+            "Documento necesario",
+            f"<b>{t.e(pendiente.get('pregunta'))}</b>",
+            "El formulario lo pide y no lo tengo guardado. Envíame el PDF aquí en el chat, o "
+            "déjala en respaldo y la completas tú.",
+        ]
     lineas = [titulo, f"<b>{t.e(pendiente.get('pregunta'))}</b>"]
     if not pendiente.get("opciones") or avance.get("escribir"):
         lineas.append("Escribe tu respuesta.")
@@ -318,6 +327,11 @@ def _botones_pregunta(card: Card, d: Datos, cb: Cb) -> Botones:
     """Formulario: una opción del portal por fila. Dato: las sugerencias del redactor, «✍️
     Escribir yo» (solo si hay sugerencias) y «Prefiero no decirlo»."""
     pendiente = d.pendiente or {}
+    if pendiente.get("tipo") == "documento":
+        return [
+            [(BOTON_ENVIAR_DOCUMENTO, cb("docp", pendiente["id"]))],
+            [(BOTON_DOCUMENTO_RESPALDO, cb("docr", pendiente["id"]))],
+        ]
     opciones = pendiente.get("opciones", [])[:8]
     if pendiente.get("tipo") != "dato":
         return [[(opcion, cb("pend", pendiente["id"], n))] for n, opcion in enumerate(opciones)]

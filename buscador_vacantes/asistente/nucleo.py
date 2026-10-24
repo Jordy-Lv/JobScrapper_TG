@@ -15,17 +15,25 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from buscador_vacantes.asistente.afinidad import Afinidad, calcular_afinidad, obtener_requisitos
-from buscador_vacantes.asistente.api import ResultadoFormulario
+from buscador_vacantes.asistente.api import Campo, PaqueteDocumentos, ResultadoFormulario
 from buscador_vacantes.asistente.campos import RESERVADO, DatosUsuario, es_guardable
 from buscador_vacantes.asistente.cifrado import Cifrador, ClaveInvalida
 from buscador_vacantes.asistente.cola import ESPERANDO, Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal
-from buscador_vacantes.asistente.cv_adaptado import adaptar, cv_base
+from buscador_vacantes.asistente.cv_adaptado import adaptar, cv_base, redactar_carta
 from buscador_vacantes.asistente.cv_lectura import PerfilExtraido
-from buscador_vacantes.asistente.cv_pdf import Contacto, generar_pdf, nombre_archivo
+from buscador_vacantes.asistente.cv_pdf import (
+    Contacto,
+    generar_pdf,
+    generar_pdf_carta,
+    nombre_archivo,
+)
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina
+from buscador_vacantes.asistente.documentos import Documentos
 from buscador_vacantes.asistente.espera import Causa, Entrada, NavegadorLatido, causa
 from buscador_vacantes.asistente.ia import ClaveInvalida as ClaveIAInvalida
 from buscador_vacantes.asistente.ia import (
@@ -50,6 +58,7 @@ from buscador_vacantes.asistente.preferencias import Preferencias
 from buscador_vacantes.asistente.recetas import (
     aplicar_parches,
     barrera_de,
+    clave_campo,
     host_de,
     parches_aplicables,
 )
@@ -66,6 +75,8 @@ from buscador_vacantes.asistente.respuestas import (
     recortar_a_limite,
     redactar_formulario,
     resolver,
+    revisar_formulario,
+    tipo_archivo,
 )
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuario, Usuarios
 from buscador_vacantes.asistente.vacantes import Indice, VacanteIndexada
@@ -85,6 +96,10 @@ class Camino(StrEnum):
     NO_DISPONIBLE = "no_disponible"
     YA_EXISTE = "ya_existe"
     EN_CUENTA = "en_cuenta"  # la cuenta regresiva corre: aún no se encoló nada
+
+
+# Nombre de archivo (prefijo) con que se entrega cada tipo de documento a la extensión
+NOMBRES_DE_ARCHIVO = {"certificado_notas": "Notas", "carta": "Carta", "portafolio": "Portafolio"}
 
 
 @dataclass
@@ -125,6 +140,7 @@ class Nucleo:
         self.cuentas = CuentasPortal(base, cifrador)
         self.preferencias = Preferencias(base)
         self.usuarios = Usuarios(base, archivos)
+        self.documentos = Documentos(base, cifrador, self.usuarios)
         self.notificador: Callable[[Evento | dict], Awaitable[None]] | None = None
 
     def ahora(self) -> datetime:
@@ -350,6 +366,16 @@ class Nucleo:
             postulacion.usuario_id, postulacion.nivel_ia, self.ahora()
         )
 
+    def en_ensayo(self, postulacion: Postulacion) -> bool:
+        """Si la postulación se ensaya (llena todo y se detiene antes de enviar): el usuario lo
+        pidió o su plataforma está en ensayo. «Enviar de verdad» la exime."""
+        if postulacion.forzar_real or postulacion.tipo != Tipo.POSTULAR:
+            return False
+        if self.preferencias.ensayo_usuario(postulacion.usuario_id):
+            return True
+        plataformas = self.preferencias.plataformas_en_ensayo(self.config.ensayo.plataformas)
+        return postulacion.plataforma in plataformas
+
     async def _ia(self, usuario_id: int) -> tuple[ClienteIA | None, str | None]:
         clave = self.clave_gemini(usuario_id)
         return (self.cliente_ia(usuario_id), clave) if clave else (None, None)
@@ -386,6 +412,57 @@ class Nucleo:
             )
         return afinidad, archivo, parcial
 
+    # --- esquema anticipado --------------------------------------------------------------
+
+    @staticmethod
+    def esquema_de(vacante: VacanteIndexada | None) -> list[Pregunta]:
+        """Las preguntas del formulario que un lector leyó de la vacante antes de abrir la
+        página; los campos mal formados se ignoran."""
+        preguntas = []
+        for crudo in (vacante.esquema if vacante else None) or []:
+            try:
+                c = Campo.model_validate(crudo)
+            except ValidationError:
+                continue
+            preguntas.append(
+                Pregunta(c.texto, c.tipo, c.opciones, c.obligatoria, c.nombre, c.maximo, c.ayuda,
+                         c.autocomplete, c.accept, c.idioma, c.busqueda)
+            )  # fmt: skip
+        return preguntas
+
+    async def anticipar_esquema(
+        self, postulacion: Postulacion, vacante: VacanteIndexada | None
+    ) -> bool:
+        """Resuelve de una vez, con el redactor, todo el formulario que la vacante ya trae leído.
+        True si quedó resuelto; False si falta algo del usuario (su pregunta queda en la card, o
+        la revisión de lo redactado) y la postulación sigue esperando. Sin esquema, True."""
+        preguntas = self.esquema_de(vacante)
+        if not preguntas:
+            return True
+        resultado = await self.resolver_formulario(postulacion, preguntas)
+        return not (resultado.faltan or resultado.revisar)
+
+    def esquema_resuelto(self, postulacion: Postulacion) -> dict[str, str]:
+        """Lo ya respondido del formulario anticipado, por la clave del campo (la misma de la
+        firma de una pantalla), para que la extensión no consulte por esos campos."""
+        vacante = self.indice.obtener(postulacion.id_corto) if postulacion.id_corto else None
+        respuestas = {
+            f["pregunta_norm"]: f["respuesta"]
+            for f in self.base.cx.execute(
+                "SELECT pregunta_norm, respuesta FROM respuestas WHERE postulacion_id = ? "
+                "AND respuesta IS NOT NULL",
+                (postulacion.id,),
+            )
+        }
+        resuelto = {}
+        for p in self.esquema_de(vacante):
+            norma = normalizar_pregunta(p.texto)
+            # Lo redactado o resuelto, o lo que el usuario contestó en la card después
+            valor = respuestas.get(norma) or aprendida(self.base, postulacion.usuario_id, norma)
+            if p.tipo != "archivo" and valor and valor != RESERVADO:
+                resuelto[clave_campo(p.nombre, p.texto)] = valor
+        return resuelto
+
     # --- formulario (lo pide la extensión) ----------------------------------------------
 
     async def resolver_formulario(
@@ -398,11 +475,18 @@ class Nucleo:
         vacante = self.indice.obtener(postulacion.id_corto) if postulacion.id_corto else None
         cliente, clave = await self._ia(usuario.id)
         nivel = self.nivel_de(postulacion)
-        ctx = Contexto(self.base, usuario.id, datos, self.ahora(), cliente, clave,
-                       vacante.resumen if vacante else "",
-                       postulacion.plataforma, detectar_idioma(preguntas),
-                       nivel, getattr(self.config.niveles_ia, nivel).clasificar_preguntas
-                       )  # fmt: skip
+        preset = getattr(self.config.niveles_ia, nivel)
+        ctx = Contexto(
+            self.base, usuario.id, datos, self.ahora(), cliente, clave,
+            vacante.resumen if vacante else "",
+            postulacion.plataforma, detectar_idioma(preguntas),
+            requisitos_en_redactor=preset.requisitos_en_redactor,
+            ejemplos_estilo=preset.ejemplos_estilo,
+            doble_redaccion=preset.doble_redaccion,
+            revisor_final=preset.revisor_final,
+            requisitos=self._requisitos_de(postulacion) if preset.requisitos_en_redactor else [],
+            nivel=nivel, clasificar_preguntas=preset.clasificar_preguntas,
+        )  # fmt: skip
         resultado = ResultadoFormulario()
         previas = self._redacciones_previas(postulacion.id)
         estados: dict[str, str] = {}  # pregunta normalizada → estado de la redacción reutilizada
@@ -430,6 +514,10 @@ class Nucleo:
             resueltas.append(respuesta)
         # Fase 2: una sola llamada para todas las preguntas abiertas que faltan
         resueltas += await self._redactar(por_redactar, ctx)
+        if ctx.revisadas:
+            with self.base.transaccion() as cx:
+                self.cola.paso(cx, postulacion.id, "respuestas_revisadas", self.ahora(),
+                               detalle=str(ctx.revisadas))  # fmt: skip
         for respuesta in resueltas:
             if respuesta.falta:
                 if respuesta.pregunta.obligatoria:
@@ -515,6 +603,146 @@ class Nucleo:
                 return None
         return None
 
+    async def documentos_pantalla(
+        self, postulacion: Postulacion, preguntas: list[Pregunta]
+    ) -> PaqueteDocumentos:
+        """Los documentos, además del CV, que piden los campos de archivo de la pantalla.
+
+        Cada campo recibe el documento del usuario cuyo tipo corresponde a su etiqueta. La carta
+        sin documento guardado se redacta para esta vacante: la obligatoria siempre, la opcional
+        solo en los niveles con `carta_opcional` (Máximo). Un campo opcional sin documento queda
+        vacío; uno obligatorio sin documento se le pide al usuario en su card (pendiente de tipo
+        «documento») y la postulación espera.
+        """
+        paquete = PaqueteDocumentos()
+        usuario = self.usuarios.por_id(postulacion.usuario_id)
+        datos = self.datos_usuario(postulacion.usuario_id)
+        if usuario is None or datos is None:
+            return paquete
+        nivel = self.nivel_de(postulacion)
+        carta_opcional = getattr(self.config.niveles_ia, nivel).carta_opcional
+        contacto = self.contacto(datos)
+        for pregunta in preguntas:
+            tipo = tipo_archivo(pregunta) if pregunta.tipo == "archivo" else "cv"
+            if tipo == "cv" or tipo in paquete.documentos:
+                continue
+            guardado = self.documentos.por_tipo(usuario.id, tipo)
+            if guardado is not None:  # el del usuario manda sobre cualquier redacción
+                nombre = nombre_archivo(contacto.nombre, NOMBRES_DE_ARCHIVO[tipo])
+                paquete.documentos[tipo] = (nombre, self.documentos.leer(guardado))
+            elif tipo == "carta" and (pregunta.obligatoria or carta_opcional):
+                carta = await self._carta_para(postulacion, usuario, datos, contacto, nivel)
+                if carta is not None:
+                    paquete.documentos[tipo] = carta
+                elif pregunta.obligatoria:
+                    paquete.faltan.append(pregunta)
+            elif pregunta.obligatoria:
+                paquete.faltan.append(pregunta)
+        if paquete.faltan:
+            self._crear_pendientes_documento(usuario.id, postulacion.id, paquete.faltan)
+            await self.notificar({"tipo": "preguntas_pendientes", "usuario_id": usuario.id,
+                                  "postulacion_id": postulacion.id})  # fmt: skip
+        return paquete
+
+    async def _carta_para(
+        self, postulacion: Postulacion, usuario: Usuario, datos: DatosUsuario,
+        contacto: Contacto, nivel: str,
+    ) -> tuple[str, bytes] | None:  # fmt: skip
+        """La carta de presentación redactada para la vacante de la postulación, en PDF."""
+        vacante = self.indice.obtener(postulacion.id_corto) if postulacion.id_corto else None
+        if vacante is None:
+            return None
+        nombre = nombre_archivo(contacto.nombre, "Carta")
+        archivo = self._carpeta_postulacion(usuario, postulacion.id) / nombre
+        if not archivo.is_file():  # una por postulación: otra pantalla con el campo la reutiliza
+            cliente, clave = await self._ia(usuario.id)
+            try:
+                texto = await redactar_carta(
+                    datos, cv_base(datos.perfil), vacante.titulo or "la vacante", vacante.resumen,
+                    self.config.carta_max_caracteres, cliente=cliente, clave=clave,
+                    usuario_id=usuario.id, nivel=nivel,
+                )  # fmt: skip
+            except ClaveIAInvalida:
+                self.marcar_clave_invalida(usuario.id)
+                texto = await redactar_carta(
+                    datos, cv_base(datos.perfil), vacante.titulo or "la vacante", vacante.resumen,
+                    self.config.carta_max_caracteres, cliente=None, clave=None,
+                    usuario_id=usuario.id,
+                )  # fmt: skip
+            archivo.write_bytes(generar_pdf_carta(texto, contacto, vacante.titulo))
+        return nombre, archivo.read_bytes()
+
+    def _crear_pendientes_documento(
+        self, usuario_id: int, pid: int, faltan: list[Pregunta]
+    ) -> None:
+        """Una pregunta pendiente por documento obligatorio que no hay (tipo «documento», con el
+        tipo de documento en `campo`); no se repite una que ya espera respuesta."""
+        with self.base.transaccion() as cx:
+            for pregunta in faltan:
+                norma = normalizar_pregunta(pregunta.texto)
+                ya = cx.execute(
+                    "SELECT 1 FROM pendientes_usuario WHERE postulacion_id = ? "
+                    "AND pregunta_norm = ? AND respondida_en IS NULL",
+                    (pid, norma),
+                ).fetchone()
+                if ya:
+                    continue
+                cx.execute(
+                    "INSERT INTO pendientes_usuario(usuario_id, postulacion_id, pregunta, "
+                    "pregunta_norm, opciones_json, campo, tipo, creada) "
+                    "VALUES (?, ?, ?, ?, '[]', ?, 'documento', ?)",
+                    (usuario_id, pid, pregunta.texto, norma, tipo_archivo(pregunta),
+                     a_texto(self.ahora())),
+                )  # fmt: skip
+
+    def documento_recibido(self, usuario_id: int, pendiente_id: int) -> bool:
+        """El usuario guardó el documento que pedía una pendiente: se da por respondida y, si no
+        quedan más en esa postulación, vuelve a la cola. True si se reencoló."""
+        fila = self.base.cx.execute(
+            "SELECT postulacion_id FROM pendientes_usuario WHERE id = ? AND usuario_id = ? "
+            "AND tipo = 'documento' AND respondida_en IS NULL",
+            (pendiente_id, usuario_id),
+        ).fetchone()
+        if fila is None:
+            return False
+        pid = fila["postulacion_id"]
+        ahora = self.ahora()
+        with self.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE pendientes_usuario SET respondida_en = ?, respuesta = 'documento' "
+                "WHERE id = ?",
+                (a_texto(ahora), pendiente_id),
+            )
+        restantes = self.base.cx.execute(
+            "SELECT COUNT(*) FROM pendientes_usuario WHERE postulacion_id = ? "
+            "AND respondida_en IS NULL",
+            (pid,),
+        ).fetchone()[0]
+        return restantes == 0 and self.cola.reanudar(pid, ahora, (E.ESPERANDO_USUARIO,))
+
+    def documento_a_respaldo(self, usuario_id: int, pendiente_id: int) -> int | None:
+        """El usuario prefiere dejar la vacante en el respaldo en vez de enviar el documento:
+        la postulación termina con el motivo `documento_faltante` y sus preguntas se cierran.
+        Devuelve el id de la postulación, o None si ya no aplica."""
+        fila = self.base.cx.execute(
+            "SELECT postulacion_id FROM pendientes_usuario WHERE id = ? AND usuario_id = ? "
+            "AND tipo = 'documento' AND respondida_en IS NULL",
+            (pendiente_id, usuario_id),
+        ).fetchone()
+        if fila is None or fila["postulacion_id"] is None:
+            return None
+        pid = fila["postulacion_id"]
+        ahora = self.ahora()
+        with self.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE pendientes_usuario SET respondida_en = ? WHERE postulacion_id = ? "
+                "AND respondida_en IS NULL",
+                (a_texto(ahora), pid),
+            )
+        if not self.cola.a_respaldo(pid, ahora, "documento_faltante", (E.ESPERANDO_USUARIO,)):
+            return None
+        return pid
+
     def cv_base_de(self, usuario: Usuario, datos: DatosUsuario) -> Path:
         contacto = self.contacto(datos)
         archivo = self.usuarios.directorio(usuario) / nombre_archivo(contacto.nombre)
@@ -531,6 +759,11 @@ class Nucleo:
             redactadas = None
         if redactadas is None:
             return [Respuesta(p, falta=True) for p in preguntas]
+        if ctx.revisor_final:
+            try:
+                ctx.revisadas += await revisar_formulario(preguntas, redactadas, ctx)
+            except ClaveIAInvalida:
+                self.marcar_clave_invalida(ctx.usuario_id)
         resultado = []
         for i, pregunta in enumerate(preguntas):
             r = redactadas.get(i)
@@ -554,6 +787,23 @@ class Nucleo:
             else:
                 resultado.append(Respuesta(pregunta, falta=True))
         return resultado
+
+    def _requisitos_de(self, postulacion: Postulacion) -> list[str]:
+        """Lo que pide la vacante, ya extraído (en `preparar`), para el redactor de Máximo."""
+        if not postulacion.id_corto:
+            return []
+        fila = self.base.cx.execute(
+            "SELECT requisitos_json FROM vacantes WHERE id_corto = ?", (postulacion.id_corto,)
+        ).fetchone()
+        if not fila or not fila["requisitos_json"]:
+            return []
+        try:
+            requisitos = json.loads(fila["requisitos_json"]).get("requisitos") or {}
+        except ValueError:
+            return []
+        return [f"{r} (obligatorio)" for r in requisitos.get("obligatorios", [])] + [
+            f"{r} (deseable)" for r in requisitos.get("deseables", [])
+        ]
 
     @staticmethod
     def _reutilizar(pregunta: Pregunta, previa: dict) -> Respuesta | None:

@@ -44,7 +44,8 @@ def test_elempleo_postula_sola_tras_su_piloto():
     asistente = cargar_configuracion().asistente
     assert asistente.plataformas["elempleo"].automatica is True
     assert "Computrabajo, Magneto y elempleo" in asistente.politica.texto
-    assert asistente.politica.version == 2
+    assert asistente.politica.version == 3
+    assert "documentos PDF que decidas guardar" in asistente.politica.texto
 
 
 def test_falta_un_nombre():

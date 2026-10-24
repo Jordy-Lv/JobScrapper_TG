@@ -15,6 +15,7 @@ from buscador_vacantes.asistente import vinculos  # noqa: E402
 from buscador_vacantes.asistente.api import (  # noqa: E402
     LIMITE_PING_POR_MINUTO,
     MAX_CUERPO,
+    PaqueteDocumentos,
     ResultadoFormulario,
     crear_app,
     sin_valores,
@@ -30,7 +31,7 @@ from buscador_vacantes.asistente.pantalla import (  # noqa: E402
     Reparacion,
 )
 from buscador_vacantes.asistente.preferencias import Preferencias  # noqa: E402
-from buscador_vacantes.asistente.respuestas import Origen, Respuesta  # noqa: E402
+from buscador_vacantes.asistente.respuestas import Origen, Pregunta, Respuesta  # noqa: E402
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
 from buscador_vacantes.comun.estado import a_texto  # noqa: E402
 
@@ -57,6 +58,10 @@ class NucleoFalso:
         self.consultas: list = []
         self.reparador = None  # función ConsultaReparacion → Reparacion; None: «sin IA»
         self.reparaciones: list = []
+        self.ensayo = False  # lo que devuelve en_ensayo
+        self.resuelto: dict = {}  # lo que devuelve esquema_resuelto
+        self.paquete_documentos = PaqueteDocumentos()  # lo que devuelve documentos_pantalla
+        self.documentos_pedidos: list = []
         self.demora_resolver: timedelta | None = None
         self.eventos_vigilar: list = []
         self.cv = tmp_path / "CV_Ana_Perez.pdf"
@@ -108,6 +113,16 @@ class NucleoFalso:
     async def reparar_pantalla(self, postulacion, consulta):
         self.reparaciones.append(consulta)
         return self.reparador(consulta) if self.reparador else None
+
+    def en_ensayo(self, postulacion):
+        return self.ensayo
+
+    def esquema_resuelto(self, postulacion):
+        return self.resuelto
+
+    async def documentos_pantalla(self, postulacion, preguntas):
+        self.documentos_pedidos.append(preguntas)
+        return self.paquete_documentos
 
     async def notificar(self, evento):
         self.eventos.append(evento)
@@ -607,6 +622,99 @@ def test_pantalla_tope_de_llamadas_al_arbitro_por_postulacion(entorno):
     assert acciones[:2] == [{"tipo": "avanzar", "indice": 0}] * 2
     assert acciones[2] == {"tipo": "respaldo", "motivo": "tope_arbitro"}
     assert len(nucleo.consultas) == 2
+
+
+def test_pantalla_publica_los_documentos_y_la_extension_los_baja_una_sola_vez(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.paquete_documentos = PaqueteDocumentos(
+        {"carta": ("Carta_Ana_Perez.pdf", b"%PDF-1.4 carta")}
+    )
+    cuerpo = pantalla(
+        campos=[{"texto": "Resume", "tipo": "archivo"},
+                {"texto": "Cover letter", "tipo": "archivo", "obligatoria": False}],
+        botones=[boton(0, "Submit application", "enviar")],
+        sugerido={"indice": 0, "accion": "enviar"},
+    )  # fmt: skip
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert d["documentos"]["carta"]["nombre"] == "Carta_Ana_Perez.pdf"
+    bajada = cliente.get(d["documentos"]["carta"]["url"], headers=cab)
+    assert bajada.status_code == 200 and bajada.content == b"%PDF-1.4 carta"
+    assert "Carta_Ana_Perez.pdf" in bajada.headers["content-disposition"]
+    assert cliente.get(d["documentos"]["carta"]["url"], headers=cab).status_code == 404
+    assert [q.texto for q in nucleo.documentos_pedidos[0]] == ["Resume", "Cover letter"]
+
+
+def test_pantalla_con_un_documento_obligatorio_que_falta_espera_al_usuario(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    nucleo.paquete_documentos = PaqueteDocumentos(faltan=[Pregunta("Transcript", "archivo")])
+    cuerpo = pantalla(
+        campos=[{"texto": "Transcript", "tipo": "archivo"}],
+        botones=[boton(0, "Submit application", "enviar")],
+        sugerido={"indice": 0, "accion": "enviar"},
+    )  # fmt: skip
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert d == {"esperar_usuario": True}
+    assert nucleo.cola.obtener(p.id).estado == E.ESPERANDO_USUARIO
+
+
+def test_pantalla_sin_campos_de_archivo_no_pide_documentos(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    cuerpo = pantalla(botones=[boton(0, "Submit application", "enviar")],
+                      sugerido={"indice": 0, "accion": "enviar"})  # fmt: skip
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert d["documentos"] == {} and nucleo.documentos_pedidos == []
+
+
+def guardar_receta_de_prueba(nucleo, p, cuerpo, boton_texto):
+    """Receta del host de la vacante con el mapeo de los campos de `cuerpo`."""
+    from buscador_vacantes.asistente import recetas
+
+    mapeo = {recetas.clave_campo(c.get("nombre"), c["texto"]): "salario" for c in cuerpo["campos"]}
+    receta = recetas.Receta(
+        pantallas=[recetas.PantallaReceta(
+            firma=sorted(mapeo), mapeo=mapeo,
+            boton=recetas.BotonReceta(texto=boton_texto, clase="enviar"),
+        )], senal="texto",
+    )  # fmt: skip
+    receta_id = recetas.guardar_receta(
+        nucleo.base, host="co.computrabajo.com", ruta="/ofertas-de-trabajo/*", familia="x",
+        receta=receta, origen="real", ahora=T0, enviada=True,
+    )  # fmt: skip
+    with nucleo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET receta_id = ? WHERE id = ?", (receta_id, p.id))
+
+
+def test_pantalla_con_receta_pasa_el_campo_conocido_y_decide_el_boton_sin_arbitro(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    cuerpo = pantalla(
+        campos=[{"texto": "Pretensión mensual", "nombre": "question_9"}],
+        botones=[boton(0, "Back", "avanzar"), boton(1, "Submit application", "enviar")],
+    )  # fmt: skip
+    guardar_receta_de_prueba(nucleo, p, cuerpo, "Submit application")
+    nucleo.arbitro = arbitro_con("intermedia", ("avanzar", 0))  # no debe consultarse
+    d = decidir(cliente, p, cab, cuerpo).json()
+    assert d["accion"] == {"tipo": "enviar", "indice": 1}
+    assert [q.campo_receta for q in nucleo.preguntas] == ["salario"]
+    assert nucleo.consultas == []
+
+
+def test_pantalla_con_receta_de_otra_forma_no_la_aplica(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    antes = pantalla(campos=[{"texto": "Pretensión mensual", "nombre": "question_9"}],
+                     botones=[boton(1, "Submit application", "enviar")])  # fmt: skip
+    guardar_receta_de_prueba(nucleo, p, antes, "Submit application")
+    ahora = pantalla(campos=[{"texto": "Ciudad", "nombre": "city"},
+                             {"texto": "País", "nombre": "country"}],
+                     botones=[boton(1, "Submit application", "enviar")])  # fmt: skip
+    nucleo.arbitro = arbitro_con("intermedia", ("avanzar", 1))
+    d = decidir(cliente, p, cab, ahora).json()
+    assert [q.campo_receta for q in nucleo.preguntas] == [None, None]
+    assert len(nucleo.consultas) == 1 and d["accion"] == {"tipo": "enviar", "indice": 1}
 
 
 def test_pantalla_en_ahorro_no_consulta_al_arbitro_y_va_a_respaldo_nivel_ahorro(entorno):
@@ -1291,6 +1399,19 @@ def test_el_trabajo_lleva_la_receta_del_host_y_el_resultado_la_refuerza(entorno)
     cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
     assert terminar(cliente, p, cab).status_code == 200
     assert nucleo.base.cx.execute("SELECT exitos FROM recetas").fetchone()[0] == 2
+
+
+def test_el_trabajo_lleva_el_esquema_resuelto_de_antemano(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    nucleo.cola.encolar(1, "abc", CT, T0)
+    assert "esquema" not in latido(cliente, cab)["trabajo"]  # sin esquema, el trabajo de siempre
+    nucleo.resuelto = {"ciudad": "Bogotá", "years of experience": "1-2 years"}
+    trabajo = latido(cliente, cab)["trabajo"]
+    assert trabajo["esquema"] == {"respuestas": nucleo.resuelto}
+    nucleo.config.motor_generico.activo = False  # con el motor apagado la extensión no lo usa
+    assert "esquema" not in latido(cliente, cab)["trabajo"]
 
 
 def test_dos_fallos_seguidos_apagan_la_receta_y_avisan(entorno):

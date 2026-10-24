@@ -328,6 +328,19 @@ async function enPestana(tabId, func, ...args) {
 
 // --- ejecución de un trabajo ----------------------------------------------------------------
 
+// Modo ensayo: el trabajo llena y avanza como siempre y se detiene justo antes de registrar el
+// envío. `pantalla` es la última que se leyó (o el paso declarado), para decir dónde se trabaría.
+let ensayoEnCurso = null;
+const SIN_TRABA = ["enviada", "ensayada", "ya_postulada", "vacante_cerrada", "esperando_sesion",
+  "cuenta_distinta", "completado"];
+
+async function ensayada(contexto, boton) {
+  const { id } = contexto.trabajo;
+  await reportar(id, "ensayo_boton", boton);
+  await terminar(id, "ensayada", { motivo: `boton:${String(boton).slice(0, 100)}` });
+  return { fin: true };
+}
+
 async function ejecutar(trabajo) {
   const { id, plataforma, tipo } = trabajo;
   const sel = await selectores(plataforma);
@@ -354,6 +367,7 @@ async function ejecutar(trabajo) {
   }
   let cerrar = true;
   const contexto = { trabajo, sel, cv: null, cv_nombre: null, inicio: Date.now(), envio: false };
+  ensayoEnCurso = trabajo.ensayo ? { id, pantalla: 0 } : null;
   try {
     await reportar(id, "abrir", trabajo.titulo || url);
     if (generico) {
@@ -369,6 +383,7 @@ async function ejecutar(trabajo) {
         return;
       }
       await inyectar(pestana.id, plataforma);
+      if (ensayoEnCurso) ensayoEnCurso.pantalla = i + 1;
       const r = await ejecutarPaso(pestana.id, paso, contexto);
       if (r.fin) {
         cerrar = r.cerrar !== false;
@@ -379,6 +394,7 @@ async function ejecutar(trabajo) {
   } catch (error) {
     await terminar(id, "fallida", { motivo: String(error.message || error).slice(0, 400) });
   } finally {
+    ensayoEnCurso = null;
     await guardarEstado({ trabajo_actual: null });
     if (cerrar) await cerrarPestana(pestana);
   }
@@ -415,6 +431,20 @@ async function ejecutarPaso(tabId, paso, contexto) {
       await navegar(tabId, destino);
       await inyectar(tabId, plataforma);
     }
+  }
+  if (trabajo.ensayo && (paso.accion === "enviar" || paso.envia)) {
+    // Ensayo: se comprueba que el botón de enviar existe (y la sesión) y no se pulsa
+    const r = await correrSeguro(
+      tabId, { ...paso, accion: "esperar", opcional: false, navega: false }, plataforma, correr);
+    if (r && r.sin_sesion) {
+      await terminar(id, "esperando_sesion", { motivo: "no hay sesión iniciada en el portal" });
+      return { fin: true };
+    }
+    if (!r || r.error) {
+      return fallarPaso(tabId, contexto, (r && r.error) || "formulario_desconocido",
+        { motivo: (r && r.motivo) || "no apareció el botón de enviar", html: r && r.html });
+    }
+    return ensayada(contexto, paso.nombre || paso.accion);
   }
   if (paso.accion === "enviar" || paso.envia) {
     // El servidor registra envio_pulsado antes del clic: si el navegador se cierra justo
@@ -699,6 +729,52 @@ async function bucleGenerico(tabId, contexto) {
   }
 }
 
+// --- esquema anticipado --------------------------------------------------------------------
+// Si el trabajo trae las respuestas del formulario (el servidor las resolvió al tocar ⚡), una
+// pantalla cuyos campos están todos ahí se llena sin consultar al servidor, con el botón que
+// sugieren las reglas. Cualquier campo que no esté, un archivo o la falta de botón sugerido
+// mandan la pantalla al servidor, como siempre.
+
+function normalizarClave(texto) {
+  return String(texto || "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// La misma clave que arma el servidor (recetas.clave_campo): el name o la etiqueta sin signos
+function claveCampo(campo) {
+  const nombre = normalizarClave(campo.nombre);
+  const clave = nombre || normalizarClave(campo.texto).replace(/[^a-z0-9]+/g, " ");
+  return clave.trim().slice(0, 120);
+}
+
+function decisionAnticipada(trabajo, p) {
+  const resueltas = ((trabajo.esquema || {}).respuestas) || {};
+  const campos = p.campos || [];
+  if (p.clase !== "formulario" || !p.sugerido || !campos.length) return null;
+  if (!["avanzar", "enviar"].includes(p.sugerido.accion)) return null;
+  const respuestas = [];
+  for (const [indice, campo] of campos.entries()) {
+    const texto = campo.tipo === "archivo" ? null : resueltas[claveCampo(campo)];
+    if (!texto) return null;
+    const opciones = campo.opciones || [];
+    if (!opciones.length) {
+      respuestas.push({ indice, valor: texto });
+      continue;
+    }
+    const opcion = opciones.findIndex((o) => normalizarClave(o) === normalizarClave(texto));
+    if (opcion < 0) return null;
+    respuestas.push({ indice, opcion });
+  }
+  return {
+    esperar_usuario: false, anticipada: true, respuestas, cv_url: null, cv_nombre: null,
+    documentos: {}, accion: { tipo: p.sugerido.accion, indice: p.sugerido.indice },
+  };
+}
+
 async function recorrerPantallas(tabId, contexto) {
   const { trabajo } = contexto;
   const { id, plataforma } = trabajo;
@@ -727,6 +803,7 @@ async function recorrerPantallas(tabId, contexto) {
     marco = { tabId, frameId: lectura.frameId, plataforma };
     const p = lectura.pantalla;
     e.pantallas += 1;
+    if (ensayoEnCurso) ensayoEnCurso.pantalla = e.pantallas;
     e.max_campos = Math.max(e.max_campos, p.campos.length);
     const clave = `${p.clase}|${p.url}|${p.firma.join(",")}`;
     e.iguales = clave === e.clave ? e.iguales + 1 : 1;
@@ -760,16 +837,18 @@ async function recorrerPantallas(tabId, contexto) {
       return detener(`la misma pantalla se repitió ${REPETICIONES_MAX} veces`, await evidencia(marco));
     }
 
-    let decision;
-    try {
-      decision = await llamar("POST", `/postulaciones/${id}/pantalla`, {
-        numero: e.pantallas, clase: p.clase, motivo: p.motivo, idioma: p.idioma, url: p.url,
-        campos: p.campos, botones: p.botones, sugerido: p.sugerido, firma: p.firma,
-        resumen: p.resumen, exito: p.exito, correccion: e.corrigiendo,
-      });
-    } catch (error) {
-      await registrar("sin decisión");
-      return detener("el servidor no resolvió la pantalla", await evidencia(marco));
+    let decision = e.corrigiendo ? null : decisionAnticipada(trabajo, p);
+    if (!decision) {
+      try {
+        decision = await llamar("POST", `/postulaciones/${id}/pantalla`, {
+          numero: e.pantallas, clase: p.clase, motivo: p.motivo, idioma: p.idioma, url: p.url,
+          campos: p.campos, botones: p.botones, sugerido: p.sugerido, firma: p.firma,
+          resumen: p.resumen, exito: p.exito, correccion: e.corrigiendo,
+        });
+      } catch (error) {
+        await registrar("sin decisión");
+        return detener("el servidor no resolvió la pantalla", await evidencia(marco));
+      }
     }
     if (decision.esperar_usuario) {
       await registrar("pregunta al usuario");
@@ -778,7 +857,8 @@ async function recorrerPantallas(tabId, contexto) {
     }
     const accion = decision.accion || {};
     const boton = (p.botones || []).find((b) => b.indice === accion.indice);
-    await registrar(accion.tipo ? `${accion.tipo}${boton ? ` «${boton.texto}»` : ""}` : null);
+    const origen = decision.anticipada ? " (esquema anticipado)" : "";
+    await registrar(accion.tipo ? `${accion.tipo}${boton ? ` «${boton.texto}»` : ""}${origen}` : null);
 
     if (accion.tipo === "respaldo") {
       return detener(accion.motivo || "respaldo", await evidencia(marco));
@@ -832,6 +912,9 @@ async function recorrerPantallas(tabId, contexto) {
     }
     if (!boton || boton.clase === "nunca") {
       return detener("la decisión no apunta a un botón", await evidencia(marco));
+    }
+    if (accion.tipo === "enviar" && !contexto.envio && trabajo.ensayo) {
+      return ensayada(contexto, boton.texto);
     }
     if (accion.tipo === "enviar" && !contexto.envio) {
       // Como en los flujos declarados: el servidor registra el envío antes del clic. La vuelta
@@ -903,10 +986,12 @@ async function retomarBucle() {
     await guardarEstado({ trabajo_actual: { id: trabajo.id, titulo: trabajo.titulo, plataforma: trabajo.plataforma, inicio: b.inicio } });
     await reportar(trabajo.id, "retomar", "el navegador se reinició a mitad del formulario");
     const contexto = { trabajo, sel, cv: null, cv_nombre: null, inicio: b.inicio, envio: false, bucle: b.bucle };
+    ensayoEnCurso = trabajo.ensayo ? { id: trabajo.id, pantalla: 0 } : null;
     cerrar = (await bucleGenerico(pestana.id, contexto)).cerrar !== false;
   } catch (error) {
     await terminar(trabajo.id, "fallida", { motivo: String(error.message || error).slice(0, 400) }).catch(() => {});
   } finally {
+    ensayoEnCurso = null;
     await guardarEstado({ trabajo_actual: null });
     if (cerrar) await cerrarPestana(pestana);
   }
@@ -946,6 +1031,11 @@ async function reportar(id, paso, detalle = null) {
 }
 
 async function terminar(id, estado, { motivo = null, html = null, confirmacion = null } = {}) {
+  if (ensayoEnCurso && ensayoEnCurso.id === id && !SIN_TRABA.includes(estado)) {
+    // Ensayo que no llegó al botón: queda dicho en qué pantalla se trabaría
+    const donde = ensayoEnCurso.pantalla ? `pantalla ${ensayoEnCurso.pantalla}` : "antes de la primera pantalla";
+    await reportar(id, "ensayo_trabado", `${donde}: ${motivo || estado}`);
+  }
   try {
     await llamar("POST", `/postulaciones/${id}/resultado`, { estado, motivo, html, confirmacion });
   } finally {

@@ -23,8 +23,10 @@ from pydantic import BaseModel, Field
 
 from buscador_vacantes.asistente import campos
 from buscador_vacantes.asistente.campos import CONTACTO, RESERVADO, DatosUsuario
+from buscador_vacantes.asistente.cv_adaptado import tecnologias_del_perfil
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.ia import ClaveInvalida, ClienteIA, ErrorIA, Parte, datos
+from buscador_vacantes.asistente.tecnologias import diccionario
 from buscador_vacantes.comun.config import RAIZ
 from buscador_vacantes.comun.estado import a_texto
 from buscador_vacantes.comun.normalizar import normalizar_texto
@@ -33,6 +35,9 @@ RUTA_BANCO = RAIZ / "assets" / "asistente" / "banco_preguntas.yaml"
 REDACTAR = "redactar"  # campo del banco: la pregunta se redacta, no es un dato del catálogo
 TIPOS_REDACTABLES = {"texto"}  # número, fecha, correo y teléfono nunca van al redactor
 MAX_APRENDIDOS_IA = 40  # datos aprendidos de formulario (los más recientes) para el redactor
+MAX_EJEMPLOS_ESTILO = 5  # respuestas del usuario que el redactor de Máximo imita en tono
+MIN_EJEMPLO_ESTILO = 60  # una respuesta más corta que esto no enseña estilo
+LARGA_DESDE = 300  # caracteres pedidos desde los que una respuesta cuenta como larga
 MAX_SUGERENCIA = 40
 MAX_PREGUNTAS_PEGADAS = 15
 MAX_CARACTERES_PEGADOS = 4000
@@ -63,6 +68,8 @@ class Pregunta:
     accept: str | None = None  # tipos de archivo que acepta un campo de archivo
     idioma: str | None = None  # lang del formulario o el detectado por la extensión
     busqueda: bool = False  # lista demasiado larga para leerla: se escribe el valor y se elige
+    # Lo que la receta del sitio dice de este campo: «campo», «campo:parámetro» o «redactar»
+    campo_receta: str | None = None
 
 
 @dataclass
@@ -360,6 +367,13 @@ class Contexto:
     vacante: str = ""  # título, empresa y descripción, para redactar
     plataforma: str | None = None  # de dónde vino la vacante («¿cómo te enteraste?»)
     idioma: str | None = None  # es | en | pt del formulario; None: se deduce de las preguntas
+    # Calidad del nivel Máximo (ver `NivelIA`); en Ahorro y Normal quedan apagadas
+    requisitos_en_redactor: bool = False
+    ejemplos_estilo: bool = False
+    doble_redaccion: bool = False
+    revisor_final: bool = False
+    requisitos: list[str] = field(default_factory=list)  # lo que pide la vacante
+    revisadas: int = 0  # respuestas que el revisor final cambió en esta pasada
     nivel: str = "normal"  # nivel de IA efectivo de la postulación (ahorro | normal | maximo)
     clasificar_preguntas: bool = True  # False (Ahorro): las preguntas nuevas van a la card
 
@@ -531,6 +545,8 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
         return _desde_campo(pregunta, *encontrada, ctx, Origen.PERFIL)
     if trabajo := autorizacion_trabajo(norma):
         return _desde_campo(pregunta, *trabajo, ctx, Origen.PERFIL)
+    if desde_receta := _desde_receta(pregunta, ctx):
+        return desde_receta
     if not ctx.con_ia or not ctx.clasificar_preguntas:
         return Respuesta(pregunta, falta=True)
     try:
@@ -548,6 +564,39 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
     # Compuesta, en prosa o fuera del catálogo: el banco la guarda sin datos personales
     guardar_en_banco(ctx.base, norma, REDACTAR, None, ctx.ahora)
     return _para_redactar(pregunta)
+
+
+# Qué documento pide un campo de archivo, por su etiqueta (las mismas reglas que la extensión;
+# lo que no calza queda para el CV). El orden importa: «carta» antes que «cv».
+_TIPOS_ARCHIVO = (
+    ("certificado_notas", re.compile(
+        r"transcript|certificado de notas|calificaciones|notas academicas|historico escolar")),
+    ("carta", re.compile(r"cover letter|carta de presentacion|carta")),
+    ("portafolio", re.compile(r"portfolio|portafolio")),
+    ("cv", re.compile(r"resume|\bcv\b|curriculum|curriculo|hoja de vida")),
+)  # fmt: skip
+
+
+def tipo_archivo(pregunta: Pregunta) -> str:
+    """Tipo de documento de un campo de archivo: certificado_notas, carta, portafolio o cv."""
+    texto = normalizar_texto(f"{pregunta.texto} {pregunta.nombre or ''}")
+    for tipo, patron in _TIPOS_ARCHIVO:
+        if patron.search(texto):
+            return tipo
+    return "cv"
+
+
+def _desde_receta(pregunta: Pregunta, ctx: Contexto) -> Respuesta | None:
+    """Lo que una receta del sitio ya sabe de este campo, sin clasificarlo con la IA. Solo
+    vale un campo del catálogo: lo demás se trata como si la receta no existiera."""
+    if not pregunta.campo_receta:
+        return None
+    campo, _, parametro = pregunta.campo_receta.partition(":")
+    if campo == REDACTAR:
+        return _para_redactar(pregunta)
+    if campos.es_campo_valido(campo, parametro or None):
+        return _desde_campo(pregunta, campo, parametro or None, ctx, Origen.PERFIL)
+    return None
 
 
 def es_redactable(pregunta: Pregunta) -> bool:
@@ -579,6 +628,8 @@ class Redactada:
     valor: str | None = None
     faltan: list[DatoFaltante] = field(default_factory=list)
     opcion: int | None = None  # pregunta con opciones: índice válido de la elegida
+    alternativas: list[str] = field(default_factory=list)  # doble redacción: la otra versión
+    revisada: bool = False  # el revisor final la corrigió, la cambió por otra versión o la frenó
 
 
 def recortar_a_limite(texto: str, maximo: int | None) -> str:
@@ -666,6 +717,107 @@ def _limpiar_faltantes(faltan: list[DatoFaltante]) -> list[DatoFaltante]:
     return limpios
 
 
+INSTRUCCION_REQUISITOS_VACANTE = (
+    "\n- En «requisitos_de_la_vacante» está lo que pide la vacante: destaca los que el perfil "
+    "cumple, apoyándote en el perfil. NUNCA afirmes ni insinúes que dominas, usas o tienes un "
+    "requisito que el perfil, el cuestionario y los datos del usuario no mencionan; si la "
+    "pregunta lo exige, dilo con honestidad o pide el dato en faltan."
+)
+INSTRUCCION_ESTILO_USUARIO = (
+    "\n- En «ejemplos_de_estilo» hay respuestas que el usuario escribió o corrigió: imita su "
+    "tono, su longitud y su manera de escribir. Son ejemplos de estilo y NUNCA datos: no tomes "
+    "de ahí hechos, cifras ni nombres que no estén en el perfil o en los datos del usuario."
+)
+INSTRUCCION_SEGUNDA_VERSION = (
+    "\n- Esta es una SEGUNDA versión de las mismas respuestas: dale a cada una otra apertura y "
+    "otro orden de ideas que a la primera, con las mismas reglas y sin inventar nada."
+)
+
+_PREGUNTA_LARGA = re.compile(
+    r"por que (?:te interesa|quieres|deseas|te gustaria)|porque te interesa|motivacion|motivo|"
+    r"why (?:are you interested|do you want|this (?:role|position|job))|motivation|"
+    r"experiencia|experience|cuentanos|tell us about|describe|descri[bp]e"
+)
+
+
+def es_larga(pregunta: Pregunta) -> bool:
+    """Motivación, experiencia o más de 300 caracteres pedidos: la que recibe doble redacción."""
+    return (pregunta.maximo or 0) > LARGA_DESDE or bool(
+        _PREGUNTA_LARGA.search(normalizar_pregunta(pregunta.texto))
+    )
+
+
+def ejemplos_de_estilo(base: BaseAsistente, usuario_id: int) -> list[tuple[str, str]]:
+    """Hasta 5 respuestas largas que el usuario escribió o corrigió, de la más reciente a la más
+    vieja: sirven de ejemplo de tono, nunca de datos."""
+    ejemplos = []
+    for pregunta, respuesta in datos_aprendidos(base, usuario_id):
+        if respuesta != RESERVADO and len(respuesta) >= MIN_EJEMPLO_ESTILO:
+            ejemplos.append((pregunta, respuesta))
+    return ejemplos[:MAX_EJEMPLOS_ESTILO]
+
+
+def requisitos_ajenos(ctx: Contexto) -> set[str]:
+    """Tecnologías que pide la vacante y que ni el perfil, ni el cuestionario ni lo que el usuario
+    respondió mencionan: la IA no puede afirmarlas en una respuesta (nivel Máximo)."""
+    if not (ctx.requisitos_en_redactor and ctx.requisitos):
+        return set()
+    dicc = diccionario()
+    propias = tecnologias_del_perfil(ctx.datos.perfil, dicc)
+    textos = [*ctx.datos.cuestionario.values()]
+    textos += [r for _, r in datos_aprendidos(ctx.base, ctx.usuario_id)]
+    for texto in textos:
+        propias.update(dicc.buscar(str(texto)))
+    pedidas: set[str] = set()
+    for requisito in ctx.requisitos:
+        pedidas.update(dicc.buscar(requisito))
+        if canonica := dicc.canonica(requisito):
+            pedidas.add(canonica)
+    return pedidas - propias
+
+
+def afirma_requisito_ajeno(texto: str, ajenos: set[str]) -> bool:
+    return bool(ajenos) and any(t in ajenos for t in diccionario().buscar(texto))
+
+
+def _instruccion_redactor(ctx: Contexto, *, segunda: bool = False) -> str:
+    instruccion = INSTRUCCION_REDACTAR_FORMULARIO
+    if ctx.requisitos_en_redactor and ctx.requisitos:
+        instruccion += INSTRUCCION_REQUISITOS_VACANTE
+    if ctx.ejemplos_estilo and ejemplos_de_estilo(ctx.base, ctx.usuario_id):
+        instruccion += INSTRUCCION_ESTILO_USUARIO
+    return instruccion + (INSTRUCCION_SEGUNDA_VERSION if segunda else "")
+
+
+def _partes_datos(ctx: Contexto, idioma: str) -> list[Parte]:
+    """Lo que ven el redactor y el revisor: idioma, perfil, datos del usuario y vacante."""
+    partes = [
+        Parte(datos("idioma", IDIOMAS.get(idioma, IDIOMAS["es"]))),
+        Parte(datos("perfil", json.dumps(ctx.datos.para_ia(), ensure_ascii=False))),
+        Parte(datos("datos_del_usuario",
+                    _texto_aprendidos(datos_aprendidos(ctx.base, ctx.usuario_id)))),
+        Parte(datos("vacante", ctx.vacante)),
+    ]  # fmt: skip
+    if ctx.requisitos_en_redactor and ctx.requisitos:
+        requisitos = "\n".join(f"- {r}" for r in ctx.requisitos)
+        partes.append(Parte(datos("requisitos_de_la_vacante", requisitos)))
+    return partes
+
+
+def _partes_redactor(preguntas: list[Pregunta], ctx: Contexto, idioma: str) -> list[Parte]:
+    partes = _partes_datos(ctx, idioma)
+    if ctx.ejemplos_estilo and (ejemplos := ejemplos_de_estilo(ctx.base, ctx.usuario_id)):
+        partes.append(Parte(datos("ejemplos_de_estilo", "\n".join(
+            f"- {p} → {r}" for p, r in ejemplos))))  # fmt: skip
+    partes.append(Parte(datos("preguntas", _texto_preguntas(preguntas))))
+    return partes
+
+
+def _texto_redactado(r: RespuestaRedactada, pregunta: Pregunta) -> str | None:
+    valor = " ".join((r.respuesta or "").split()) or None
+    return recortar_a_limite(valor, pregunta.maximo) if valor else None
+
+
 async def redactar_formulario(
     preguntas: list[Pregunta], ctx: Contexto
 ) -> dict[int, Redactada] | None:
@@ -673,6 +825,10 @@ async def redactar_formulario(
 
     Devuelve, por posición en ``preguntas``, la respuesta o los datos que faltan; las que la IA
     no devolvió no aparecen. None sin IA o si la IA falla (ClaveInvalida se propaga).
+
+    En Máximo, las respuestas largas (``es_larga``) reciben una segunda versión (``alternativas``)
+    y ninguna respuesta afirma un requisito de la vacante que el usuario no cumple: la que lo
+    hace se pregunta al usuario en vez de enviarse.
     """
     if not preguntas:
         return {}
@@ -681,22 +837,14 @@ async def redactar_formulario(
     idioma = ctx.idioma or detectar_idioma(preguntas)
     try:
         redaccion = await ctx.cliente.generar(
-            "responder", ctx.clave, ctx.usuario_id, INSTRUCCION_REDACTAR_FORMULARIO,
-            [
-                Parte(datos("idioma", IDIOMAS.get(idioma, IDIOMAS["es"]))),
-                Parte(datos("perfil", json.dumps(ctx.datos.para_ia(), ensure_ascii=False))),
-                Parte(datos("datos_del_usuario",
-                            _texto_aprendidos(datos_aprendidos(ctx.base, ctx.usuario_id)))),
-                Parte(datos("vacante", ctx.vacante)),
-                Parte(datos("preguntas", _texto_preguntas(preguntas))),
-            ],
-            RedaccionFormulario,
-            nivel=ctx.nivel,
+            "responder", ctx.clave, ctx.usuario_id, _instruccion_redactor(ctx),
+            _partes_redactor(preguntas, ctx, idioma), RedaccionFormulario, nivel=ctx.nivel,
         )  # fmt: skip
     except ClaveInvalida:
         raise
     except ErrorIA:
         return None
+    ajenos = requisitos_ajenos(ctx)
     resultado: dict[int, Redactada] = {}
     for r in redaccion.respuestas:
         posicion = r.indice - 1
@@ -708,11 +856,148 @@ async def redactar_formulario(
             valida = r.opcion is not None and 0 <= r.opcion < len(pregunta.opciones)
             resultado[posicion] = Redactada(faltan=faltan, opcion=r.opcion if valida else None)
             continue
-        valor = " ".join((r.respuesta or "").split()) or None
-        if valor:
-            valor = recortar_a_limite(valor, pregunta.maximo)
+        valor = _texto_redactado(r, pregunta)
+        if valor and afirma_requisito_ajeno(valor, ajenos):
+            valor = None  # un requisito que no cumple: no se envía, se pregunta al usuario
         resultado[posicion] = Redactada(valor, faltan)
+    if ctx.doble_redaccion:
+        await _segunda_version(preguntas, resultado, ctx, idioma, ajenos)
     return resultado
+
+
+async def _segunda_version(
+    preguntas: list[Pregunta],
+    resultado: dict[int, Redactada],
+    ctx: Contexto,
+    idioma: str,
+    ajenos: set[str],
+) -> None:
+    """Una llamada más con solo las respuestas largas ya redactadas; la otra versión queda en
+    ``alternativas`` para que el revisor final elija. Si falla, queda la primera."""
+    largas = [i for i, r in sorted(resultado.items()) if r.valor and es_larga(preguntas[i])]
+    if not largas:
+        return
+    try:
+        segunda = await ctx.cliente.generar(
+            "responder", ctx.clave, ctx.usuario_id, _instruccion_redactor(ctx, segunda=True),
+            _partes_redactor([preguntas[i] for i in largas], ctx, idioma),
+            RedaccionFormulario, nivel=ctx.nivel,
+        )  # fmt: skip
+    except ClaveInvalida:
+        raise
+    except ErrorIA:
+        return
+    for r in segunda.respuestas:
+        if not 1 <= r.indice <= len(largas):
+            continue
+        posicion = largas[r.indice - 1]
+        texto = _texto_redactado(r, preguntas[posicion])
+        if texto and texto != resultado[posicion].valor:
+            if not afirma_requisito_ajeno(texto, ajenos):
+                resultado[posicion].alternativas = [texto]
+
+
+# --- revisor final (nivel Máximo) ---------------------------------------------------------
+
+
+class VeredictoRespuesta(BaseModel):
+    indice: int = Field(description="número de la respuesta")
+    veredicto: Literal["ok", "elegir", "corregir", "preguntar"]
+    eleccion: int | None = Field(None, description="elegir: versión (1 es la primera)")
+    texto: str | None = Field(None, description="corregir: el texto nuevo completo")
+    faltan: list[DatoFaltante] = Field(default_factory=list, description="preguntar: el dato")
+
+
+class RevisionFormulario(BaseModel):
+    veredictos: list[VeredictoRespuesta] = Field(default_factory=list)
+
+
+INSTRUCCION_REVISAR_RESPUESTAS = (
+    "Eres el revisor final de las respuestas que redactó un asistente por un candidato a un "
+    "formulario de postulación. Recibes, numeradas, cada pregunta con su límite de caracteres, "
+    "su respuesta y, si hay, una segunda versión; además el idioma del formulario, el perfil y "
+    "los datos del usuario. Por cada respuesta devuelve su número en indice y un veredicto:\n"
+    "- ok: responde la pregunta, está en el idioma del formulario, cabe en el límite y todo "
+    "lo que afirma está en el perfil o en los datos del usuario.\n"
+    "- elegir: hay dos versiones y la mejor es la otra; pon en eleccion su número (1 es la "
+    "primera, 2 la segunda).\n"
+    "- corregir: la respuesta está en otro idioma, se pasa del límite, no responde lo que se "
+    "pregunta o suena a plantilla; pon en texto la versión corregida completa, SOLO con datos "
+    "del perfil y del usuario.\n"
+    "- preguntar: la respuesta afirma algo que el perfil contradice o no respalda (años de "
+    "experiencia, un título, una herramienta, una cifra) y no puedes corregirla con los datos "
+    "que tienes; pon en faltan una pregunta corta en segunda persona con 2 a 4 sugerencias.\n"
+    "Nunca agregues datos que no estén en el perfil, en el cuestionario o en los datos del "
+    "usuario. Nunca afirmes un requisito de «requisitos_de_la_vacante» que el perfil no "
+    "mencione. Si una respuesta está bien, di ok."
+)
+
+
+def _texto_para_revisar(candidatas: list[tuple[int, Pregunta, Redactada]]) -> str:
+    lineas = []
+    for n, (_, pregunta, redactada) in enumerate(candidatas, 1):
+        limite = f" (máximo {pregunta.maximo} caracteres)" if pregunta.maximo else ""
+        lineas.append(f"{n}. Pregunta: {pregunta.texto}{limite}")
+        lineas.append(f"   Respuesta: {redactada.valor}")
+        for extra in redactada.alternativas:
+            lineas.append(f"   Segunda versión: {extra}")
+    return "\n".join(lineas)
+
+
+async def revisar_formulario(
+    preguntas: list[Pregunta], redactadas: dict[int, Redactada], ctx: Contexto
+) -> int:
+    """Revisor final (tarea ``revisar_respuestas``): corrige en el lugar las ``redactadas`` y
+    devuelve cuántas cambió (corregidas, cambiadas por la otra versión o frenadas con una
+    pregunta). Solo ve respuestas de texto que redactó la IA en esta pasada: los datos simples,
+    las opciones, los consentimientos y lo que escribió el usuario nunca le llegan. Si la IA
+    falla, las respuestas quedan como están; ClaveInvalida se propaga."""
+    candidatas = [
+        (i, preguntas[i], r) for i, r in sorted(redactadas.items())
+        if r.valor and not r.faltan and r.opcion is None and not preguntas[i].opciones
+    ]  # fmt: skip
+    if not candidatas or not ctx.con_ia:
+        return 0
+    idioma = ctx.idioma or detectar_idioma(preguntas)
+    partes = _partes_datos(ctx, idioma)  # los mismos datos que el redactor
+    partes.append(Parte(datos("respuestas", _texto_para_revisar(candidatas))))
+    try:
+        revision = await ctx.cliente.generar(
+            "revisar_respuestas", ctx.clave, ctx.usuario_id, INSTRUCCION_REVISAR_RESPUESTAS,
+            partes, RevisionFormulario, nivel=ctx.nivel,
+        )  # fmt: skip
+    except ClaveInvalida:
+        raise
+    except ErrorIA:
+        return 0
+    ajenos = requisitos_ajenos(ctx)
+    cambiadas = 0
+    vistos: set[int] = set()
+    for v in revision.veredictos:
+        if not 1 <= v.indice <= len(candidatas) or v.indice in vistos:
+            continue
+        vistos.add(v.indice)
+        _, pregunta, redactada = candidatas[v.indice - 1]
+        versiones = [redactada.valor, *redactada.alternativas]
+        if v.veredicto == "elegir":
+            if v.eleccion is not None and 2 <= v.eleccion <= len(versiones):
+                redactada.valor = versiones[v.eleccion - 1]
+                redactada.alternativas = [versiones[0]]
+                redactada.revisada = True
+                cambiadas += 1
+        elif v.veredicto == "corregir":
+            texto = " ".join((v.texto or "").split())
+            texto = recortar_a_limite(texto, pregunta.maximo) if texto else ""
+            if texto and texto != redactada.valor and not afirma_requisito_ajeno(texto, ajenos):
+                redactada.valor = texto
+                redactada.revisada = True
+                cambiadas += 1
+        elif v.veredicto == "preguntar":
+            faltan = _limpiar_faltantes(v.faltan)
+            if faltan:
+                redactada.valor, redactada.faltan, redactada.revisada = None, faltan, True
+                cambiadas += 1
+    return cambiadas
 
 
 # --- preguntas pegadas por el usuario -------------------------------------------------------

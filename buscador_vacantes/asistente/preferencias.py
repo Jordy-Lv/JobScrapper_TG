@@ -84,6 +84,44 @@ class Preferencias:
             return bajado
         return nivel
 
+    # --- modo ensayo: llenar todo y detenerse antes de enviar -------------------------------
+
+    def ensayo_usuario(self, usuario_id: int) -> bool:
+        fila = self.base.cx.execute(
+            "SELECT ensayo FROM usuarios WHERE id = ?", (usuario_id,)
+        ).fetchone()
+        return bool(fila and fila["ensayo"])
+
+    def fijar_ensayo_usuario(self, usuario_id: int, activo: bool) -> None:
+        with self.base.transaccion() as cx:
+            cx.execute("UPDATE usuarios SET ensayo = ? WHERE id = ?", (int(activo), usuario_id))
+
+    def plataformas_en_ensayo(self, configuradas: list[str]) -> dict[str, str | None]:
+        """Plataforma → motivo (o None) de las que se ensayan para todos: las de la configuración
+        (`asistente.ensayo.plataformas`) y las que el dueño o el vigía pusieron en ensayo."""
+        en_ensayo: dict[str, str | None] = dict.fromkeys(configuradas)
+        for f in self.base.cx.execute("SELECT plataforma, motivo FROM plataformas_en_ensayo"):
+            en_ensayo[f["plataforma"]] = f["motivo"]
+        return en_ensayo
+
+    def poner_en_ensayo(self, plataforma: str, motivo: str | None, ahora: datetime) -> bool:
+        """True si la plataforma no estaba ya en ensayo en la base."""
+        with self.base.transaccion() as cx:
+            cur = cx.execute(
+                "INSERT OR IGNORE INTO plataformas_en_ensayo(plataforma, motivo, desde) "
+                "VALUES (?, ?, ?)",
+                (plataforma, motivo, a_texto(ahora)),
+            )
+        return bool(cur.rowcount)
+
+    def quitar_de_ensayo(self, plataforma: str) -> bool:
+        """Saca la plataforma del ensayo de la base (las de la configuración, se editan allá)."""
+        with self.base.transaccion() as cx:
+            cur = cx.execute(
+                "DELETE FROM plataformas_en_ensayo WHERE plataforma = ?", (plataforma,)
+            )
+        return bool(cur.rowcount)
+
     def uso_ia_hoy(self, usuario_id: int, ahora: datetime) -> tuple[int, int]:
         """(llamadas, tokens) exitosos del día calendario de Colombia, como los cuenta el tope."""
         inicio = datetime.combine(ahora.astimezone(ZONA).date(), time(0), tzinfo=ZONA)

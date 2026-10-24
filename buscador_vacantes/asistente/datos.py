@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-ESQUEMA_VERSION = 6
+ESQUEMA_VERSION = 7
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS esquema_version (version INTEGER NOT NULL);
@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
     pausado INTEGER NOT NULL DEFAULT 0,
     vacante_pendiente TEXT,                    -- id_corto a retomar al terminar el alta
     aviso_inactividad_en TEXT,
-    nivel_ia TEXT NOT NULL DEFAULT 'normal'    -- ahorro | normal | maximo (esquema 6)
+    nivel_ia TEXT NOT NULL DEFAULT 'normal',   -- ahorro | normal | maximo (esquema 6)
+    ensayo INTEGER NOT NULL DEFAULT 0          -- 1: sus postulaciones se ensayan (esquema 7)
 );
 
 CREATE TABLE IF NOT EXISTS codigos_vinculo (
@@ -78,6 +79,26 @@ CREATE TABLE IF NOT EXISTS cuentas_portal (
     PRIMARY KEY (usuario_id, plataforma)
 );
 
+-- Plataformas que el dueño (o el vigía) puso en ensayo para todos los usuarios (esquema 7); se
+-- suman a `asistente.ensayo.plataformas` de la configuración
+CREATE TABLE IF NOT EXISTS plataformas_en_ensayo (
+    plataforma TEXT PRIMARY KEY,
+    motivo TEXT,
+    desde TEXT NOT NULL
+);
+
+-- Documentos PDF del usuario además del CV (esquema 7): el archivo vive cifrado en su carpeta
+CREATE TABLE IF NOT EXISTS documentos_usuario (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL,                        -- certificado_notas | carta | portafolio | otro
+    nombre TEXT NOT NULL,
+    ruta TEXT NOT NULL,                        -- archivo cifrado (Fernet)
+    bytes INTEGER NOT NULL,                    -- tamaño del PDF en claro
+    creado TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS documentos_usuario_tipo ON documentos_usuario(usuario_id, tipo);
+
 -- Preferencias del usuario por portal (botón del engranaje en la extensión). Sin fila: valores
 -- por defecto (participa del modo automático, sin afinidad propia, avisa por Telegram).
 CREATE TABLE IF NOT EXISTS preferencias_portal (
@@ -107,7 +128,8 @@ CREATE TABLE IF NOT EXISTS vacantes (
     detalle_en TEXT,
     requisitos_json TEXT,
     indexada_en TEXT NOT NULL,
-    ficha_json TEXT                            -- salario, ubicación… (esquema 2)
+    ficha_json TEXT,                           -- salario, ubicación… (esquema 2)
+    esquema_json TEXT                          -- campos del formulario leídos de antemano (7)
 );
 
 CREATE TABLE IF NOT EXISTS postulaciones (
@@ -133,6 +155,7 @@ CREATE TABLE IF NOT EXISTS postulaciones (
     receta_id INTEGER,                         -- receta que llevó el trabajo (esquema 5)
     parches_json TEXT,                         -- ids de los parches que llevó (esquema 5)
     nivel_ia TEXT,                             -- nivel del usuario al encolar (esquema 6)
+    forzar_real INTEGER NOT NULL DEFAULT 0,    -- 1: «Enviar de verdad», aunque haya ensayo (7)
     UNIQUE (usuario_id, id_corto)
 );
 CREATE INDEX IF NOT EXISTS postulaciones_estado ON postulaciones(estado, creada);
@@ -336,9 +359,23 @@ class BaseAsistente:
             self._a_v5()
         if version < 6:
             self._a_v6()
+        if version < 7:
+            self._a_v7()
 
     def _columnas(self, tabla: str) -> set[str]:
         return {f["name"] for f in self.cx.execute(f"PRAGMA table_info({tabla})")}
+
+    def _a_v7(self) -> None:
+        """Esquema anticipado de la vacante. La tabla de documentos del usuario es nueva y la
+        crea `ESQUEMA`."""
+        if "esquema_json" not in self._columnas("vacantes"):
+            self.cx.execute("ALTER TABLE vacantes ADD COLUMN esquema_json TEXT")
+        if "ensayo" not in self._columnas("usuarios"):
+            self.cx.execute("ALTER TABLE usuarios ADD COLUMN ensayo INTEGER NOT NULL DEFAULT 0")
+        if "forzar_real" not in self._columnas("postulaciones"):
+            self.cx.execute(
+                "ALTER TABLE postulaciones ADD COLUMN forzar_real INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _a_v6(self) -> None:
         """Nivel de uso de IA del usuario y el que llevó cada postulación al encolarse."""

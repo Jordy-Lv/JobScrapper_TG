@@ -19,6 +19,7 @@ from buscador_vacantes.asistente.recetas import (  # noqa: E402
     guardar_receta,
     host_de,
     marcar_barrera,
+    pantalla_de_receta,
     parches_aplicables,
     proponer_parche,
     quitar_barrera,
@@ -269,3 +270,26 @@ def test_parche_y_receta_no_guardan_nada_de_la_persona(base):
         for t in ("recetas", "parches_flujo", "dominios_barrera")
     ], ensure_ascii=False, default=str)  # fmt: skip
     assert "@" not in volcado and "310" not in volcado
+
+
+# --- la pantalla de la receta que aplica a unos campos -------------------------------------------
+
+
+def test_pantalla_de_receta_entrega_el_mapeo_si_los_campos_coinciden(base):
+    receta_id = guardar(base)
+    pantalla = pantalla_de_receta(base, receta_id, set(CLAVES))
+    assert pantalla.mapeo["email"] == "correo" and pantalla.mapeo["question_101"] == "redactar"
+    assert pantalla.boton.texto == "Submit application"
+    # 5 de 6 claves = 83 %: todavía aplica; con otro campo más ya no (5 de 7 = 71 %)
+    assert pantalla_de_receta(base, receta_id, set(CLAVES[:5])) is not None
+    assert pantalla_de_receta(base, receta_id, set(CLAVES[:5]) | {"nuevo_1", "nuevo_2"}) is None
+
+
+def test_pantalla_de_receta_sin_receta_apagada_o_con_otro_sitio_no_aplica(base):
+    receta_id = guardar(base)
+    assert pantalla_de_receta(base, None, set(CLAVES)) is None
+    assert pantalla_de_receta(base, 999, set(CLAVES)) is None
+    assert pantalla_de_receta(base, receta_id, {"city", "country", "salary"}) is None
+    registrar_resultado_receta(base, receta_id, False)
+    assert registrar_resultado_receta(base, receta_id, False) is True  # la segunda la apaga
+    assert pantalla_de_receta(base, receta_id, set(CLAVES)) is None

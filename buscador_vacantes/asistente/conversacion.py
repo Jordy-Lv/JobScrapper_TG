@@ -35,6 +35,7 @@ from buscador_vacantes.asistente.cv_lectura import (
     leer_cv,
     validar_archivo,
 )
+from buscador_vacantes.asistente.documentos import TIPOS_DOCUMENTO, ErrorDocumento
 from buscador_vacantes.asistente.enlaces import PREFIJO_VACANTE
 from buscador_vacantes.asistente.ia import ClaveInvalida, CuotaAgotada, ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
@@ -376,7 +377,11 @@ class Conversacion:
         usuario = self.n.usuarios.obtener(tid)
         if usuario is None or not self._permitir(tid):
             return
-        if usuario.paso_alta != "cv" and not (self._esperando(usuario) or {}).get("tipo") == "cv":
+        esperando = self._esperando(usuario) or {}
+        if esperando.get("tipo") == "documento":
+            await self._recibir_documento(usuario, esperando, contenido)
+            return
+        if usuario.paso_alta != "cv" and not esperando.get("tipo") == "cv":
             await self._enviar(usuario, "Si quieres reemplazar tu hoja de vida usa /perfil.")
             return
         try:
@@ -1559,6 +1564,13 @@ class Conversacion:
                 )
                 return None
             toque = self.n.tocar(usuario, id_corto, origen=origen)
+            # Una vacante con el formulario ya leído: la postulación espera (sin esperar a nadie
+            # más) mientras se resuelve todo de antemano; no hay await entre tocar y retener
+            retenida = (
+                toque.camino == Camino.AUTOMATICA
+                and bool(self.n.esquema_de(toque.vacante))
+                and self.n.cola.retener(toque.postulacion.id, self.n.ahora())
+            )
         if toque.camino == Camino.NO_DISPONIBLE:
             await self._decir(
                 usuario, mensaje_id, "Esa vacante ya no está disponible en el asistente."
@@ -1595,7 +1607,7 @@ class Conversacion:
             self._guardar_tarjeta(usuario, None)  # el bloque de conexión ya no aplica
         await self._pintar_card(usuario, pid, crear=True)
         if toque.camino == Camino.AUTOMATICA:
-            self._en_segundo_plano(self._preparar(usuario, toque))
+            self._en_segundo_plano(self._preparar(usuario, toque, retenida=retenida))
         return toque
 
     async def al_toque_canal(self, tid: int, id_corto: str) -> RespuestaToque:
@@ -1650,26 +1662,40 @@ class Conversacion:
             )
         return RespuestaToque("Esa vacante ya no está disponible.", alerta=True)
 
-    async def _preparar(self, usuario: Usuario, toque) -> None:
+    async def _preparar(self, usuario: Usuario, toque, *, retenida: bool = False) -> None:
+        pid = toque.postulacion.id
         try:
-            afinidad, _, parcial = await self.n.preparar(
-                usuario, toque.vacante, toque.postulacion.id
-            )
+            afinidad, _, _ = await self.n.preparar(usuario, toque.vacante, pid)
         except Exception:  # noqa: BLE001 - la extensión lo genera si hace falta
-            log.exception("No se pudo preparar la postulación %s", toque.postulacion.id)
-            return
+            log.exception("No se pudo preparar la postulación %s", pid)
+            afinidad = None
         if afinidad:
             texto = f"🎯 Afinidad {afinidad.porcentaje} %"
             if afinidad.faltan:
                 texto += f" · te falta: {t.e(', '.join(afinidad.faltan[:5]))}"
-            pid = toque.postulacion.id
             card = self._obtener_card(pid, crear=False)
             if card is None:
                 await self._enviar(usuario, texto)
-                return
-            card.afinidad = texto
-            self._guardar_card(pid, card)
-            await self._pintar_card(usuario, pid)
+            else:
+                card.afinidad = texto
+                self._guardar_card(pid, card)
+                await self._pintar_card(usuario, pid)
+        if retenida:
+            await self._resolver_esquema(usuario, toque)
+
+    async def _resolver_esquema(self, usuario: Usuario, toque) -> None:
+        """Esquema anticipado: resuelve el formulario de la vacante antes de que la extensión abra
+        la pestaña. Lo que falte se pregunta en la card; si todo se resolvió, la postulación sale
+        a la cola. Si algo falla, también sale: la extensión lo resuelve al abrir la página."""
+        pid = toque.postulacion.id
+        try:
+            actual = self.n.cola.obtener(pid)
+            resuelto = actual is None or await self.n.anticipar_esquema(actual, toque.vacante)
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudo resolver de antemano el formulario de %s", pid)
+            resuelto = True
+        if resuelto:
+            self.n.cola.reanudar(pid, self.n.ahora(), (E.ESPERANDO_USUARIO,))
 
     # --- texto libre ------------------------------------------------------------------
 
@@ -1702,6 +1728,8 @@ class Conversacion:
             self.n.guardar_perfil(usuario.id, datos.perfil)
             self._esperar(usuario, None)
             await self._mostrar_enfoque(usuario)
+        elif tipo == "documento_nombre":
+            await self._nombre_documento(usuario, texto)
         elif tipo == "cuestionario":
             await self._texto_cuestionario(usuario, texto, mensaje_id)
         elif tipo == "pendiente":
@@ -1878,7 +1906,11 @@ class Conversacion:
                 await self._enviar(usuario, "✅ Gracias, lo recordaré.")
 
     async def _preguntar_pendiente(self, usuario: Usuario, pendiente: dict) -> None:
-        self._esperar(usuario, {"tipo": "pendiente", "id": pendiente["id"]})
+        if pendiente["tipo"] == "documento":  # el PDF que pide el formulario, no un texto
+            self._esperar(usuario, {"tipo": "documento", "clase": pendiente["campo"],
+                                    "pendiente": pendiente["id"]})  # fmt: skip
+        else:
+            self._esperar(usuario, {"tipo": "pendiente", "id": pendiente["id"]})
         pid = pendiente.get("postulacion_id")
         if pid is None:  # sin postulación no hay card: se pregunta en un mensaje
             opciones = json.loads(pendiente["opciones_json"] or "[]")
@@ -1934,6 +1966,21 @@ class Conversacion:
                     await self._enviar(usuario, "🗑 Clave de Gemini borrada.")
                 elif args[0] == "nueva":  # «Configurar IA» de la card de respaldo
                     await self._c_clave(usuario, [])
+            case "doc":
+                await self._boton_documento(usuario, args)
+            case "docp":  # «📎 Enviar documento» de la card
+                pendiente = next(
+                    (p for p in self.n.pendientes(usuario.id) if p["id"] == int(args[0])), None
+                )
+                if pendiente and pendiente["tipo"] == "documento":
+                    await self._preguntar_pendiente(usuario, pendiente)
+                    await self._pedir_pdf(usuario)
+            case "docr":  # «Dejar en respaldo»: sin el documento la vacante la completa el usuario
+                pid = self.n.documento_a_respaldo(usuario.id, int(args[0]))
+                self._esperar(usuario, None)
+                if pid is not None:
+                    await self.notificar(Evento("respaldo", pid, usuario.id, E.RESPALDO,
+                                                "documento_faltante"))  # fmt: skip
             case "provpag":
                 guardado = self.n.base.kv_obtener(f"prov_msg:{usuario.id}")
                 if guardado:
@@ -2207,6 +2254,7 @@ class Conversacion:
             "automatico": self._c_automatico,
             "pausa": self._c_pausa,
             "ia": self._c_ia,
+            "documentos": self._c_documentos,
             "borrarme": self._c_borrarme,
         }.get(comando)
         if dueno:
@@ -2413,6 +2461,85 @@ class Conversacion:
     async def _c_pausa(self, usuario: Usuario, args) -> None:
         texto = await self.al_boton(usuario.telegram_id, cb("pausa"))
         await self._enviar(usuario, f"⏯ {texto}.")
+
+    # --- documentos extra (certificado de notas, carta, portafolio…) -----------------------
+
+    async def _c_documentos(self, usuario: Usuario, args) -> None:
+        """`/documentos`: los PDF que el usuario guardó además del CV, para subir y borrar."""
+        self._esperar(usuario, None)
+        documentos = self.n.documentos.listar(usuario.id)
+        if not documentos:
+            texto = t.DOCUMENTOS_VACIO
+        else:
+            lineas = ["<b>Tus documentos</b>"]
+            for d in documentos:
+                fecha = d.creado.astimezone().strftime("%d/%m/%Y")
+                lineas.append(f"📄 {t.e(d.etiqueta)} · {max(1, d.bytes // 1024)} KB · {fecha}")
+            texto = "\n".join(lineas)
+        botones = [[(f"🗑 Borrar {d.etiqueta}"[:60], cb("doc", "borrar", d.id))] for d in documentos]
+        botones.append([("➕ Subir un documento", cb("doc", "subir"))])
+        await self._enviar(usuario, texto, botones)
+
+    async def _boton_documento(self, usuario: Usuario, args: list[str]) -> None:
+        if args[0] == "lista":
+            await self._c_documentos(usuario, [])
+        elif args[0] == "subir":
+            tipos = [[(n, cb("doc", "tipo", clave))] for clave, n in TIPOS_DOCUMENTO.items()]
+            await self._enviar(usuario, t.DOCUMENTOS_ELEGIR_TIPO, tipos)
+        elif args[0] == "tipo" and len(args) > 1 and args[1] in TIPOS_DOCUMENTO:
+            if args[1] == "otro":
+                self._esperar(usuario, {"tipo": "documento_nombre"})
+                await self._enviar(usuario, t.DOCUMENTOS_PEDIR_NOMBRE)
+            else:
+                self._esperar(usuario, {"tipo": "documento", "clase": args[1]})
+                await self._pedir_pdf(usuario)
+        elif args[0] == "borrar" and len(args) > 1 and args[1].isdigit():
+            if self.n.documentos.borrar(usuario.id, int(args[1])):
+                await self._enviar(usuario, "🗑 Documento borrado.")
+            await self._c_documentos(usuario, [])
+
+    async def _nombre_documento(self, usuario: Usuario, texto: str) -> None:
+        nombre = " ".join(texto.split())
+        if not nombre:
+            await self._enviar(usuario, t.DOCUMENTOS_PEDIR_NOMBRE)
+            return
+        self._esperar(usuario, {"tipo": "documento", "clase": "otro", "nombre": nombre})
+        await self._pedir_pdf(usuario)
+
+    async def _pedir_pdf(self, usuario: Usuario) -> None:
+        await self._enviar(usuario, t.DOCUMENTOS_PEDIR_PDF.format(max_mb=self.config.cv.max_mb))
+
+    async def _recibir_documento(self, usuario: Usuario, esperando: dict, contenido: bytes) -> None:
+        try:
+            validar_archivo(contenido, self.config.cv)
+            clase = esperando.get("clase", "otro")
+            nombre = esperando.get("nombre") or TIPOS_DOCUMENTO.get(clase, clase)
+            documento = self.n.documentos.guardar(
+                usuario, clase, nombre, contenido, self.n.ahora()
+            )
+        except (CVInvalido, ErrorDocumento) as exc:
+            await self._enviar(usuario, f"❌ {t.e(exc)}")
+            return
+        self._esperar(usuario, None)
+        pendiente_id = esperando.get("pendiente")
+        pid = None
+        if pendiente_id is not None:  # el documento que esperaba una postulación
+            fila = next((p for p in self.n.pendientes(usuario.id) if p["id"] == pendiente_id), None)
+            pid = fila["postulacion_id"] if fila else None
+            self.n.documento_recibido(usuario.id, pendiente_id)
+        await self._enviar(
+            usuario,
+            f"✅ Guardé tu documento: <b>{t.e(documento.etiqueta)}</b> (cifrado). "
+            "Lo adjunto solo en los formularios que lo pidan.",
+            [[("📄 Ver mis documentos", cb("doc", "lista"))]],
+        )
+        if pid is not None and self._card(pid) is not None:
+            restantes = self.n.pendientes(usuario.id)
+            if any(r["postulacion_id"] == pid for r in restantes):
+                await self._preguntar_pendiente(usuario, next(
+                    r for r in restantes if r["postulacion_id"] == pid))  # fmt: skip
+            else:
+                await self._poner_fase(usuario, pid, tp.EN_COLA)
 
     async def _c_ia(self, usuario: Usuario, args) -> None:
         """`/ia nivel`: los tres niveles con su consumo, el uso de hoy y el nivel actual."""
@@ -2724,6 +2851,10 @@ class Conversacion:
             afinidad=fila["afinidad"], requisitos=requisitos,
             respuestas=[dict(r) for r in respuestas], pasos=[x["paso"] for x in pasos],
             cv_adjunto=adjunto, confirmada=confirmada, folio=f"P-{p.id}",
+            revisadas=sum(
+                int(x["detalle"]) for x in pasos
+                if x["paso"] == "respuestas_revisadas" and (x["detalle"] or "").isdigit()
+            ),
             nivel_bajado=next(  # el último «de>a» que anotó la API de la extensión
                 (x["detalle"].partition(">")[2] for x in reversed(pasos)
                  if x["paso"] == "nivel_bajado" and x["detalle"]), None),

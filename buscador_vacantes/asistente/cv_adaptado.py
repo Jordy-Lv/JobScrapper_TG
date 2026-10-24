@@ -201,6 +201,7 @@ async def redactar_carta(
     cliente: ClienteIA | None,
     clave: str | None,
     usuario_id: int,
+    nivel: str = "normal",
 ) -> str:
     perfil = datos_usuario.perfil
     if cliente and clave:
@@ -211,7 +212,7 @@ async def redactar_carta(
                     Parte(datos("perfil", json.dumps(datos_usuario.para_ia(), ensure_ascii=False))),
                     Parte(datos("oferta", vacante)),
                 ],
-                Carta,
+                Carta, nivel=nivel,
             )  # fmt: skip
             dicc = diccionario()
             propias = tecnologias_del_perfil(perfil, dicc)

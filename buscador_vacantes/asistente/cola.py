@@ -40,6 +40,7 @@ class E(StrEnum):
     INCIERTA = "incierta"
     FALLIDA = "fallida"
     RESPALDO = "respaldo"  # se entregó el paquete para copiar
+    ENSAYADA = "ensayada"  # llenó todo y se detuvo antes de enviar (modo ensayo)
     CANCELADA = "cancelada"
     COMPLETADO = "completado"  # trabajo completar_perfil terminado
 
@@ -49,13 +50,15 @@ ACTIVAS = (E.TOMADA, E.EN_CURSO, E.VERIFICACION)
 # Resultados que puede reportar la extensión al terminar
 FINALES_EXTENSION = {
     E.ENVIADA, E.YA_POSTULADA, E.VACANTE_CERRADA, E.FORMULARIO_DESCONOCIDO, E.INCIERTA,
-    E.FALLIDA, E.ESPERANDO_SESION, E.CUENTA_DISTINTA, E.BLOQUEADA, E.COMPLETADO,
+    E.FALLIDA, E.ESPERANDO_SESION, E.CUENTA_DISTINTA, E.BLOQUEADA, E.COMPLETADO, E.ENSAYADA,
 }  # fmt: skip
 # Estados que entregan el paquete de respaldo al usuario
 CON_RESPALDO = {E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO}
 # Resultados que el usuario puede reintentar tocando ⚡ otra vez. No hay riesgo de duplicar:
 # antes de llenar nada la extensión revisa si el portal ya tiene la postulación (ya_postulada)
-REINTENTABLES = (E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO, E.CANCELADA)
+REINTENTABLES = (
+    E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO, E.CANCELADA, E.ENSAYADA,
+)
 
 
 class Tipo(StrEnum):
@@ -81,6 +84,8 @@ class Postulacion:
     terminada_en: datetime | None
     afinidad: int | None
     nivel_ia: str | None = None  # el del usuario al encolar: un cambio posterior no la afecta
+    forzar_real: bool = False  # «Enviar de verdad» tras un ensayo: ni el ensayo del usuario ni el
+    # de la plataforma la detienen
 
     @classmethod
     def de_fila(cls, f: sqlite3.Row) -> Postulacion:
@@ -89,7 +94,7 @@ class Postulacion:
             E(f["estado"]), f["motivo"], f["origen"], f["navegador_id"],
             bool(f["envio_pulsado"]), de_texto(f["creada"]), de_texto(f["actualizada"]),
             de_texto(f["tomada_en"]), de_texto(f["terminada_en"]), f["afinidad"],
-            f["nivel_ia"],
+            f["nivel_ia"], bool(f["forzar_real"]),
         )  # fmt: skip
 
 
@@ -372,6 +377,11 @@ class Cola:
 
     # --- respuestas del usuario y reanudaciones -----------------------------------------------
 
+    def retener(self, pid: int, ahora: datetime) -> bool:
+        """La postulación recién encolada espera mientras el servidor resuelve el formulario que
+        ya conoce (esquema anticipado): la extensión no la toma hasta `reanudar`."""
+        return self._cambiar(pid, (E.EN_COLA,), E.ESPERANDO_USUARIO, ahora)
+
     def reanudar(self, pid: int, ahora: datetime, desde: tuple[str, ...]) -> bool:
         return self._cambiar(pid, desde, E.EN_COLA, ahora, navegador_id=None, tomada_en=None)
 
@@ -397,6 +407,13 @@ class Cola:
             if self.reanudar(f["id"], ahora, (E.ESPERANDO_NAVEGADOR,)):
                 reanudadas.append(f["id"])
         return reanudadas
+
+    def enviar_de_verdad(self, pid: int, ahora: datetime) -> bool:
+        """«Enviar de verdad» tras un ensayo: vuelve a la cola desde la vacante y esta vez no se
+        ensaya, aunque el usuario o la plataforma sigan en ensayo."""
+        return self._cambiar(pid, (E.ENSAYADA,), E.EN_COLA, ahora, "enviar_de_verdad",
+                             navegador_id=None, tomada_en=None, terminada_en=None,
+                             envio_pulsado=0, forzar_real=1)  # fmt: skip
 
     def reintentar(self, pid: int, ahora: datetime) -> bool:
         """Vuelve a la cola una postulación terminada sin enviarse (nuevo toque ⚡)."""

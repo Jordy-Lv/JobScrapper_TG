@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from buscador_vacantes.asistente import pantalla, recetas, reglas_motor, vinculos
@@ -57,6 +57,14 @@ class ResultadoFormulario:
     revisar: bool = False  # el usuario revisa lo redactado antes del envío
 
 
+@dataclass
+class PaqueteDocumentos:
+    """Lo que piden los campos de archivo de una pantalla, además del CV."""
+
+    documentos: dict[str, tuple[str, bytes]] = field(default_factory=dict)  # tipo → (nombre, PDF)
+    faltan: list[Pregunta] = field(default_factory=list)  # obligatorios sin documento
+
+
 class Nucleo(Protocol):
     base: BaseAsistente
     cola: Cola
@@ -85,6 +93,21 @@ class Nucleo(Protocol):
         self, postulacion: Postulacion, consulta: pantalla.ConsultaReparacion
     ) -> pantalla.Reparacion | None:
         """Corrección de un paso fallido antes del envío; None: sin IA o falló."""
+        ...
+
+    async def documentos_pantalla(
+        self, postulacion: Postulacion, preguntas: list[Pregunta]
+    ) -> PaqueteDocumentos:
+        """Documentos (certificado de notas, carta…) que piden los campos de archivo, además del
+        CV. Si falta uno obligatorio, deja la pregunta pendiente en la card del usuario."""
+        ...
+
+    def en_ensayo(self, postulacion: Postulacion) -> bool:
+        """True si la postulación debe detenerse antes de enviar (modo ensayo)."""
+        ...
+
+    def esquema_resuelto(self, postulacion: Postulacion) -> dict[str, str]:
+        """Respuestas del formulario anticipado por clave de campo; vacío si no hay esquema."""
         ...
 
     async def notificar(self, evento: Evento | dict) -> None: ...
@@ -369,7 +392,8 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
     limite = Limitador(LIMITE_POR_MINUTO)
     limite_vincular = Limitador(LIMITE_VINCULAR_POR_MINUTO)
     limite_ping = Limitador(LIMITE_PING_POR_MINUTO)
-    descargas_cv: dict[str, tuple[Path, datetime]] = {}
+    # token → (archivo o PDF en memoria, nombre, vencimiento)
+    descargas_cv: dict[str, tuple[Path | bytes, str, datetime]] = {}
     trazas = recetas.Trazas()
 
     @app.middleware("http")
@@ -457,18 +481,39 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             raise HTTPException(409, "la postulación no está en curso en este navegador")
         return p
 
+    def receta_de(p: Postulacion, campos: list[Campo]) -> recetas.PantallaReceta | None:
+        """La pantalla de la receta que llevó el trabajo y que coincide con estos campos."""
+        fila = nucleo.base.cx.execute(
+            "SELECT receta_id FROM postulaciones WHERE id = ?", (p.id,)
+        ).fetchone()
+        claves = {recetas.clave_campo(c.nombre, c.texto) for c in campos if c.tipo != "archivo"}
+        return recetas.pantalla_de_receta(nucleo.base, fila["receta_id"] if fila else None, claves)
+
     def preguntas_de(
-        p: Postulacion, campos: list[Campo], idioma: str | None = None
+        p: Postulacion,
+        campos: list[Campo],
+        idioma: str | None = None,
+        receta: recetas.PantallaReceta | None = None,
     ) -> list[Pregunta]:
         """`idioma` es el de la página (lo que informa la pantalla) para los campos que no
-        traen el suyo."""
+        traen el suyo. `receta` dice qué dato del catálogo va en cada campo que ya conoce."""
         forzadas = campos_obligatorios(nucleo.selectores(p.plataforma))
+        mapeo = receta.mapeo if receta else {}
         return [
             Pregunta(c.texto, c.tipo, c.opciones, c.obligatoria or c.nombre in forzadas,
                      c.nombre, c.maximo, c.ayuda, c.autocomplete, c.accept, c.idioma or idioma,
-                     c.busqueda)
+                     c.busqueda, mapeo.get(recetas.clave_campo(c.nombre, c.texto)))
             for c in campos
         ]  # fmt: skip
+
+    def peticion_de(p: Postulacion, cuerpo: Pantalla) -> pantalla.Peticion:
+        receta = receta_de(p, cuerpo.campos)
+        return pantalla.Peticion(
+            cuerpo.clase, cuerpo.motivo, cuerpo.idioma, cuerpo.url,
+            preguntas_de(p, cuerpo.campos, cuerpo.idioma, receta), cuerpo.botones,
+            cuerpo.sugerido, cuerpo.resumen, cuerpo.exito, cuerpo.correccion,
+            receta.boton if receta else None,
+        )  # fmt: skip
 
     def anotar_pantalla(pid: int, cuerpo: Pantalla, decision: pantalla.Decision) -> None:
         """Lo que pasó en la pantalla, sin valores, para la receta del sitio si se envía."""
@@ -494,8 +539,13 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         """Enlace de un solo uso (10 min) para que la extensión baje el CV."""
         if cv is None:
             return None
+        return publicar(cv, cv.name)
+
+    def publicar(contenido: Path | bytes, nombre: str) -> str:
+        """Lo mismo para cualquier PDF; los documentos del usuario viajan descifrados desde la
+        memoria, nunca se escriben en claro en el disco."""
         token = secrets.token_urlsafe(24)
-        descargas_cv[token] = (cv, nucleo.ahora() + VIGENCIA_CV)
+        descargas_cv[token] = (contenido, nombre, nucleo.ahora() + VIGENCIA_CV)
         return f"{PREFIJO}/cv/{token}"
 
     # --- ping ---
@@ -745,7 +795,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         pid: int, cuerpo: Formulario, nav: vinculos.Navegador = Depends(navegador_actual)
     ):
         p = postulacion_en_curso(pid, nav)
-        preguntas = preguntas_de(p, cuerpo.campos)
+        preguntas = preguntas_de(p, cuerpo.campos, receta=receta_de(p, cuerpo.campos))
         resultado = await resolver_con_latido(p, nav, preguntas)
         if resultado.revisar or any(r.pregunta.obligatoria for r in resultado.faltan):
             nucleo.cola.esperar_usuario(pid, nav.id, nucleo.ahora())
@@ -768,11 +818,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         if not motor.activo:
             raise HTTPException(404, "el motor genérico está apagado")
         p = postulacion_en_curso(pid, nav)
-        peticion = pantalla.Peticion(
-            cuerpo.clase, cuerpo.motivo, cuerpo.idioma, cuerpo.url,
-            preguntas_de(p, cuerpo.campos, cuerpo.idioma), cuerpo.botones, cuerpo.sugerido,
-            cuerpo.resumen, cuerpo.exito, cuerpo.correccion,
-        )  # fmt: skip
+        peticion = peticion_de(p, cuerpo)
 
         async def resolver(preguntas):
             return await nucleo.resolver_formulario(p, preguntas)
@@ -803,10 +849,20 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             nucleo.cola.esperar_usuario(pid, nav.id, nucleo.ahora())
             return {"esperar_usuario": True}
         anotar_pantalla(pid, cuerpo, decision)
+        paquete = PaqueteDocumentos()
+        if peticion.pide_archivo and (decision.accion or {}).get("tipo") != "respaldo":
+            paquete = await con_latido(
+                p, nav, nucleo.documentos_pantalla(p, peticion.preguntas), "documentos_listos"
+            )
+            if paquete.faltan:  # un documento obligatorio que no hay: la card se lo pide
+                nucleo.cola.esperar_usuario(pid, nav.id, nucleo.ahora())
+                return {"esperar_usuario": True}
         return {"esperar_usuario": False, "respuestas": decision.respuestas,
                 "cv_url": publicar_cv(decision.cv),
                 "cv_nombre": decision.cv.name if decision.cv else None,
-                "documentos": {}, "accion": decision.accion}  # fmt: skip
+                "documentos": {tipo: {"url": publicar(contenido, nombre), "nombre": nombre}
+                               for tipo, (nombre, contenido) in paquete.documentos.items()},
+                "accion": decision.accion}  # fmt: skip
 
     @app.post(PREFIJO + "/postulaciones/{pid}/reparar")
     async def reparar(
@@ -836,11 +892,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         nucleo.cola.registrar_paso(
             pid, nav.id, "reparacion", f"{cuerpo.paso}: {cuerpo.fallo}"[:200], nucleo.ahora()
         )
-        peticion = pantalla.Peticion(
-            cuerpo.clase, cuerpo.motivo, cuerpo.idioma, cuerpo.url,
-            preguntas_de(p, cuerpo.campos, cuerpo.idioma), cuerpo.botones, cuerpo.sugerido,
-            cuerpo.resumen, cuerpo.exito, cuerpo.correccion,
-        )  # fmt: skip
+        peticion = peticion_de(p, cuerpo)
         consulta = pantalla.ConsultaReparacion(peticion, cuerpo.paso, cuerpo.fallo)
         veredicto = await con_latido(
             p, nav, nucleo.reparar_pantalla(p, consulta), "reparacion_resuelta"
@@ -855,10 +907,17 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
 
     @app.get(PREFIJO + "/cv/{token}")
     async def descargar_cv(token: str, nav: vinculos.Navegador = Depends(navegador_actual)):
-        ruta, vence = descargas_cv.pop(token, (None, None))
-        if ruta is None or vence < nucleo.ahora() or not ruta.is_file():
+        contenido, nombre, vence = descargas_cv.pop(token, (None, "", None))
+        if contenido is None or vence < nucleo.ahora():
             raise HTTPException(404, "enlace vencido o ya usado")
-        return FileResponse(ruta, media_type="application/pdf", filename=ruta.name)
+        if isinstance(contenido, bytes):
+            return Response(
+                contenido, media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+            )  # fmt: skip
+        if not contenido.is_file():
+            raise HTTPException(404, "enlace vencido o ya usado")
+        return FileResponse(contenido, media_type="application/pdf", filename=nombre)
 
     @app.post(PREFIJO + "/postulaciones/{pid}/envio")
     async def envio(pid: int, nav: vinculos.Navegador = Depends(navegador_actual)):
@@ -1028,6 +1087,14 @@ def _trabajo(nucleo: Nucleo, p: Postulacion) -> dict[str, Any]:
         vacante = nucleo.vacante(p.id_corto) or {}
         trabajo["url"] = vacante.get("url")
         trabajo["titulo"] = vacante.get("titulo")
+    if nucleo.en_ensayo(p):
+        # La extensión llena y avanza como siempre y se detiene justo antes de registrar el envío
+        # (la 1.1.x ignora esta clave: por eso `version_minima` sube con el ensayo)
+        trabajo["ensayo"] = True
+    if motor.activo and (resuelto := nucleo.esquema_resuelto(p)):
+        # Esquema anticipado: lo ya respondido, por clave de campo; la extensión llena esos
+        # campos sin consultar al servidor (la 1.1.x ignora esta clave)
+        trabajo["esquema"] = {"respuestas": resuelto}
     if motor.activo:
         _con_aprendizaje(nucleo, p, trabajo)
     return trabajo
