@@ -29,7 +29,7 @@
 
 ## 6. Despliegue y prueba real
 
-- [ ] 6.1 👤 Desplegar en el Fedora (`git pull --ff-only` en `~/buscador-vacantes` y reiniciar `buscador-asistente`) y recargar la extensión. Verificar que el servicio arranca y que el siguiente latido reescribe `portales_json` con `estado` y `motivo`.
+- [x] 6.1 👤 Desplegar en el Fedora (`git pull --ff-only` en `~/buscador-vacantes` y reiniciar `buscador-asistente`) y recargar la extensión. Verificar que el servicio arranca y que el siguiente latido reescribe `portales_json` con `estado` y `motivo`.
 - [ ] 6.2 👤 Prueba real: con sesión cerrada en Magneto, tocar ⚡ en una vacante de Magneto que no se haya postulado. Verificar que la card dice «inicia sesión en Magneto» con el botón «Iniciar sesión», que al iniciar sesión vuelve sola a «En cola» y luego avanza al progreso.
 - [ ] 6.3 👤 Confirmar la URL de ingreso de elempleo con el botón de la card (o en el reconocimiento) y ajustar `URL_INGRESO` si hace falta. Verificar que el botón abre la página de ingreso.
 - [ ] 6.4 🟢 Archivar con `/opsx:archive`. Verificar con `openspec validate explicar-espera-en-cola` y `openspec list`.

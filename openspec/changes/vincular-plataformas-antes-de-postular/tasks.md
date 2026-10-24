@@ -18,6 +18,6 @@
 
 ## 4. Despliegue y prueba real
 
-- [ ] 4.1 👤 Desplegar en el Fedora (`git pull --ff-only` y reinicio de `buscador-asistente`). Verificar con el servicio activo y sin errores en el log.
+- [x] 4.1 👤 Desplegar en el Fedora (`git pull --ff-only` y reinicio de `buscador-asistente`). Verificar con el servicio activo y sin errores en el log.
 - [ ] 4.2 👤 Prueba real con una cuenta de Telegram nueva: tocar ⚡ en una vacante, registrarse, vincular el navegador, comprobar que la postulación no arranca hasta confirmar la cuenta del portal, y repetir con «Omitir por ahora». Verificar con la postulación en `enviada` en el primer caso y en cola esperando sesión en el segundo.
 - [ ] 4.3 🟢 Archivar el change tras el despliegue. Verificar con `openspec validate` y `openspec list --specs`.
