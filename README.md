@@ -171,6 +171,19 @@ uv run buscador.py --simular-incidente linkedin:bloqueo --dry-run
 | `normal` | ✅ Al canal | ✅ Sí | ✅ Sí | ✅ Sí |
 | `resumen` | ✅ Al canal | ❌ No | ✅ Sí (1 llamada) | ✅ Sí |
 
+#### 🔎 ¿Por qué no llegó esta vacante?
+`diagnosticar` solo lee `data/vacantes.db` (no toma el lock ni escribe) y responde si la vacante se buscó, si llegó, si se publicó o en qué etapa se descartó, con su motivo. Los descartes se guardan 14 días.
+```bash
+# Con el enlace de la oferta, la clave de la fuente (fuente:id) o parte del título
+uv run buscador.py diagnosticar "https://co.computrabajo.com/ofertas-de-trabajo/oferta-de-trabajo-de-aprendiz-sena-AB12CD"
+uv run buscador.py diagnosticar "aprendiz sena"
+
+# Si nunca llegó, lista las palabras clave que se buscaron en esa fuente en los últimos 3 días.
+# Evaluar en seco una vacante con las reglas vigentes (--con-ia consulta a DeepSeek sin guardar caché)
+uv run buscador.py diagnosticar --evaluar --titulo "Aprendiz SENA Tecnólogo ADSO" \
+  --ubicacion Cartagena --modalidad Presencial
+```
+
 ---
 
 ### 🤖 Operación del Asistente de Postulación
