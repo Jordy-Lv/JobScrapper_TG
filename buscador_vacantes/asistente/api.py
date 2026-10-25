@@ -626,8 +626,12 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             )
             ok = verificacion.estado == EstadoCuenta.OK
             cuentas_ok[plataforma] = ok
+            # Al reabrir la sesión se vuelve a pedir la cuenta que sigue sin resolverse
+            reabierta = previo.get("estado") == "sin_sesion" and verificacion.estado in (
+                EstadoCuenta.POR_CONFIRMAR, EstadoCuenta.DISTINTA,
+            )  # fmt: skip
             if verificacion.estado != EstadoCuenta.OK and (
-                verificacion.nuevo or previo.get("cuenta") != verificacion.estado
+                verificacion.nuevo or reabierta or previo.get("cuenta") != verificacion.estado
             ):
                 await nucleo.notificar({
                     "tipo": f"cuenta_{verificacion.estado}", "usuario_id": nav.usuario_id,

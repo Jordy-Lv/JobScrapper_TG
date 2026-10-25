@@ -1167,6 +1167,57 @@ def test_volver_de_sin_sesion_avisa_solo_si_el_estado_cambio(entorno):
     assert tipos.count("portal_incompleto") == 1
 
 
+def tipos_de_aviso(nucleo):
+    return [e["tipo"] for e in nucleo.eventos if isinstance(e, dict)]
+
+
+def test_reabrir_la_sesion_con_la_cuenta_por_confirmar_vuelve_a_avisar(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    latido(cliente, cab)  # primera vez: por confirmar
+    assert tipos_de_aviso(nucleo).count("cuenta_por_confirmar") == 1
+    latido(cliente, cab)
+    latido(cliente, cab)  # con la sesión abierta y sin cambios no se repite
+    assert tipos_de_aviso(nucleo).count("cuenta_por_confirmar") == 1
+    latido_con(cliente, cab, {CT: {"estado": "sin_sesion", "motivo": "enlace_ingresar"}})
+    latido(cliente, cab)
+    assert tipos_de_aviso(nucleo).count("cuenta_por_confirmar") == 2
+    latido(cliente, cab)
+    assert tipos_de_aviso(nucleo).count("cuenta_por_confirmar") == 2
+
+
+def test_reabrir_la_sesion_con_cuenta_distinta_vuelve_a_avisar(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    latido(cliente, cab, correo="luis.g@hotmail.com")
+    assert tipos_de_aviso(nucleo).count("cuenta_distinta") == 1
+    latido_con(cliente, cab, {CT: {"estado": "sin_sesion", "motivo": "enlace_ingresar"}})
+    latido(cliente, cab, correo="luis.g@hotmail.com")
+    assert tipos_de_aviso(nucleo).count("cuenta_distinta") == 2
+
+
+def test_reabrir_la_sesion_con_la_cuenta_confirmada_no_avisa(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    avisos = len(tipos_de_aviso(nucleo))
+    latido_con(cliente, cab, {CT: {"estado": "sin_sesion", "motivo": "enlace_ingresar"}})
+    latido(cliente, cab)
+    nuevos = tipos_de_aviso(nucleo)[avisos:]
+    assert not [t for t in nuevos if t.startswith("cuenta_")]
+
+
+def test_reabrir_la_sesion_sin_poder_leer_el_correo_no_repite_el_aviso(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    latido(cliente, cab, correo=None)
+    antes = tipos_de_aviso(nucleo).count("cuenta_sin_correo")
+    latido_con(cliente, cab, {CT: {"estado": "sin_sesion", "motivo": "enlace_ingresar"}})
+    latido(cliente, cab, correo=None)
+    assert tipos_de_aviso(nucleo).count("cuenta_sin_correo") == antes
+
+
 def test_latido_con_y_sin_pausado(entorno):
     nucleo, cliente = entorno
     cab = vincular(nucleo, cliente)
