@@ -1126,6 +1126,37 @@ class Conversacion:
             return
         await self._pintar_tarjeta(usuario, tj)
 
+    async def _retirar_confirmacion(self, usuario: Usuario, plataforma: str) -> None:
+        """Tras confirmar una cuenta, borra el mensaje de conexión que solo servía para eso.
+
+        Se queda si es parte del alta o el bloque «Conexión» de la card de la postulación, o si
+        aún tiene otra cuenta por resolver. El borrado es de mejor esfuerzo."""
+        actual = self.n.usuarios.por_id(usuario.id) or usuario
+        tj = self._tarjeta(actual)
+        if tj is None or tj.paso or actual.estado == EstadoUsuario.ALTA:
+            return
+        por_resolver = (tarjeta.POR_CONFIRMAR, tarjeta.DISTINTA, tarjeta.REVISANDO)
+        de_la_card = self._plataforma_de(tj.pid) if tj.pid is not None else None
+        if plataforma == de_la_card:
+            return
+        if any(
+            c["estado"] in por_resolver for p, c in tj.cuentas.items() if p != de_la_card
+        ):
+            return
+        if tj.pid is None:
+            mensaje = tj.mensaje_id
+            self._guardar_tarjeta(actual, None)
+        else:  # el mensaje aparte de los portales distintos al de la card
+            clave = f"tarjeta_otros:{actual.id}"
+            mensaje = self.n.base.kv_obtener(clave)
+            self.n.base.kv_guardar(clave, "")
+        if not mensaje:
+            return
+        try:
+            await self.s.borrar(actual.telegram_id, int(mensaje))
+        except Exception:  # noqa: BLE001 - ya no existe o no se puede borrar: no importa
+            log.info("No se pudo borrar la confirmación de %s", actual.id)
+
     def _plataforma_de(self, pid: int) -> str | None:
         fila = self.n.base.cx.execute(
             "SELECT plataforma FROM postulaciones WHERE id = ?", (pid,)
@@ -2158,6 +2189,7 @@ class Conversacion:
                         lambda tj: tj.poner_cuenta(plataforma, tarjeta.CONFIRMADA),
                         plataforma,
                     )
+                    await self._retirar_confirmacion(usuario, plataforma)
                     await self._revisar_paso_plataformas(usuario)
                 elif decision == "nueva":
                     # No se guarda el correo ajeno: se olvida la asociación y en el próximo
@@ -2789,20 +2821,18 @@ class Conversacion:
                 await self._ir_a(usuario, "plataformas")  # falta iniciar sesión en los portales
             else:
                 await self._actualizar_tarjeta(usuario, lambda tj: setattr(tj, "navegador", True))
-        elif tipo == "cuenta_por_confirmar":
-            await self._actualizar_tarjeta(
-                usuario,
-                lambda tj: tj.poner_cuenta(d["plataforma"], tarjeta.POR_CONFIRMAR, d["asociado"]),
-                d["plataforma"],
-            )
-        elif tipo == "cuenta_distinta":
-            await self._actualizar_tarjeta(
-                usuario,
-                lambda tj: tj.poner_cuenta(
-                    d["plataforma"], tarjeta.DISTINTA, d["asociado"], d["encontrado"]
-                ),
-                d["plataforma"],
-            )
+        elif tipo in ("cuenta_por_confirmar", "cuenta_distinta"):
+
+            def poner(tj: Tarjeta) -> None:
+                tj.navegador = True  # el aviso sale de un latido: el navegador está vinculado
+                if tipo == "cuenta_por_confirmar":
+                    tj.poner_cuenta(d["plataforma"], tarjeta.POR_CONFIRMAR, d["asociado"])
+                else:
+                    tj.poner_cuenta(
+                        d["plataforma"], tarjeta.DISTINTA, d["asociado"], d["encontrado"]
+                    )
+
+            await self._actualizar_tarjeta(usuario, poner, d["plataforma"])
         elif tipo == "cuenta_sin_correo":
             log.info("No se pudo leer el correo de %s para el usuario %s", nombre, usuario.id)
         elif tipo == "portal_listo":

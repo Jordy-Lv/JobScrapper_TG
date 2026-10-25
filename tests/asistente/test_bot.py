@@ -1902,6 +1902,106 @@ def test_cancelar_la_cuenta_deja_la_linea_pendiente_en_la_tarjeta(mundo):
     assert "· 🟢 Magneto: inicia sesión con tu cuenta" in mundo.s.ediciones[-1][2]
 
 
+# --- confirmar la cuenta retira el mensaje de conexión ------------------------------------------
+
+
+@respx.mock
+def test_confirmar_la_cuenta_borra_el_mensaje_de_conexion_suelto(mundo):
+    usuario = preparar_toque(mundo)
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "elempleo", "ana@gmail.com")))
+    mensaje = mundo.s.ediciones[-1][1]
+    assert mundo.s.botones_editados[mensaje][0][0][1] == cb("cuenta", "elempleo", "si")
+    assert not mundo.s.borrados
+    correr(mundo.c.al_boton(ANA, cb("cuenta", "elempleo", "si")))
+    assert mundo.s.borrados == [(ANA, mensaje)]
+    assert not kv_tarjeta(mundo, usuario)  # la tarjeta se suelta: el próximo aviso crea otra
+
+
+@respx.mock
+def test_confirmar_con_otra_cuenta_pendiente_en_el_mensaje_no_lo_borra(mundo):
+    usuario = preparar_toque(mundo)
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "elempleo", "ana@gmail.com")))
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "magneto", "ana@magneto.co")))
+    mensaje = mundo.s.ediciones[-1][1]
+    correr(mundo.c.al_boton(ANA, cb("cuenta", "elempleo", "si")))
+    assert not mundo.s.borrados
+    assert mundo.s.ediciones[-1][1] == mensaje
+    assert [fila[0][0] for fila in mundo.s.botones_editados[mensaje]] == ["Confirmar Magneto"]
+    correr(mundo.c.al_boton(ANA, cb("cuenta", "magneto", "si")))
+    assert mundo.s.borrados == [(ANA, mensaje)]
+
+
+@respx.mock
+def test_reabrir_la_sesion_edita_el_mismo_mensaje_o_envia_uno_nuevo_si_no_se_puede(mundo):
+    usuario = preparar_toque(mundo)
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "elempleo", "ana@gmail.com")))
+    mensaje = mundo.s.ediciones[-1][1]
+    enviados = len(mundo.s.mensajes)
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "elempleo", "ana@gmail.com")))
+    assert len(mundo.s.mensajes) == enviados and mundo.s.ediciones[-1][1] == mensaje
+
+    editar = mundo.s.editar
+
+    async def borrado(chat, mensaje_id, texto, botones=None):
+        raise RuntimeError("message to edit not found")
+
+    mundo.s.editar = borrado
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "elempleo", "ana@gmail.com")))
+    mundo.s.editar = editar
+    assert len(mundo.s.mensajes) == enviados + 1
+    assert "¿Es tu cuenta?" in mundo.s.mensajes[-1][1]
+    assert mundo.s.mensajes[-1][2][0][0][1] == cb("cuenta", "elempleo", "si")
+
+
+@respx.mock
+def test_si_no_se_puede_borrar_la_confirmacion_la_cuenta_igual_queda_confirmada(mundo):
+    usuario = preparar_toque(mundo)
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "elempleo", "ana@gmail.com")))
+    mundo.n.cuentas.verificar(usuario.id, "elempleo", "ana@gmail.com", T0)
+
+    async def borrar(chat, mensaje):
+        raise RuntimeError("Message can't be deleted")
+
+    mundo.s.borrar = borrar
+    correr(mundo.c.al_boton(ANA, cb("cuenta", "elempleo", "si")))
+    estado = mundo.base.cx.execute(
+        "SELECT estado FROM cuentas_portal WHERE plataforma = 'elempleo'"
+    ).fetchone()
+    assert estado["estado"] == "confirmada"
+
+
+def test_confirmar_en_el_alta_no_borra_la_tarjeta(mundo):
+    async def flujo():
+        await hasta_resumen(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("resumen", "ok"))
+        await responder_faltantes(mundo, ANA)
+        await mundo.c.al_boton(ANA, cb("vincular"))
+        usuario = mundo.n.usuarios.obtener(ANA)
+        with mundo.n.base.transaccion() as cx:
+            cx.execute(
+                "INSERT INTO navegadores(usuario_id, token_hash, creado, ultimo_latido) "
+                "VALUES (?, 'h', 'x', 'x')",
+                (usuario.id,),
+            )
+        await mundo.c.notificar({"tipo": "navegador_vinculado", "usuario_id": usuario.id})
+        assert mundo.n.usuarios.por_id(usuario.id).estado == "alta"  # en el paso de plataformas
+        await mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com"))
+        await mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si"))
+
+    correr(flujo())
+    assert not mundo.s.borrados
+
+
+@respx.mock
+def test_confirmar_dentro_de_la_card_no_la_borra(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    de_plataforma(mundo, pid, "computrabajo")
+    correr(mundo.c.notificar(aviso_cuenta(usuario, "computrabajo", "ana@gmail.com")))
+    correr(mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si")))
+    assert not mundo.s.borrados
+
+
 @respx.mock
 def test_la_vacante_del_alta_se_postula_dentro_de_la_misma_tarjeta(mundo):
     respx.get(URL_LI).mock(return_value=httpx.Response(200, text=FIXTURE_LI))
@@ -2235,16 +2335,16 @@ def test_aviso_de_otro_portal_con_la_card_abierta_va_a_un_mensaje_aparte(mundo):
     ]]  # fmt: skip
     assert mundo.base.kv_obtener(f"tarjeta_otros:{usuario.id}") == str(aparte)
 
-    # Confirmar desde el mensaje aparte lo edita en su sitio, sin tocar la card ni enviar otro
+    # Confirmar desde el mensaje aparte lo borra, sin tocar la card ni enviar otro
     correr(mundo.c.al_boton(ANA, cb("cuenta", "computrabajo", "si")))
     assert len(mundo.s.mensajes) == antes + 1
     assert len(ediciones_de(mundo, mensaje)) == ediciones_card
-    texto, botones = card_de(mundo, aparte)
-    assert "✓ 🔵 Computrabajo · ana@gmail.com" in texto and botones is None
+    assert mundo.s.borrados == [(ANA, aparte)]
+    assert not mundo.base.kv_obtener(f"tarjeta_otros:{usuario.id}")
     texto, botones = card_de(mundo, mensaje)
     assert "Confirmar Magneto" in botones[0][0][0]  # la card conserva lo suyo
 
-    # Al soltar la card, el mensaje aparte deja de editarse
+    # Al soltar la card no queda nada del mensaje aparte
     correr(mundo.c.notificar(Evento("resultado", pid, usuario.id, E.ENVIADA)))
     assert not mundo.base.kv_obtener(f"tarjeta_otros:{usuario.id}")
 
