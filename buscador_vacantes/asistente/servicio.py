@@ -120,6 +120,7 @@ class Servicio:
                             await conversacion.procesar_toque(usuario, p.id_corto,
                                                               origen="automatico")  # fmt: skip
                     ultimo_indice = asyncio.get_running_loop().time()
+                self.nucleo.programar_vigia(ahora)
                 for evento in self.nucleo.cola.vigilar(ahora):
                     await conversacion.notificar(evento)
                 await conversacion.revisar_esperas()

@@ -3165,3 +3165,154 @@ def test_un_usuario_comun_no_puede_ver_las_barreras(mundo):
     correr(alta_completa(mundo, ANA))
     correr(mundo.c.al_comando(ANA, "barreras", []))
     assert "No conozco ese comando" in mundo.s.de(ANA)[-1]
+
+
+def ensayada_con_card_42(mundo, motivo="boton:Submit application"):
+    usuario, p = encolar_con_card_42(mundo)
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = 'ensayada' WHERE id = ?", (p.id,))
+        cx.execute(
+            "INSERT INTO respuestas(postulacion_id, pregunta, respuesta, origen) "
+            "VALUES (?, '¿Por qué nosotros?', 'Me gusta su producto', 'ia')",
+            (p.id,),
+        )
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENSAYADA, motivo)))
+    return usuario, p
+
+
+def test_ensayada_pinta_la_card_con_las_respuestas_y_los_dos_botones(mundo):
+    usuario, p = ensayada_con_card_42(mundo)
+    _, mensaje, texto = mundo.s.ediciones[-1]
+    assert mensaje == 42 and "🧪 Ensayo: no envié nada." in texto
+    assert "Habría pulsado «Submit application»" in texto and "Me gusta su producto" in texto
+    botones = mundo.s.botones_editados[42]
+    datos = [b[1] for fila in botones for b in fila]
+    assert cb("ens", p.id, "real") in datos and cb("ens", p.id, "resp") in datos
+
+
+def test_enviar_de_verdad_vuelve_a_la_cola_sin_ensayo_y_la_card_a_en_cola(mundo):
+    usuario, p = ensayada_con_card_42(mundo)
+    mundo.n.preferencias.fijar_ensayo_usuario(usuario.id, True)
+    assert correr(mundo.c.al_boton(ANA, cb("ens", p.id, "real"))) == "🚀 Enviando de verdad"
+    nueva = mundo.n.cola.obtener(p.id)
+    assert nueva.estado == E.EN_COLA and nueva.forzar_real
+    assert not mundo.n.en_ensayo(nueva)  # aunque el usuario siga en ensayo
+    assert "En cola" in mundo.s.ediciones[-1][2]
+    # Ya no está ensayada: otro toque no hace nada
+    assert "ya no se puede" in correr(mundo.c.al_boton(ANA, cb("ens", p.id, "real")))
+
+
+def test_el_paquete_de_respaldo_de_un_ensayo_termina_con_plataforma_en_ensayo(mundo):
+    usuario, p = ensayada_con_card_42(mundo)
+    correr(mundo.c.al_boton(ANA, cb("ens", p.id, "resp")))
+    assert mundo.n.cola.obtener(p.id).estado == E.RESPALDO
+    assert "estaba en modo ensayo" in mundo.s.ediciones[-1][2]
+
+
+def test_los_botones_del_ensayo_son_solo_del_dueno_de_la_postulacion(mundo):
+    usuario, p = ensayada_con_card_42(mundo)
+    correr(alta_completa(mundo, LUIS))
+    correr(mundo.c.al_boton(LUIS, cb("ens", p.id, "real")))
+    correr(mundo.c.al_boton(LUIS, cb("ens", p.id, "resp")))
+    assert mundo.n.cola.obtener(p.id).estado == E.ENSAYADA
+
+
+def test_un_ensayo_trabado_muestra_la_pantalla_y_el_dueno_recibe_la_evidencia(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+    with mundo.base.transaccion() as cx:
+        mundo.n.cola.paso(cx, p.id, "ensayo_trabado", T0, detalle="pantalla 3: no hay botón")
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.FORMULARIO_DESCONOCIDO, "x")))
+    texto = mundo.s.ediciones[-1][2]
+    assert "Se trabaría en la pantalla 3: no hay botón." in texto
+    assert not any(b[1] == cb("ens", p.id, "real") for f in mundo.s.botones_editados[42] for b in f)
+    assert any("Revisa la evidencia" in m for m in mundo.s.de(DUENO))
+
+
+def test_ensayo_del_dueno_se_enciende_y_apaga_con_el_comando(mundo):
+    correr(alta_completa(mundo, DUENO))
+    dueno = mundo.n.usuarios.obtener(DUENO)
+    correr(mundo.c.al_comando(DUENO, "ensayo", []))
+    assert "apagado" in mundo.s.ultimo(DUENO)[1]
+    correr(mundo.c.al_comando(DUENO, "ensayo", ["on"]))
+    assert "activado" in mundo.s.ultimo(DUENO)[1]
+    assert mundo.n.preferencias.ensayo_usuario(dueno.id)
+    correr(mundo.c.al_comando(DUENO, "ensayo", ["off"]))
+    assert not mundo.n.preferencias.ensayo_usuario(dueno.id)
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_comando(ANA, "ensayo", ["on"]))
+    assert mundo.s.ultimo(ANA)[1].startswith("No conozco ese comando")
+
+
+def test_plataformas_pone_y_quita_el_ensayo_de_una_plataforma(mundo):
+    correr(alta_completa(mundo, DUENO))
+    config = mundo.n.config
+    correr(mundo.c.al_comando(DUENO, "plataformas", ["magneto", "ensayo"]))
+    assert "magneto" in mundo.n.preferencias.plataformas_en_ensayo(config.ensayo.plataformas)
+    assert "magneto: automática · 🧪 en ensayo" in mundo.s.ultimo(DUENO)[1]
+    correr(mundo.c.al_comando(DUENO, "plataformas", ["magneto", "real"]))
+    assert "magneto" not in mundo.n.preferencias.plataformas_en_ensayo(config.ensayo.plataformas)
+    assert "en ensayo" not in mundo.s.ultimo(DUENO)[1]
+    correr(mundo.c.al_comando(DUENO, "plataformas", ["inexistente", "ensayo"]))
+    assert mundo.n.preferencias.plataformas_en_ensayo(config.ensayo.plataformas) == {}
+
+
+def vigia_del_dueno(mundo):
+    correr(alta_completa(mundo, DUENO))
+    dueno = mundo.n.usuarios.obtener(DUENO)
+    mundo.n.indice.indexar(T0)
+    p = mundo.n.cola.encolar_vigia(dueno.id, id_corto("linkedin:1"), "computrabajo", T0)
+    return dueno, p
+
+
+def test_vigia_limpio_no_le_avisa_nada_al_dueno(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    antes = (len(mundo.s.mensajes), len(mundo.s.ediciones))
+    correr(mundo.c.notificar(Evento("resultado", p.id, dueno.id, E.ENSAYADA, "boton:Aplicar")))
+    assert (len(mundo.s.mensajes), len(mundo.s.ediciones)) == antes
+    assert mundo.n.preferencias.plataformas_en_ensayo([]) == {}
+
+
+def test_vigia_que_falla_avisa_al_dueno_y_deja_la_plataforma_en_ensayo(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    with mundo.base.transaccion() as cx:
+        mundo.n.cola.paso(cx, p.id, "ensayo_trabado", T0, detalle="pantalla 1: sin botón")
+    correr(mundo.c.notificar(
+        Evento("resultado", p.id, dueno.id, E.FORMULARIO_DESCONOCIDO, "no apareció el botón")
+    ))  # fmt: skip
+    aviso = mundo.s.de(DUENO)[-1]
+    assert "El vigía no pudo ensayar Computrabajo" in aviso and "pantalla 1: sin botón" in aviso
+    assert "/plataformas computrabajo real" in aviso
+    assert "computrabajo" in mundo.n.preferencias.plataformas_en_ensayo([])
+    # Un usuario común que toque ⚡ en esa plataforma ahora ensaya en lugar de enviar
+    ana = mundo.n.usuarios.obtener(DUENO)
+    otra, _ = mundo.n.cola.encolar(ana.id, id_corto("linkedin:1"), "computrabajo", T0)
+    assert mundo.n.en_ensayo(otra)
+
+
+def test_vigia_reparado_avisa_que_la_plataforma_cambio_sin_ponerla_en_ensayo(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    with mundo.base.transaccion() as cx:
+        mundo.n.cola.paso(cx, p.id, "respaldo_generico", T0, detalle="paso 2")
+    correr(mundo.c.notificar(Evento("resultado", p.id, dueno.id, E.ENSAYADA, "paso:enviar")))
+    assert "cambió y el asistente lo reparó" in mundo.s.de(DUENO)[-1]
+    assert mundo.n.preferencias.plataformas_en_ensayo([]) == {}
+
+
+def test_vigia_no_abre_card_de_progreso_ni_de_verificacion(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    antes = len(mundo.s.mensajes)
+    for tipo in ("postulando", "verificacion"):
+        correr(mundo.c.notificar({"tipo": tipo, "postulacion_id": p.id, "usuario_id": dueno.id}))
+    correr(mundo.c.notificar({"tipo": "paso", "postulacion_id": p.id, "usuario_id": dueno.id,
+                              "paso": "abrir"}))  # fmt: skip
+    assert len(mundo.s.mensajes) == antes and mundo.c._card(p.id) is None
+
+
+def test_vigia_que_el_navegador_no_pudo_correr_no_es_un_fallo_de_la_plataforma(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.notificar(
+        Evento("respaldo", p.id, dueno.id, E.RESPALDO, "navegador_desconectado")
+    ))  # fmt: skip
+    assert len(mundo.s.mensajes) == antes
+    assert mundo.n.preferencias.plataformas_en_ensayo([]) == {}

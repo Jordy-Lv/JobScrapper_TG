@@ -41,7 +41,7 @@ DOCUMENTOS_PEDIR_PDF = (
 
 AYUDA_ADMIN = (
     "\n\n<b>Administración</b>\n/usuarios · /suspender ID · /reactivar ID · /stats · "
-    "/plataformas [nombre on|off] · /barreras [quitar dominio]"
+    "/plataformas [nombre on|off|ensayo|real] · /ensayo [on|off] · /barreras [quitar dominio]"
 )
 
 NO_MIEMBRO = (
@@ -136,12 +136,28 @@ MOTIVOS_RESPALDO = {
     "o se agotó su cuota",
     "documento_faltante": "el formulario pide un documento obligatorio que no tengo guardado",
     "nivel_ahorro": "tu nivel de IA es Ahorro y para entender este formulario hacía falta usarla",
+    "plataforma_en_ensayo": "esta postulación estaba en modo ensayo y no se envió nada",
 }
 # Motivos que no son un fallo del asistente: el dueño no necesita revisar su evidencia
 MOTIVOS_SIN_ALERTA = (
     "ats_con_cuenta", "captcha", "oauth", "codigo_verificacion", "sin_ia", "documento_faltante",
     "nivel_ahorro",
 )  # fmt: skip
+
+# Avisos al dueño del vigía diario (ensayo de cada plataforma en su navegador)
+VIGIA_REPARADO = (
+    "🛠 El vigía encontró que {portal} cambió y el asistente lo reparó solo. Quedó un parche "
+    "candidato: revísalo en la tabla parches_flujo."
+)
+VIGIA_BLOQUEADA = (
+    "🧩 El vigía no pudo ensayar {portal}: el portal pidió una verificación ({motivo}). "
+    "Revisa tu sesión en ese portal."
+)
+VIGIA_FALLO = (
+    "⚠️ El vigía no pudo ensayar {portal}: {motivo}. Nadie lo reparó, así que dejé la plataforma "
+    "en ensayo para todos hasta que la revises. Mira la evidencia en data/asistente/postulaciones/ "
+    "y, cuando esté lista, usa /plataformas {id} real."
+)
 
 # Avisos al dueño de lo que aprende el motor genérico (eventos del núcleo sin usuario)
 AVISO_RECETA_APAGADA = (

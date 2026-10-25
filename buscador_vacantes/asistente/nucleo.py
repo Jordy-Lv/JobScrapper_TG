@@ -10,7 +10,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -78,13 +78,16 @@ from buscador_vacantes.asistente.respuestas import (
     revisar_formulario,
     tipo_archivo,
 )
+from buscador_vacantes.asistente.textos import MOTIVOS_SIN_ALERTA
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuario, Usuarios
 from buscador_vacantes.asistente.vacantes import Indice, VacanteIndexada
 from buscador_vacantes.comun import config as cfg
 from buscador_vacantes.comun.estado import a_texto, ahora_utc, de_texto
+from buscador_vacantes.comun.fechas import ZONA
 
 log = logging.getLogger(__name__)
 
+CLAVE_VIGIA = "vigia_dia"  # día (en Bogotá) del último ensayo programado del vigía
 PROVEEDOR_PROVISIONAL = "gemini"  # se elimina en la tarea 3.3 (proveedor por usuario)
 
 RUTA_SELECTORES = cfg.RAIZ / "assets" / "asistente" / "selectores"
@@ -369,6 +372,8 @@ class Nucleo:
     def en_ensayo(self, postulacion: Postulacion) -> bool:
         """Si la postulación se ensaya (llena todo y se detiene antes de enviar): el usuario lo
         pidió o su plataforma está en ensayo. «Enviar de verdad» la exime."""
+        if postulacion.tipo == Tipo.VIGIA:
+            return True  # el vigía nunca envía
         if postulacion.forzar_real or postulacion.tipo != Tipo.POSTULAR:
             return False
         if self.preferencias.ensayo_usuario(postulacion.usuario_id):
@@ -742,6 +747,113 @@ class Nucleo:
         if not self.cola.a_respaldo(pid, ahora, "documento_faltante", (E.ESPERANDO_USUARIO,)):
             return None
         return pid
+
+    # --- vigía ------------------------------------------------------------------------------
+
+    def vacante_para_vigia(
+        self, usuario_id: int, plataforma: str, ahora: datetime
+    ) -> VacanteIndexada | None:
+        """Una vacante reciente y abierta de la plataforma que el usuario no tiene en la cola."""
+        desde = ahora - timedelta(days=self.config.vigia.dias_recientes)
+        fila = self.base.cx.execute(
+            "SELECT id_corto FROM vacantes WHERE plataforma = ? AND enviada_en >= ? "
+            "AND COALESCE(estado_pagina, 'ok') NOT IN ('cerrada', 'bloqueada') "
+            "AND id_corto NOT IN (SELECT id_corto FROM postulaciones "
+            "WHERE usuario_id = ? AND id_corto IS NOT NULL) "
+            "ORDER BY enviada_en DESC LIMIT 1",
+            (plataforma, a_texto(desde), usuario_id),
+        ).fetchone()
+        return self.indice.obtener(fila["id_corto"]) if fila else None
+
+    def programar_vigia(self, ahora: datetime) -> list[Postulacion]:
+        """Una vez al día, a la hora del vigía, encola en el navegador del dueño un ensayo por
+        plataforma automática. Si el servicio estaba apagado a esa hora, sale dentro de la
+        ventana configurada y no después (fuera de las horas de uso)."""
+        vigia = self.config.vigia
+        dueno = self.usuarios.obtener(self.config.dueno_telegram_id) if vigia.activo else None
+        if dueno is None or not self.tiene_navegador(dueno.id):
+            return []
+        local = ahora.astimezone(ZONA)
+        hora = time.fromisoformat(vigia.hora)
+        inicio = datetime.combine(local.date(), hora, tzinfo=ZONA)
+        if not inicio <= local < inicio + timedelta(hours=vigia.ventana_h):
+            return []
+        if self.base.kv_obtener(CLAVE_VIGIA) == local.date().isoformat():
+            return []
+        self.base.kv_guardar(CLAVE_VIGIA, local.date().isoformat())
+        creadas = []
+        for plataforma, ajustes in self.config.plataformas.items():
+            if not ajustes.automatica or not self.selectores(plataforma):
+                continue
+            vacante = self.vacante_para_vigia(dueno.id, plataforma, ahora)
+            if vacante is None:
+                continue
+            if p := self.cola.encolar_vigia(dueno.id, vacante.id_corto, plataforma, ahora):
+                creadas.append(p)
+        return creadas
+
+    def cerrar_vigia(self, p: Postulacion, estado: E, motivo: str | None) -> str:
+        """Qué pasó con el ensayo del vigía: `ok`, `reparado` (falló y el bucle lo reparó),
+        `fallo` (la plataforma cambió y nadie la reparó: queda en ensayo para todos hasta
+        `/plataformas <p> real`), `bloqueada` o `omitida` (la vacante cerró, falta la sesión,
+        el sitio exige cuenta… nada que le falle a la plataforma)."""
+        if estado == E.ENSAYADA:
+            reparo = self.base.cx.execute(
+                "SELECT 1 FROM postulacion_pasos WHERE postulacion_id = ? "
+                "AND paso IN ('reparacion', 'respaldo_generico')",
+                (p.id,),
+            ).fetchone()
+            return "reparado" if reparo else "ok"
+        if estado == E.BLOQUEADA and motivo not in MOTIVOS_SIN_ALERTA:
+            return "bloqueada"
+        if estado in (E.FORMULARIO_DESCONOCIDO, E.FALLIDA) and motivo not in MOTIVOS_SIN_ALERTA:
+            if p.plataforma:
+                self.preferencias.poner_en_ensayo(p.plataforma, "vigia", self.ahora())
+            return "fallo"
+        return "omitida"
+
+    # --- modo ensayo ------------------------------------------------------------------------
+
+    def datos_ensayo(self, pid: int) -> dict:
+        """Lo que la card de un ensayo muestra: las respuestas que se habrían enviado, dónde se
+        trabaría (el último paso `ensayo_trabado`) y si la plataforma está en ensayo."""
+        cx = self.base.cx
+        trabado = cx.execute(
+            "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? "
+            "AND paso = 'ensayo_trabado' ORDER BY id DESC LIMIT 1",
+            (pid,),
+        ).fetchone()
+        respuestas = cx.execute(
+            "SELECT id, pregunta, respuesta, origen FROM respuestas WHERE postulacion_id = ? "
+            "ORDER BY id",
+            (pid,),
+        ).fetchall()
+        p = self.cola.obtener(pid)
+        en_plataforma = bool(
+            p and p.plataforma
+            in self.preferencias.plataformas_en_ensayo(self.config.ensayo.plataformas)
+        )
+        return {
+            "trabado": trabado["detalle"] if trabado else None,
+            "respuestas": [dict(r) for r in respuestas],
+            "en_plataforma": en_plataforma,
+        }
+
+    def enviar_de_verdad(self, usuario_id: int, pid: int) -> bool:
+        """«Enviar de verdad» en la card de un ensayo: vuelve a la cola, ya sin ensayo."""
+        p = self.cola.obtener(pid)
+        return bool(
+            p and p.usuario_id == usuario_id and self.cola.enviar_de_verdad(pid, self.ahora())
+        )
+
+    def ensayo_a_respaldo(self, usuario_id: int, pid: int) -> bool:
+        """«Paquete de respaldo» en la card de un ensayo: termina con `plataforma_en_ensayo`."""
+        p = self.cola.obtener(pid)
+        desde = (E.ENSAYADA, E.FORMULARIO_DESCONOCIDO, E.BLOQUEADA, E.FALLIDA)
+        return bool(
+            p and p.usuario_id == usuario_id
+            and self.cola.a_respaldo(pid, self.ahora(), "plataforma_en_ensayo", desde)
+        )
 
     def cv_base_de(self, usuario: Usuario, datos: DatosUsuario) -> Path:
         contacto = self.contacto(datos)

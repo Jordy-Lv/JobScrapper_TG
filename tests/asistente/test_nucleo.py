@@ -47,6 +47,7 @@ T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "detalle"
 URL_CT = "https://co.computrabajo.com/ofertas-de-trabajo/oferta-1"
 URL_LI = "https://co.linkedin.com/jobs/view/4475512580"
+CT = "computrabajo"
 
 PERFIL = PerfilExtraido(
     es_cv=True,
@@ -1237,3 +1238,117 @@ def test_vacante_sin_esquema_se_da_por_resuelta(mundo):
     vacante = mundo.nucleo.indice.obtener(p.id_corto)
     assert asyncio.run(mundo.nucleo.anticipar_esquema(p, vacante)) is True
     assert mundo.nucleo.esquema_resuelto(p) == {}
+
+
+# --- vigía: ensayo diario de cada plataforma en el navegador del dueño -------------------------
+
+
+def vigia_listo(mundo, hora="10:00"):
+    """El dueño es el usuario del mundo, con navegador vinculado y selectores cargados."""
+    mundo.nucleo.config.dueno_telegram_id = mundo.usuario.telegram_id
+    mundo.nucleo.config.vigia.activo = True
+    mundo.nucleo.config.vigia.hora = hora
+    mundo.nucleo.cargar_selectores()
+    mundo.nucleo.indice.indexar(T0)
+    mundo.vincular()
+    return mundo.nucleo
+
+
+def test_el_vigia_encola_un_ensayo_por_plataforma_y_una_sola_vez_al_dia(mundo):
+    nucleo = vigia_listo(mundo)
+    [p] = nucleo.programar_vigia(T0)  # solo Computrabajo tiene una vacante en el índice
+    assert p.tipo == "vigia" and p.plataforma == CT and p.estado == E.EN_COLA
+    assert p.usuario_id == mundo.usuario.id and p.origen == "vigia"
+    assert nucleo.en_ensayo(p)  # el vigía nunca envía
+    assert nucleo.programar_vigia(T0 + timedelta(minutes=1)) == []
+    # Al otro día no hay otra vacante distinta: no repite la de ayer
+    assert nucleo.programar_vigia(T0 + timedelta(days=1)) == []
+
+
+def test_el_vigia_respeta_la_hora_la_ventana_y_el_interruptor(mundo):
+    nucleo = vigia_listo(mundo, hora="05:30")  # T0 son las 10:00: fuera de la ventana de 3 h
+    assert nucleo.programar_vigia(T0) == []
+    assert nucleo.programar_vigia(T0 - timedelta(hours=9)) == []  # 20:00 de ayer en Bogotá
+    nucleo.config.vigia.hora = "09:00"
+    assert len(nucleo.programar_vigia(T0)) == 1  # 10:00, a una hora de la prevista
+    nucleo.config.vigia.activo = False
+    assert nucleo.programar_vigia(T0 + timedelta(days=1)) == []
+
+
+def test_el_vigia_necesita_el_navegador_del_dueno(mundo):
+    nucleo = mundo.nucleo
+    nucleo.config.vigia.activo = True
+    nucleo.config.vigia.hora = "10:00"
+    nucleo.cargar_selectores()
+    nucleo.config.dueno_telegram_id = mundo.usuario.telegram_id
+    assert nucleo.programar_vigia(T0) == []  # sin navegador vinculado
+    nucleo.config.dueno_telegram_id = 5
+    mundo.vincular()
+    assert nucleo.programar_vigia(T0) == []  # el dueño no está registrado
+
+
+def test_el_vigia_elige_una_vacante_reciente_abierta_y_que_el_dueno_no_tenga(mundo):
+    nucleo = vigia_listo(mundo)
+    corto = id_corto("computrabajo:1")
+    uid = mundo.usuario.id
+    assert nucleo.vacante_para_vigia(uid, CT, T0).id_corto == corto
+    # Ya la tiene en la cola
+    nucleo.cola.encolar(uid, corto, CT, T0)
+    assert nucleo.vacante_para_vigia(uid, CT, T0) is None
+    with mundo.base.transaccion() as cx:
+        cx.execute("DELETE FROM postulaciones")
+        cx.execute("UPDATE vacantes SET estado_pagina = 'cerrada' WHERE id_corto = ?", (corto,))
+    assert nucleo.vacante_para_vigia(uid, CT, T0) is None  # cerrada
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE vacantes SET estado_pagina = 'ok' WHERE id_corto = ?", (corto,))
+    assert nucleo.vacante_para_vigia(uid, CT, T0 + timedelta(days=4)) is None  # muy vieja
+    assert nucleo.vacante_para_vigia(uid, CT, T0 + timedelta(days=2)).id_corto == corto
+    assert nucleo.vacante_para_vigia(uid, "magneto", T0) is None  # sin vacantes de otra plataforma
+
+
+def test_una_postulacion_real_pasa_antes_que_el_vigia_y_lo_reemplaza_si_es_la_misma(mundo):
+    nucleo = vigia_listo(mundo)
+    [vigia] = nucleo.programar_vigia(T0)
+    assert nucleo.cola.de_usuario(mundo.usuario.id, vigia.id_corto) is None  # no cuenta como suya
+    toque = nucleo.tocar(mundo.usuario, vigia.id_corto)
+    assert toque.camino == Camino.AUTOMATICA and toque.postulacion.tipo == "postular"
+    assert nucleo.cola.obtener(vigia.id) is None  # el ensayo cedió el lugar
+    # Con las dos en la cola, la real sale primero
+    nucleo.config.vigia.hora = "10:00"
+    publicar(mundo, "computrabajo", "2", "https://co.computrabajo.com/ofertas-de-trabajo/oferta-2")
+    otro = nucleo.cola.encolar_vigia(
+        mundo.usuario.id, id_corto("computrabajo:2"), CT, T0 - timedelta(minutes=5)
+    )
+    assert otro is not None
+    siguiente = nucleo.cola.siguiente(mundo.usuario.id, {CT}, T0)
+    assert siguiente.id == toque.postulacion.id
+
+
+@pytest.mark.parametrize(
+    ("estado", "motivo", "resultado", "en_ensayo"),
+    [
+        (E.ENSAYADA, "boton:Aplicar", "ok", False),
+        (E.FORMULARIO_DESCONOCIDO, "no apareció el botón", "fallo", True),
+        (E.FALLIDA, None, "fallo", True),
+        (E.FORMULARIO_DESCONOCIDO, "ats_con_cuenta", "omitida", False),
+        (E.BLOQUEADA, "captcha_visible", "bloqueada", False),
+        (E.VACANTE_CERRADA, None, "omitida", False),
+        (E.RESPALDO, "navegador_desconectado", "omitida", False),
+    ],
+)
+def test_el_resultado_del_vigia_solo_pone_en_ensayo_lo_que_fallo_sin_reparar(
+    mundo, estado, motivo, resultado, en_ensayo
+):
+    nucleo = vigia_listo(mundo)
+    [p] = nucleo.programar_vigia(T0)
+    assert nucleo.cerrar_vigia(p, estado, motivo) == resultado
+    assert (CT in nucleo.preferencias.plataformas_en_ensayo([])) is en_ensayo
+
+
+def test_un_ensayo_del_vigia_que_se_reparo_no_pone_la_plataforma_en_ensayo(mundo):
+    nucleo = vigia_listo(mundo)
+    [p] = nucleo.programar_vigia(T0)
+    with mundo.base.transaccion() as cx:
+        nucleo.cola.paso(cx, p.id, "respaldo_generico", T0, detalle="paso 2")
+    assert nucleo.cerrar_vigia(p, E.ENSAYADA, "boton:Aplicar") == "reparado"
+    assert nucleo.preferencias.plataformas_en_ensayo([]) == {}

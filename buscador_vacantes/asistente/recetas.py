@@ -205,8 +205,10 @@ def guardar_receta(
                 return f["id"]
         cur = cx.execute(
             "INSERT INTO recetas(host, ruta_patron, familia, firma, receta_json, exitos, "
-            "fallos_seguidos, activa, origen, actualizada) VALUES (?, ?, ?, ?, ?, 1, 0, 1, ?, ?)",
-            (host, ruta, familia, json.dumps(firma), contenido, origen, a_texto(ahora)),
+            "fallos_seguidos, activa, origen, actualizada, creada) "
+            "VALUES (?, ?, ?, ?, ?, 1, 0, 1, ?, ?, ?)",
+            (host, ruta, familia, json.dumps(firma), contenido, origen, a_texto(ahora),
+             a_texto(ahora)),
         )
         return cur.lastrowid
 

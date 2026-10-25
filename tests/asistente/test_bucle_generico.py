@@ -204,6 +204,31 @@ def test_las_copias_llegan_a_la_pagina_de_gracias_con_un_solo_envio(tmp_path, ap
     assert len(api.de("motor_generico")) == 1
 
 
+@pytest.mark.parametrize("copia", ["greenhouse", "ashby", "typeform"])
+def test_el_ensayo_llena_todo_y_se_detiene_sin_registrar_ni_contar_ningun_envio(
+    tmp_path, api, copia
+):
+    datos = ESPERADO["copias"][copia]
+    sitio = sitio_de(copia)
+    preparar(api)
+    ejecutar(tmp_path, api, sitio, {**trabajo(datos["inicio"]), "ensayo": True})
+    resultado = final(api)
+    assert resultado["estado"] == "ensayada", [resultado, pasos(api)]
+    assert resultado["motivo"].startswith("boton:")
+    assert sitio.posts == [] and not api.de("envio")
+    assert "ensayo_boton" in pasos(api) and "ensayo_trabado" not in pasos(api)
+
+
+def test_un_ensayo_que_no_llega_al_boton_dice_en_que_pantalla_se_trabo(tmp_path, api):
+    sitio = sitio_de("greenhouse")
+    api.selectores_extra["prueba"] = {"postular": []}
+    api.pantalla = lambda cuerpo: {"accion": {"tipo": "respaldo", "motivo": "sin_boton"}}
+    ejecutar(tmp_path, api, sitio, {**trabajo(GH), "ensayo": True})
+    assert final(api)["estado"] != "enviada"
+    [trabado] = [p for p in api.de("paso") if p["paso"] == "ensayo_trabado"]
+    assert trabado["detalle"].startswith("pantalla 1:") and not api.de("envio")
+
+
 def test_el_envio_se_registra_antes_del_clic(tmp_path, api):
     sitio = sitio_de("greenhouse")
     preparar(api)

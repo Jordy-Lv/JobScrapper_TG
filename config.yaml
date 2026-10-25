@@ -1195,6 +1195,8 @@ asistente:
   vigia:
     activo: false                    # ensayo diario de cada plataforma en el navegador del dueño
     hora: "05:30"
+    dias_recientes: 3                # el vigía ensaya una vacante publicada en los últimos días
+    ventana_h: 3                     # si el servicio estaba apagado a la hora, sale hasta N h después
   # Preguntas típicas por fuente para el paquete de respaldo (se completan en la tarea 3.1)
   preguntas_tipicas:
     otras:

@@ -29,6 +29,7 @@ BLOQUEO = "bloqueo"
 CONFIRMADA = "confirmada"
 INCIERTA = "incierta"
 RESPALDO = "respaldo"
+ENSAYADA = "ensayada"  # modo ensayo: llenó todo y se detuvo antes de enviar
 CERRADA = "cerrada"
 CUENTA = "cuenta"  # cuenta regresiva antes de encolar: la postulación aún no existe
 CANCELADA = "cancelada"
@@ -47,6 +48,8 @@ BOTON_ESCRIBIR = "✍️ Escribir yo"
 BOTON_RESERVADO = "Prefiero no decirlo"
 BOTON_ENVIAR_DOCUMENTO = "📎 Enviar documento"
 BOTON_DOCUMENTO_RESPALDO = "Dejar en respaldo"
+BOTON_ENVIAR_DE_VERDAD = "🚀 Enviar de verdad"
+BOTON_PAQUETE_RESPALDO = "📦 Paquete de respaldo"
 
 Botones = list[list[tuple[str, str]]]
 Cb = Callable[..., str]
@@ -97,6 +100,9 @@ class Datos:
     segundos: int = 0  # cuenta: segundos que faltan
     total: int = 0  # cuenta: duración completa
     url_tienda: str = ""  # en cola: tienda de la extensión, si hay enlace configurado
+    # Ensayada: {"trabado": "pantalla 3: motivo" o None, "en_plataforma": la plataforma está en
+    # ensayo} (las respuestas que se habrían enviado van en ``revision``)
+    ensayo: dict | None = None
 
     @property
     def portal(self) -> str:
@@ -170,6 +176,28 @@ def _respaldo(card: Card) -> list[str]:
         lineas.append(
             "Con el nivel Normal o Máximo (/ia nivel) puedo seguir sola en estos formularios."
         )
+    return lineas
+
+
+def _ensayada(card: Card, d: Datos) -> list[str]:
+    """Lo que habría pasado: dónde se habría pulsado «enviar» o dónde se trabó el ensayo."""
+    ensayo = d.ensayo or {}
+    lineas = ["🧪 Ensayo: no envié nada."]
+    motivo = card.motivo or ""
+    if trabado := ensayo.get("trabado"):
+        donde = trabado if trabado.startswith("antes") else f"en la {trabado}"
+        lineas.append(f"Se trabaría {t.e(donde)}.")
+    elif motivo.startswith("paso:"):
+        lineas.append(
+            f"En {t.e(d.portal)} el ensayo llega hasta el botón de postular, que ya envía la "
+            "postulación; no vi el formulario de después."
+        )
+    elif nombre := motivo.partition(":")[2]:
+        lineas.append(f"Habría pulsado «{t.e(nombre)}» para enviar.")
+    if ensayo.get("en_plataforma"):
+        lineas.append(f"{t.e(d.portal)} está en prueba: aún no envío ahí sin que lo confirmes.")
+    if d.revision and not trabado:
+        lineas += ["", "Esto es lo que habría enviado:", *lineas_revision(d)]
     return lineas
 
 
@@ -258,6 +286,8 @@ def _cuerpo(card: Card, d: Datos) -> list[str]:
             return [f"{icono} {t.e(causa.format(portal=d.portal))}", "No envié nada todavía."]
         case "respaldo":
             return _respaldo(card)
+        case "ensayada":
+            return _ensayada(card, d)
         case "cerrada":
             return [t.e(t.ESTADOS.get(card.motivo or "", card.motivo or "Cerrada"))]
         case _:
@@ -415,6 +445,14 @@ def botones(card: Card, d: Datos, cb: Cb) -> Botones | None:
                 acciones.insert(0, ("Configurar IA", cb("clave", "nueva")))
             filas += _filas(acciones)
             filas += _seguimiento(d, SEGUIMIENTO_RESPALDO, cb)
+        case "ensayada":
+            acciones = []
+            if not (d.ensayo or {}).get("trabado"):
+                acciones.append((BOTON_ENVIAR_DE_VERDAD, cb("ens", d.pid, "real")))
+            acciones.append((BOTON_PAQUETE_RESPALDO, cb("ens", d.pid, "resp")))
+            filas.append(acciones)
+            if d.url:
+                filas.append([("Ver vacante", f"url:{d.url}")])
         case "cerrada":
             if d.url:
                 filas.append([("Ver vacante", f"url:{d.url}")])

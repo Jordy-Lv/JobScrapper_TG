@@ -273,6 +273,7 @@ CREATE TABLE IF NOT EXISTS recetas (
     activa INTEGER NOT NULL DEFAULT 1,
     origen TEXT NOT NULL DEFAULT 'real',       -- real | ensayo
     actualizada TEXT NOT NULL,
+    creada TEXT,                               -- esquema 7 (NULL: anterior, vale `actualizada`)
     UNIQUE (host, ruta_patron, firma)
 );
 CREATE INDEX IF NOT EXISTS recetas_familia ON recetas(familia, activa);
@@ -346,6 +347,8 @@ class BaseAsistente:
                 self._actualizar_desde(fila["version"])
                 self.cx.execute("UPDATE esquema_version SET version = ?", (ESQUEMA_VERSION,))
             self.cx.executescript(INDICES_V4)
+            if "creada" not in self._columnas("recetas"):  # el esquema 7 aún no se publicó
+                self.cx.execute("ALTER TABLE recetas ADD COLUMN creada TEXT")
 
     def _actualizar_desde(self, version: int) -> None:
         """Cambios a una base existente (CREATE TABLE IF NOT EXISTS no agrega columnas)."""

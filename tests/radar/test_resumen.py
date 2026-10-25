@@ -9,7 +9,12 @@ from buscador_vacantes.comun.estado import Estado, a_texto
 from buscador_vacantes.comun.fechas import ZONA
 from buscador_vacantes.radar.ia_cliente import RespuestaIA
 from buscador_vacantes.radar.notificador_telegram import ResultadoEnvio
-from buscador_vacantes.radar.resumen import Resumen, calcular_metricas, calcular_metricas_asistente
+from buscador_vacantes.radar.resumen import (
+    Resumen,
+    _lineas_asistente,
+    calcular_metricas,
+    calcular_metricas_asistente,
+)
 
 AHORA = datetime(2026, 10, 4, 8, 0, tzinfo=ZONA)
 
@@ -396,3 +401,104 @@ def test_las_peticiones_de_detalle_no_cuentan_como_palabras_sin_resultados(estad
                 (a_texto(AHORA - timedelta(hours=horas)),),
             )
     assert calcular_metricas(estado, AHORA).keywords_sin_resultados_7d == ["semillero"]
+
+
+def sembrar_motor(base):
+    """20 postulaciones a un Greenhouse (18 enviadas, 2 de ellas reparadas), 2 ensayos, una
+    pantalla que resolvió el árbitro y 2 respaldos de Computrabajo; todo del día."""
+    hace = lambda **kw: a_texto(AHORA - timedelta(**kw))  # noqa: E731
+    with base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO usuarios(telegram_id, nombre, estado, directorio, creado) "
+            "VALUES (1, 'Ana', 'activo', 'd', ?)",
+            (hace(days=9),),
+        )
+        urls = {
+            "gh": "https://job-boards.greenhouse.io/acme/jobs/1",
+            "ct": "https://co.computrabajo.com/ofertas-de-trabajo/oferta-1",
+        }
+        contador = iter(range(1000))
+
+        def postulacion(corta, plataforma, estado, motivo=None, tipo="postular", pasos=()):
+            id_corto = f"{corta}{next(contador)}"  # una vacante por postulación
+            cx.execute(
+                "INSERT INTO vacantes(id_corto, clave, fuente, url, indexada_en) "
+                "VALUES (?, ?, 'x', ?, ?)",
+                (id_corto, id_corto, urls[corta], hace(days=1)),
+            )
+            pid = cx.execute(
+                "INSERT INTO postulaciones(usuario_id, id_corto, tipo, plataforma, estado, "
+                "motivo, creada, actualizada, terminada_en) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (id_corto, tipo, plataforma, estado, motivo, hace(hours=3), hace(hours=2),
+                 hace(hours=2)),
+            ).lastrowid  # fmt: skip
+            for paso in pasos:
+                cx.execute(
+                    "INSERT INTO postulacion_pasos(postulacion_id, ts, paso) VALUES (?, ?, ?)",
+                    (pid, hace(hours=2), paso),
+                )
+
+        for n in range(18):
+            reparo = ("reparacion", "arbitro") if n < 2 else ()
+            postulacion("gh", "linkedin", "enviada", pasos=reparo)
+        postulacion("gh", "linkedin", "ensayada")
+        postulacion("gh", "linkedin", "ensayada", tipo="vigia", pasos=("respaldo_generico",))
+        postulacion("ct", "computrabajo", "formulario_desconocido", "sin_ia")
+        postulacion("ct", "computrabajo", "respaldo", "captcha")
+        postulacion("ct", "computrabajo", "incierta")
+        postulacion("ct", "computrabajo", "enviada", pasos=("arbitro",))
+        cx.execute(
+            "INSERT INTO recetas(host, ruta_patron, familia, firma, receta_json, actualizada, "
+            "creada) VALUES ('a.com', '/', 'a', '[]', '{}', ?, ?)",
+            (hace(hours=1), hace(hours=1)),
+        )
+        cx.execute(
+            "INSERT INTO recetas(host, ruta_patron, familia, firma, receta_json, actualizada, "
+            "creada) VALUES ('b.com', '/', 'b', '[]', '{}', ?, ?)",  # vieja, reforzada hoy
+            (hace(hours=1), hace(days=5)),
+        )
+        cx.execute(
+            "INSERT INTO recetas(host, ruta_patron, familia, firma, receta_json, actualizada) "
+            "VALUES ('c.com', '/', 'c', '[]', '{}', ?)",  # anterior a la columna `creada`
+            (hace(days=6),),
+        )
+        cx.execute(
+            "INSERT INTO parches_flujo(plataforma, paso, selector_json, creado, actualizado) "
+            "VALUES ('computrabajo', 'p', '{}', ?, ?)",
+            (hace(hours=2), hace(hours=2)),
+        )
+
+
+def test_metricas_del_motor_por_plataforma_y_familia():
+    base = BaseAsistente.abrir(":memory:")
+    sembrar_motor(base)
+    m = calcular_metricas_asistente(base, AHORA, navegador_caido_min=2)
+    gh = m.por_familia["greenhouse"]
+    assert gh["enviadas"] == 18 and gh["ensayadas"] == 2 and gh["reparadas"] == 3
+    assert gh["arbitro"] == 2 and gh["respaldo"] == 0
+    # La plataforma de origen (LinkedIn) reúne lo mismo; Computrabajo, lo suyo
+    assert m.por_plataforma["linkedin"] == gh
+    ct = m.por_plataforma["computrabajo"]
+    assert ct == {"enviadas": 1, "ensayadas": 0, "formulario_desconocido": 1, "incierta": 1,
+                  "reparadas": 0, "arbitro": 1, "respaldo": 2}  # fmt: skip
+    assert m.respaldos_por_motivo == {"sin_ia": 1, "captcha": 1}
+    assert (m.recetas_nuevas, m.parches_nuevos) == (1, 1)
+    assert m.total_motor("ensayadas") == 2 and m.total_motor("arbitro") == 3
+    base.cerrar()
+
+
+def test_el_mensaje_del_dueno_trae_el_motor_y_la_ia_solo_los_totales():
+    base = BaseAsistente.abrir(":memory:")
+    sembrar_motor(base)
+    m = calcular_metricas_asistente(base, AHORA, navegador_caido_min=2)
+    texto = "\n".join(_lineas_asistente(m))
+    assert "• Linkedin: 18 enviadas · 2 ensayadas · 0 sin reconocer · 0 inciertas · " in texto
+    assert "3 reparadas · 2 con árbitro · 0 de respaldo" in texto
+    assert "• Computrabajo: 1 enviadas · 0 ensayadas · 1 sin reconocer · 1 inciertas" in texto
+    assert "🧬 Por familia de ATS:\n• greenhouse: 18 enviadas" in texto
+    assert "📦 Respaldos por motivo: sin_ia 1 · captcha 1" in texto
+    assert "🧠 Aprendió hoy: 1 receta nueva · 1 parche nuevo" in texto
+    para_ia = json.dumps(m.para_ia())
+    assert '"motor_reparadas": 3' in para_ia and '"recetas_nuevas": 1' in para_ia
+    assert "linkedin" not in para_ia and "greenhouse" not in para_ia  # nada por plataforma
+    base.cerrar()

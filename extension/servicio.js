@@ -334,10 +334,12 @@ let ensayoEnCurso = null;
 const SIN_TRABA = ["enviada", "ensayada", "ya_postulada", "vacante_cerrada", "esperando_sesion",
   "cuenta_distinta", "completado"];
 
-async function ensayada(contexto, boton) {
+// `tipo`: "boton" (el bucle genérico, un botón que envía) o "paso" (un flujo declarado, cuyo
+// paso ya envía la postulación al pulsarse)
+async function ensayada(contexto, nombre, tipo) {
   const { id } = contexto.trabajo;
-  await reportar(id, "ensayo_boton", boton);
-  await terminar(id, "ensayada", { motivo: `boton:${String(boton).slice(0, 100)}` });
+  await reportar(id, "ensayo_boton", nombre);
+  await terminar(id, "ensayada", { motivo: `${tipo}:${String(nombre).slice(0, 100)}` });
   return { fin: true };
 }
 
@@ -444,7 +446,7 @@ async function ejecutarPaso(tabId, paso, contexto) {
       return fallarPaso(tabId, contexto, (r && r.error) || "formulario_desconocido",
         { motivo: (r && r.motivo) || "no apareció el botón de enviar", html: r && r.html });
     }
-    return ensayada(contexto, paso.nombre || paso.accion);
+    return ensayada(contexto, paso.nombre || paso.accion, "paso");
   }
   if (paso.accion === "enviar" || paso.envia) {
     // El servidor registra envio_pulsado antes del clic: si el navegador se cierra justo
@@ -914,7 +916,7 @@ async function recorrerPantallas(tabId, contexto) {
       return detener("la decisión no apunta a un botón", await evidencia(marco));
     }
     if (accion.tipo === "enviar" && !contexto.envio && trabajo.ensayo) {
-      return ensayada(contexto, boton.texto);
+      return ensayada(contexto, boton.texto, "boton");
     }
     if (accion.tipo === "enviar" && !contexto.envio) {
       // Como en los flujos declarados: el servidor registra el envío antes del clic. La vuelta

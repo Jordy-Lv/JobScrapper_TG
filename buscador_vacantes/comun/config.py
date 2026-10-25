@@ -523,6 +523,8 @@ class AsistenteEnsayo(Modelo):
 class AsistenteVigia(Modelo):
     activo: bool = False
     hora: str = Field("05:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    dias_recientes: int = Field(3, ge=1)  # antigüedad máxima de la vacante que ensaya
+    ventana_h: int = Field(3, ge=1)  # si el servicio estaba apagado a la hora, hasta cuándo sale
 
 
 class TareaIA(Modelo):

@@ -1229,6 +1229,9 @@ class Conversacion:
                 }  # fmt: skip
         if card.fase == tp.REVISION:
             d.revision = self.n.respuestas_en_revision(pid)
+        if card.fase == tp.ENSAYADA:
+            ensayo = self.n.datos_ensayo(pid)
+            d.revision, d.ensayo = ensayo.pop("respuestas"), ensayo
         if card.fase in (tp.CONFIRMADA, tp.INCIERTA):
             p = self.n.cola.obtener(pid)
             if p is not None:
@@ -2125,6 +2128,8 @@ class Conversacion:
                 if toque is not None and toque.camino == Camino.AUTOMATICA:
                     return "🔁 Reintentando"
                 return None
+            case "ens":
+                return await self._boton_ensayo(usuario, int(args[0]), args[1])
             case "seg":
                 pid, seguimiento = int(args[0]), args[1]
                 with self.n.base.transaccion() as cx:
@@ -2264,6 +2269,7 @@ class Conversacion:
                 "reactivar": self._a_reactivar,
                 "stats": self._a_stats,
                 "plataformas": self._a_plataformas,
+                "ensayo": self._a_ensayo,
                 "barreras": self._a_barreras,
             }.get(comando)
         if manejador is None:
@@ -2636,16 +2642,51 @@ class Conversacion:
         await self._enviar(usuario, "\n".join(lineas))
 
     async def _a_plataformas(self, usuario: Usuario, args) -> None:
-        if len(args) == 2 and args[0] in self.config.plataformas and args[1] in ("on", "off"):
-            self.config.plataformas[args[0]].automatica = args[1] == "on"
-            self.n.usuarios.auditar(
-                usuario.telegram_id, "plataforma", args[0], self.n.ahora(), args[1]
-            )
-            await self.revisar_esperas()
+        if len(args) == 2 and args[0] in self.config.plataformas:
+            nombre, valor = args
+            ahora = self.n.ahora()
+            if valor in ("on", "off"):
+                self.config.plataformas[nombre].automatica = valor == "on"
+            elif valor == "ensayo":
+                self.n.preferencias.poner_en_ensayo(nombre, "dueño", ahora)
+            elif valor == "real":
+                self.n.preferencias.quitar_de_ensayo(nombre)
+            if valor in ("on", "off", "ensayo", "real"):
+                self.n.usuarios.auditar(usuario.telegram_id, "plataforma", nombre, ahora, valor)
+                await self.revisar_esperas()
+        en_ensayo = self.n.preferencias.plataformas_en_ensayo(self.config.ensayo.plataformas)
         lineas = ["<b>Plataformas</b> (hasta reiniciar; el valor fijo está en config.yaml)"]
         for nombre, ajustes in self.config.plataformas.items():
-            lineas.append(f"• {nombre}: {'automática' if ajustes.automatica else 'solo paquete'}")
+            modo = "automática" if ajustes.automatica else "solo paquete"
+            if nombre in en_ensayo:
+                modo += " · 🧪 en ensayo"
+            lineas.append(f"• {nombre}: {modo}")
+        lineas.append("\n/plataformas NOMBRE on|off|ensayo|real")
         await self._enviar(usuario, "\n".join(lineas))
+
+    async def _boton_ensayo(self, usuario: Usuario, pid: int, accion: str) -> str | None:
+        """Botones de la card ensayada: «Enviar de verdad» vuelve a la cola sin ensayo y
+        «Paquete de respaldo» la termina como una plataforma en prueba."""
+        if accion == "real":
+            if not self.n.enviar_de_verdad(usuario.id, pid):
+                return "Esta postulación ya no se puede enviar así"
+            await self._poner_fase(usuario, pid, tp.EN_COLA)
+            return "🚀 Enviando de verdad"
+        if not self.n.ensayo_a_respaldo(usuario.id, pid):
+            return None
+        await self.notificar(Evento("respaldo", pid, usuario.id, E.RESPALDO,
+                                    "plataforma_en_ensayo"))  # fmt: skip
+        return None
+
+    async def _a_ensayo(self, usuario: Usuario, args) -> None:
+        """`/ensayo on|off`: tus postulaciones llenan todo y se detienen antes de enviar."""
+        if args and args[0] in ("on", "off"):
+            self.n.preferencias.fijar_ensayo_usuario(usuario.id, args[0] == "on")
+        if self.n.preferencias.ensayo_usuario(usuario.id):
+            estado = "activado: tus postulaciones llenan todo y se detienen antes de enviar."
+        else:
+            estado = "apagado: tus postulaciones se envían."
+        await self._enviar(usuario, f"🧪 Ensayo {estado}\nUsa /ensayo on o /ensayo off.")
 
     async def _a_barreras(self, usuario: Usuario, args) -> None:
         """Dominios que exigen cuenta u OAuth: sus vacantes van al respaldo sin abrir la página."""
@@ -2708,10 +2749,34 @@ class Conversacion:
                 return
         await self._enviar(self.config.dueno_telegram_id, texto)
 
+    async def _avisar_vigia(self, usuario: Usuario, p, ev: Evento) -> None:
+        """Resultado del ensayo diario del vigía: al dueño solo le avisa lo que no salió limpio."""
+        resultado = self.n.cerrar_vigia(p, ev.estado, ev.detalle)
+        if ev.tipo in ("reencolada", "navegador_desconectado") or resultado in ("ok", "omitida"):
+            return
+        portal = t.NOMBRES_PLATAFORMA.get(p.plataforma or "", p.plataforma or "?")
+        datos = self.n.datos_ensayo(p.id)
+        motivo = t.e(datos["trabado"] or ev.detalle or ev.estado)
+        if resultado == "reparado":
+            texto = t.VIGIA_REPARADO.format(portal=t.e(portal))
+        elif resultado == "bloqueada":
+            texto = t.VIGIA_BLOQUEADA.format(portal=t.e(portal), motivo=motivo)
+        else:
+            texto = t.VIGIA_FALLO.format(portal=t.e(portal), motivo=motivo, id=p.plataforma)
+        await self._enviar(usuario, texto)
+
+    def _es_vigia(self, pid: int | None) -> bool:
+        p = self.n.cola.obtener(pid) if pid else None
+        return p is not None and p.tipo == "vigia"
+
     async def _avisar_dict(self, d: dict) -> None:
         if d["tipo"] in t.AVISOS_DUENIO:
             await self._avisar_duenio(d)
             return
+        if d["tipo"] in ("postulando", "paso", "verificacion") and self._es_vigia(
+            d.get("postulacion_id")
+        ):
+            return  # el ensayo del vigía no tiene card de progreso
         usuario = self.n.usuarios.por_id(d["usuario_id"]) if "usuario_id" in d else None
         if usuario is None:
             return
@@ -3003,6 +3068,9 @@ class Conversacion:
         p = self.n.cola.obtener(ev.postulacion_id)
         if p is None:
             return
+        if p.tipo == "vigia":
+            await self._avisar_vigia(usuario, p, ev)
+            return
         if p.tipo != "postular":
             if ev.estado == E.COMPLETADO:
                 nombre = t.NOMBRES_PLATAFORMA.get(p.plataforma, p.plataforma)
@@ -3032,13 +3100,18 @@ class Conversacion:
             and (ev.detalle or "") in t.BLOQUEOS_PORTAL
         ):
             await self._cerrar_card(usuario, p.id, tp.BLOQUEO, motivo=ev.detalle)
+        elif ev.estado == E.ENSAYADA:
+            await self._cerrar_card(usuario, p.id, tp.ENSAYADA, motivo=ev.detalle)
         elif ev.estado in CON_RESPALDO:
             motivo = (
                 ev.detalle
                 if ev.tipo == "respaldo" or (ev.detalle or "") in t.MOTIVOS_RESPALDO
                 else str(ev.estado)
             )
-            await self._cerrar_card(usuario, p.id, tp.RESPALDO, motivo=motivo)
+            trabado = ev.estado != E.RESPALDO and self.n.datos_ensayo(p.id)["trabado"]
+            # Un ensayo que se trabó muestra en qué pantalla y por qué, no el paquete de respaldo
+            await self._cerrar_card(usuario, p.id, tp.ENSAYADA if trabado else tp.RESPALDO,
+                                    motivo=motivo)  # fmt: skip
             if (
                 ev.estado in (E.FORMULARIO_DESCONOCIDO, E.BLOQUEADA)
                 and motivo not in t.MOTIVOS_SIN_ALERTA

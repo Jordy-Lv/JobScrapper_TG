@@ -573,3 +573,44 @@ def test_respaldo_sin_ia_ofrece_configurar_la_clave_y_conserva_las_demas_accione
     assert ("Ver vacante", f"url:{URL}") in [b for fila in botones for b in fila]
     otro = tp.botones(tp.Card(fase=tp.RESPALDO, motivo="captcha"), d, cb)
     assert "Configurar IA" not in [b[0] for fila in otro for b in fila]
+
+
+def test_ensayada_muestra_donde_habria_pulsado_enviar_y_lo_que_habria_enviado():
+    card = tp.Card(fase=tp.ENSAYADA, motivo="boton:Submit application")
+    d = datos(
+        revision=[{"id": 1, "pregunta": "¿Por qué nosotros?", "respuesta": "Me gusta",
+                   "origen": "ia"}],
+        ensayo={"trabado": None, "en_plataforma": False},
+    )  # fmt: skip
+    texto = tp.texto(card, d)
+    assert "🧪 Ensayo: no envié nada." in texto
+    assert "Habría pulsado «Submit application» para enviar." in texto
+    assert "¿Por qué nosotros?" in texto and "<b>Me gusta</b>" in texto
+    assert "está en prueba" not in texto
+    assert etiquetas(tp.botones(card, d, cb)) == [
+        [tp.BOTON_ENVIAR_DE_VERDAD, tp.BOTON_PAQUETE_RESPALDO], ["Ver vacante"],
+    ]  # fmt: skip
+    assert tp.botones(card, d, cb)[0][0][1] == cb("ens", 7, "real")
+    assert tp.botones(card, d, cb)[0][1][1] == cb("ens", 7, "resp")
+
+
+def test_ensayada_en_un_portal_declarado_aclara_que_llega_hasta_el_boton_de_postular():
+    card = tp.Card(fase=tp.ENSAYADA, motivo="paso:enviar")
+    texto = tp.texto(card, datos(ensayo={"trabado": None, "en_plataforma": True}))
+    assert "En Computrabajo el ensayo llega hasta el botón de postular" in texto
+    assert "Computrabajo está en prueba" in texto
+
+
+@pytest.mark.parametrize(
+    ("trabado", "frase"),
+    [
+        ("pantalla 3: no apareció el botón", "Se trabaría en la pantalla 3: no apareció el botón."),
+        ("antes de la primera pantalla: sin formulario",
+         "Se trabaría antes de la primera pantalla"),
+    ],
+)  # fmt: skip
+def test_ensayada_trabada_dice_la_pantalla_y_el_motivo_y_no_ofrece_enviar(trabado, frase):
+    card = tp.Card(fase=tp.ENSAYADA, motivo="x")
+    d = datos(ensayo={"trabado": trabado, "en_plataforma": False})
+    assert frase in tp.texto(card, d)
+    assert etiquetas(tp.botones(card, d, cb)) == [[tp.BOTON_PAQUETE_RESPALDO], ["Ver vacante"]]

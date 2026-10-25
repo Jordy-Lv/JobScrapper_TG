@@ -42,6 +42,7 @@ MAX_HTML_EVIDENCIA = 300 * 1024
 LIMITE_POR_MINUTO = 120
 LIMITE_VINCULAR_POR_MINUTO = 20
 LIMITE_PING_POR_MINUTO = 60
+VERSION_CON_ENSAYO = (1, 2, 0)  # la primera extensión que se detiene antes de enviar
 VIGENCIA_CV = timedelta(minutes=10)
 LATIDO_FORMULARIO_S = 30  # latido del navegador mientras el servidor resuelve un formulario
 
@@ -678,6 +679,8 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
                 siguiente.tipo == Tipo.COMPLETAR_PERFIL or siguiente.plataforma in listos
             ):
                 trabajo = _trabajo(nucleo, siguiente)
+                if trabajo.get("ensayo") and version_tupla(cuerpo.version) < VERSION_CON_ENSAYO:
+                    trabajo = None  # la 1.1.x ignora el ensayo y enviaría de verdad
         if nucleo.cola.en_espera(nav.usuario_id):
             # Que las cards en cola reflejen lo que acaba de reportar este navegador
             await nucleo.notificar({"tipo": "esperas", "usuario_id": nav.usuario_id})
@@ -1019,7 +1022,14 @@ async def _aprender(
             familia=recetas.familia_de_host(host, fila["plataforma"]), receta=traza[1],
             origen="real", ahora=ahora, enviada=True,
         )  # fmt: skip
-    if ok and cuerpo.parche and fila["plataforma"]:
+    if estado == E.ENSAYADA and fila["tipo"] in ("postular", "vigia") and traza:
+        # El ensayo no envió: su receta sirve para el mapeo y los botones, sin señal de éxito
+        recetas.guardar_receta(
+            base, host=host, ruta=recetas.ruta_patron(url),
+            familia=recetas.familia_de_host(host, fila["plataforma"]), receta=traza[1],
+            origen="ensayo", ahora=ahora,
+        )  # fmt: skip
+    if (ok or estado == E.ENSAYADA) and cuerpo.parche and fila["plataforma"]:
         reparo = base.cx.execute(
             "SELECT 1 FROM postulacion_pasos WHERE postulacion_id = ? "
             "AND paso IN ('respaldo_generico', 'reparacion')",
@@ -1045,7 +1055,7 @@ def _con_aprendizaje(nucleo: Nucleo, p: Postulacion, trabajo: dict[str, Any]) ->
     """La receta del sitio (o de su familia) y los parches de la plataforma que lleva el
     trabajo; queda anotado cuáles para premiarlos o descartarlos con el resultado."""
     receta = None
-    if p.tipo == "postular" and p.id_corto:
+    if p.tipo in ("postular", "vigia") and p.id_corto:
         url = (nucleo.vacante(p.id_corto) or {}).get("url")
         host = recetas.host_de(url)
         if host:
@@ -1067,7 +1077,9 @@ def _con_aprendizaje(nucleo: Nucleo, p: Postulacion, trabajo: dict[str, Any]) ->
 
 
 def _trabajo(nucleo: Nucleo, p: Postulacion) -> dict[str, Any]:
-    trabajo: dict[str, Any] = {"id": p.id, "tipo": p.tipo, "plataforma": p.plataforma}
+    # Para la extensión el ensayo del vigía es una postulación en ensayo
+    tipo = "postular" if p.tipo == Tipo.VIGIA else p.tipo
+    trabajo: dict[str, Any] = {"id": p.id, "tipo": tipo, "plataforma": p.plataforma}
     fila = nucleo.base.cx.execute(
         "SELECT actualizar_cv_portal FROM usuarios WHERE id = ?", (p.usuario_id,)
     ).fetchone()

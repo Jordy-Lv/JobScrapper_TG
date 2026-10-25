@@ -115,7 +115,7 @@ class NucleoFalso:
         return self.reparador(consulta) if self.reparador else None
 
     def en_ensayo(self, postulacion):
-        return self.ensayo
+        return self.ensayo or postulacion.tipo == "vigia"
 
     def esquema_resuelto(self, postulacion):
         return self.resuelto
@@ -1521,3 +1521,37 @@ def test_un_fallo_con_un_parche_candidato_lo_descarta(entorno):
     terminar(cliente, p, cab, "formulario_desconocido", motivo="no_encontrado")
     estado = nucleo.base.cx.execute("SELECT estado FROM parches_flujo").fetchone()[0]
     assert estado == "descartado"
+
+
+def test_un_ensayo_deja_una_receta_de_ensayo_sin_senal(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso(nucleo, cliente)
+    postular_en_greenhouse(nucleo, cliente, p, cab, senal=None)
+    r = terminar(cliente, p, cab, "ensayada", motivo="boton:Submit application")
+    assert r.status_code == 200
+    [fila] = recetas_en_base(nucleo)
+    assert fila["origen"] == "ensayo" and fila["host"] == "job-boards.greenhouse.io"
+    assert json.loads(fila["receta_json"])["senal"] is None
+    assert json.loads(fila["receta_json"])["pantallas"][0]["boton"]["texto"] == "Submit application"
+
+
+def test_el_trabajo_del_vigia_es_un_ensayo_y_la_extension_vieja_no_lo_recibe(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    vigia = nucleo.cola.encolar_vigia(1, "abc", CT, T0)
+    # La 1.1.x ignora `ensayo` y enviaría de verdad: no recibe nada
+    assert latido(cliente, cab, version="1.1.0")["trabajo"] is None
+    trabajo = latido(cliente, cab, version="1.2.0")["trabajo"]
+    assert trabajo["id"] == vigia.id and trabajo["tipo"] == "postular"
+    assert trabajo["ensayo"] is True and trabajo["url"].startswith("https://co.computrabajo.com")
+
+
+def test_un_ensayo_de_usuario_tampoco_va_a_la_extension_vieja(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    preparar_cuenta(nucleo, cliente, cab)
+    nucleo.cola.encolar(1, "abc", CT, T0)
+    nucleo.ensayo = True
+    assert latido(cliente, cab, version="1.1.0")["trabajo"] is None
+    assert latido(cliente, cab, version="1.2.0")["trabajo"]["ensayo"] is True

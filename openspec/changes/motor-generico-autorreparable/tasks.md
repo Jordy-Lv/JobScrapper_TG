@@ -39,7 +39,7 @@
 - [x] 6.6 🟡 Nivel por usuario en sus preferencias, copiado a la postulación al encolar; `/ia nivel` con los tres niveles, el consumo estimado y el uso de hoy (de `ia_uso`), y el selector en el popup. Verificar con `test_bot.py` (cambiar el nivel no afecta una postulación en curso) y la prueba del popup.
 - [x] 6.7 🟡 Aplicar el nivel efectivo en `/pantalla`, `/reparar` y `resolver`: topes de árbitro y reparación, clasificación apagada en Ahorro (pregunta a la card), motivo `nivel_ahorro`, modelo por nivel en `ClienteIA` y bajada por cuota (`nivel_bajado_hasta`, paso `nivel_bajado` y texto de la card). Verificar con `test_api.py`, `test_respuestas.py` y una prueba del cliente con `CuotaAgotada` simulada.
 - [x] 6.8 🔴 Máximo: requisitos de la vacante y hasta 5 ejemplos de estilo en el redactor, doble redacción de respuestas largas, revisor final `revisar_respuestas` (`ok`, `elegir`, `corregir`, `preguntar`, solo respuestas de origen `ia`) y carta opcional en PDF. Verificar con `test_respuestas.py` e IA simulada: idioma corregido, dato dudoso a la card, requisito no cumplido nunca afirmado, consentimientos y datos simples nunca enviados al revisor.
-- [ ] 6.9 🟡 Funcionamiento sin IA de extremo a extremo: sin clave, la copia de Greenhouse con receta se envía sin llamadas a la IA, una pregunta abierta va a la card y se envía tal cual, y un paso que falla termina en respaldo con `sin_ia` y la oferta de configurar una clave. Verificar con `test_motor_generico.py` y `test_tarjeta_postulacion.py`.
+- [x] 6.9 🟡 Funcionamiento sin IA de extremo a extremo: sin clave, la copia de Greenhouse con receta se envía sin llamadas a la IA, una pregunta abierta va a la card y se envía tal cual, y un paso que falla termina en respaldo con `sin_ia` y la oferta de configurar una clave. Verificar con `test_motor_generico.py` y `test_tarjeta_postulacion.py`.
 
 ## 7. Perfil ampliado y documentos
 
@@ -49,13 +49,13 @@
 
 ## 8. Ensayo, vigía y métricas
 
-- [ ] 8.1 🟡 Estado `ensayada` en `cola.py` (final, reportable, reintentable con «Enviar de verdad»), ensayo por usuario (`/ensayo on|off`) y por plataforma (`asistente.ensayo.plataformas` y `plataformas_en_ensayo` en la base), parada antes del primer paso que registra envío, y card con lo que se habría enviado o dónde se trabó. Verificar con `test_cola.py`, `test_tarjeta_postulacion.py` y `test_motor_generico.py` (ningún envío contado en ensayo).
-- [ ] 8.2 🟡 Tipo de trabajo `vigia`, solo para el navegador del dueño a `asistente.vigia.hora`, con una vacante abierta reciente por plataforma; aviso al dueño y plataforma en ensayo si falla sin reparar; `/plataformas <p> real` para quitarla. Verificar con `test_nucleo.py` (programación y elección de vacante) y `test_bot.py` (aviso y comando).
-- [ ] 8.3 🟢 `radar/resumen.py` (`calcular_metricas_asistente`): por plataforma y familia, enviadas, ensayadas, `formulario_desconocido`, `incierta`, reparadas, con árbitro y respaldos por motivo, más recetas y parches nuevos del día. Verificar con `tests/radar/test_resumen.py`.
+- [x] 8.1 🟡 Estado `ensayada` en `cola.py` (final, reportable, reintentable con «Enviar de verdad»), ensayo por usuario (`/ensayo on|off`) y por plataforma (`asistente.ensayo.plataformas` y `plataformas_en_ensayo` en la base), parada antes del primer paso que registra envío, y card con lo que se habría enviado o dónde se trabó. Verificar con `test_cola.py`, `test_tarjeta_postulacion.py` y `test_motor_generico.py` (ningún envío contado en ensayo).
+- [x] 8.2 🟡 Tipo de trabajo `vigia`, solo para el navegador del dueño a `asistente.vigia.hora`, con una vacante abierta reciente por plataforma; aviso al dueño y plataforma en ensayo si falla sin reparar; `/plataformas <p> real` para quitarla. Verificar con `test_nucleo.py` (programación y elección de vacante) y `test_bot.py` (aviso y comando).
+- [x] 8.3 🟢 `radar/resumen.py` (`calcular_metricas_asistente`): por plataforma y familia, enviadas, ensayadas, `formulario_desconocido`, `incierta`, reparadas, con árbitro y respaldos por motivo, más recetas y parches nuevos del día. Verificar con `tests/radar/test_resumen.py`.
 
 ## 9. Verificación y piloto
 
-- [ ] 9.1 🟡 Suite completa en segundo plano (`.venv/Scripts/python -m pytest`) y `.venv/Scripts/ruff check`. Verificar con las dos en verde y `esperado.yaml` cumplido.
+- [x] 9.1 🟡 Suite completa en segundo plano (`.venv/Scripts/python -m pytest`) y `.venv/Scripts/ruff check`. Verificar con las dos en verde y `esperado.yaml` cumplido.
 - [ ] 9.2 👤 Desplegar en el Fedora (PR hacia `main`, `git pull --ff-only`, reinicio del servicio) con `respaldo_declarado: false`, recargar la extensión 1.2.0 en el Chrome del dueño y dejar correr el vigía 3 días. Verificar con los avisos del vigía y el resumen diario.
 - [ ] 9.3 👤 10 ensayos por portal (Computrabajo, Magneto, elempleo) sin fallos sin explicar; luego `respaldo_declarado: true`, `version_minima: 1.2.0` y 3 postulaciones reales por portal que terminen `enviada`. Verificar en «Mis postulaciones» de cada portal y anotar el resultado en `docs/asistente/portales.md`.
 - [ ] 9.4 👤 Forzar un fallo conocido en ensayo (por ejemplo, un selector viejo del botón en una copia local de `computrabajo.json`) y comprobar que el bucle lo repara, que queda un parche candidato y que el dueño recibe el aviso. Verificar con el aviso y la tabla `parches_flujo`.
