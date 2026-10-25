@@ -1137,7 +1137,7 @@ def test_ia_nivel_muestra_los_tres_niveles_con_su_consumo_y_el_uso_de_hoy(mundo)
     assert "✅ <b>Ahorro</b>" not in texto and "✅ <b>Máximo</b>" not in texto
     assert [(b[0][0], b[0][1]) for b in botones] == [
         ("Ahorro", cb("ia", "ahorro")), ("✅ Normal", cb("ia", "normal")),
-        ("Máximo", cb("ia", "maximo")),
+        ("Máximo", cb("ia", "maximo")), ("Cerrar", cb("cerrar", "ia")),
     ]  # fmt: skip
 
 
@@ -1145,17 +1145,63 @@ def test_ia_nivel_cambia_el_nivel_y_lo_marca(mundo):
     correr(alta_completa(mundo, ANA))
     usuario = mundo.n.usuarios.obtener(ANA)
     assert mundo.n.preferencias.nivel_ia(usuario.id) == "normal"
+    correr(mundo.c.al_comando(ANA, "ia", ["nivel"]))
+    enviados = len(mundo.s.mensajes)
     aviso = correr(mundo.c.al_boton(ANA, cb("ia", "maximo")))
     assert aviso == "Nivel Máximo"
     assert mundo.n.preferencias.nivel_ia(usuario.id) == "maximo"
-    _, texto, botones = mundo.s.ultimo(ANA)
+    # La misma card se edita: no llega otro mensaje
+    assert len(mundo.s.mensajes) == enviados
+    _, mensaje, texto = mundo.s.ediciones[-1]
     assert "✅ <b>Máximo</b>" in texto and "✅ <b>Normal</b>" not in texto
-    assert botones[2][0][0] == "✅ Máximo"
+    assert mundo.s.botones_editados[mensaje][2][0][0] == "✅ Máximo"
     # Un nivel que no existe no cambia nada
     assert correr(mundo.c.al_boton(ANA, cb("ia", "enorme"))) is None
     assert mundo.n.preferencias.nivel_ia(usuario.id) == "maximo"
     correr(mundo.c.al_comando(ANA, "ia", ["otra"]))
     assert "/ia nivel" in mundo.s.ultimo(ANA)[1]
+
+
+def efimeros_ia(mundo):
+    return mundo.base.cx.execute(
+        "SELECT * FROM mensajes_efimeros WHERE clave = 'ia' ORDER BY id"
+    ).fetchall()
+
+
+def test_ia_card_es_unica_se_cierra_y_se_borra_sola(mundo):
+    correr(alta_completa(mundo, ANA))
+    cfg = mundo.n.config.mensajes_efimeros
+    correr(mundo.c.al_comando(ANA, "ia", ["nivel"]))
+    primera = len(mundo.s.mensajes)  # id del mensaje de la card = su posición al enviarse
+    (fila,) = efimeros_ia(mundo)
+    assert fila["borrar_en"] == a_texto(mundo.n.ahora() + timedelta(seconds=cfg.lectura_max_s))
+    # Un segundo /ia borra la primera card y deja solo la nueva
+    correr(mundo.c.al_comando(ANA, "ia", ["nivel"]))
+    assert (ANA, fila["mensaje_id"]) in mundo.s.borrados
+    (nueva,) = efimeros_ia(mundo)
+    assert nueva["mensaje_id"] != fila["mensaje_id"] and len(mundo.s.mensajes) > primera
+    # Elegir un nivel acorta el plazo y deja una sola fila
+    correr(mundo.c.al_boton(ANA, cb("ia", "ahorro")))
+    (corta,) = efimeros_ia(mundo)
+    assert corta["mensaje_id"] == nueva["mensaje_id"]
+    assert corta["borrar_en"] == a_texto(mundo.n.ahora() + timedelta(seconds=cfg.lectura_min_s))
+    # «Cerrar» la borra de una vez
+    correr(mundo.c.al_boton(ANA, cb("cerrar", "ia")))
+    assert (ANA, nueva["mensaje_id"]) in mundo.s.borrados and not efimeros_ia(mundo)
+
+
+def test_ia_elegir_con_la_card_ya_borrada_envia_una_nueva(mundo):
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_comando(ANA, "ia", ["nivel"]))
+    correr(mundo.c.al_boton(ANA, cb("cerrar", "ia")))
+    antes = len(mundo.s.mensajes)
+
+    async def sin_mensaje(*_a, **_k):
+        raise RuntimeError("message to edit not found")
+
+    mundo.s.editar = sin_mensaje
+    correr(mundo.c.al_boton(ANA, cb("ia", "maximo")))
+    assert len(mundo.s.mensajes) == antes + 1 and "✅ <b>Máximo</b>" in mundo.s.ultimo(ANA)[1]
 
 
 def test_cambiar_el_nivel_no_afecta_una_postulacion_en_curso(mundo):
