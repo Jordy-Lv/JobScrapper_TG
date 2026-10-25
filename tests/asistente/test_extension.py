@@ -33,6 +33,9 @@ RAIZ = Path(__file__).resolve().parents[2]
 EXTENSION = RAIZ / "extension"
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "extension"
 SELECTORES = RAIZ / "assets" / "asistente" / "selectores"
+REGLAS_MOTOR = json.loads(
+    (RAIZ / "assets" / "asistente" / "motor_generico.json").read_text(encoding="utf-8")
+)
 TOKEN = "token-de-prueba"
 PDF = b"%PDF-1.4\n% CV de prueba\n"
 
@@ -49,8 +52,15 @@ class ApiPrueba:
         self.ajustar = lambda plataforma, selectores: selectores
         self.preferencias: dict[str, dict] = {}
         self.cuentas: dict[str, dict] = {}
+        self.nivel_ia = "normal"
+        self.uso_ia = {"llamadas": 3, "tokens": 1200}
+        self.con_nivel_ia = True  # False: servidor desactualizado, sin la ruta /nivel_ia (404)
         self.con_ping = True  # False: servidor desactualizado, sin la ruta /ping (404)
         self.demora_ping = 0.0
+        self.pantalla = lambda cuerpo: {}  # decisión de POST /pantalla (la tarea 5.1 del servidor)
+        self.al_envio = lambda: None  # se llama al registrar el envío, antes del clic
+        self.demora_pantalla = 0.0
+        self.selectores_extra: dict[str, dict] = {}  # plataformas de prueba sin archivo
         self.app = self._app()
 
     def de(self, ruta: str) -> list[dict]:
@@ -95,7 +105,16 @@ class ApiPrueba:
             versiones = {p.stem: json.loads(p.read_text(encoding="utf-8"))["version"]
                          for p in SELECTORES.glob("*.json")}  # fmt: skip
             return {"trabajo": trabajo, "version_minima": "1.0.0", "actualizar": False,
-                    "selectores": versiones, "cuentas": cuentas, "latido_s": 30}  # fmt: skip
+                    "selectores": versiones, "cuentas": cuentas, "latido_s": 30,
+                    "motor_generico": REGLAS_MOTOR["version"]}  # fmt: skip
+
+        @app.get("/api/v1/motor_generico")
+        async def motor_generico(request: Request):
+            if not autorizado(request):
+                return JSONResponse({"detail": "token"}, status_code=401)
+            api.llamadas.append(("motor_generico", {}))
+            reglas = {k: v for k, v in REGLAS_MOTOR.items() if k != "nota"}
+            return {"version": REGLAS_MOTOR["version"], "reglas": reglas}
 
         @app.get("/api/v1/preferencias/{plataforma}")
         async def ver_preferencias(plataforma: str, request: Request):
@@ -117,6 +136,28 @@ class ApiPrueba:
             api.preferencias[plataforma] = cuerpo
             return {"ok": True}
 
+        @app.get("/api/v1/nivel_ia")
+        async def ver_nivel_ia(request: Request):
+            if not autorizado(request):
+                return JSONResponse({"detail": "token"}, status_code=401)
+            if not api.con_nivel_ia:
+                return JSONResponse({"detail": "Not Found"}, status_code=404)
+            api.llamadas.append(("nivel_ia_ver", {}))
+            return {"nivel": api.nivel_ia, "hoy": api.uso_ia, "niveles": [
+                {"clave": "ahorro", "nombre": "Ahorro", "llamadas_estimadas": 2},
+                {"clave": "normal", "nombre": "Normal", "llamadas_estimadas": 6},
+                {"clave": "maximo", "nombre": "Máximo", "llamadas_estimadas": 14},
+            ]}  # fmt: skip
+
+        @app.post("/api/v1/nivel_ia")
+        async def guardar_nivel_ia(request: Request):
+            if not autorizado(request):
+                return JSONResponse({"detail": "token"}, status_code=401)
+            cuerpo = await request.json()
+            api.llamadas.append(("nivel_ia_guardar", cuerpo))
+            api.nivel_ia = cuerpo["nivel"]
+            return {"ok": True, "nivel": cuerpo["nivel"]}
+
         @app.post("/api/v1/cuenta/{plataforma}/olvidar")
         async def olvidar(plataforma: str, request: Request):
             if not autorizado(request):
@@ -127,7 +168,11 @@ class ApiPrueba:
 
         @app.get("/api/v1/selectores/{plataforma}")
         async def selectores(plataforma: str):
-            contenido = json.loads((SELECTORES / f"{plataforma}.json").read_text(encoding="utf-8"))
+            if plataforma in api.selectores_extra:
+                contenido = {"version": "prueba", **api.selectores_extra[plataforma]}
+            else:
+                archivo = SELECTORES / f"{plataforma}.json"
+                contenido = json.loads(archivo.read_text(encoding="utf-8"))
             contenido = api.ajustar(plataforma, contenido)
             return {"version": contenido["version"], "selectores": contenido}
 
@@ -137,6 +182,11 @@ class ApiPrueba:
             api.llamadas.append((accion, {"id": pid, **cuerpo}))
             if accion == "tomar":
                 api.trabajos = [t for t in api.trabajos if t["id"] != pid]
+            if accion == "envio":
+                api.al_envio()
+            if accion == "pantalla":
+                await asyncio.sleep(api.demora_pantalla)
+                return api.pantalla(cuerpo)
             if accion == "formulario" and api.esperar and cuerpo["campos"]:
                 return {"esperar_usuario": True}
             if accion == "formulario":
@@ -184,21 +234,37 @@ def api(servidor):
     servidor.ajustar = lambda plataforma, selectores: selectores
     servidor.con_ping = True
     servidor.demora_ping = 0.0
+    servidor.pantalla = lambda cuerpo: {}
+    servidor.al_envio = lambda: None
+    servidor.demora_pantalla = 0.0
+    servidor.selectores_extra = {}
     return servidor
 
 
 # --- navegador con la extensión ----------------------------------------------------------
 
 
-def copia_extension(destino: Path, permisos: tuple[str, ...] = ()) -> Path:
+def copia_extension(destino: Path, permisos: tuple[str, ...] = (),
+                    plataformas: dict[str, list[str]] | None = None) -> Path:  # fmt: skip
     """Copia la extensión y permite el servidor local de prueba (como lo haría Opciones).
 
     `permisos`: dominios opcionales que el usuario ya activó desde el popup (por ejemplo
-    elempleo.com)."""
+    elempleo.com). `plataformas`: plataformas de prueba {nombre: dominios} que se suman a
+    DOMINIOS, con su permiso: la «externa» de postular-linkedin aún no existe."""
     shutil.copytree(EXTENSION, destino)
     manifiesto = json.loads((destino / "manifest.json").read_text(encoding="utf-8"))
     manifiesto["host_permissions"].append("http://127.0.0.1/*")
     manifiesto["host_permissions"] += [f"https://*.{d}/*" for d in permisos]
+    if plataformas:
+        archivo = destino / "portales.js"
+        texto = archivo.read_text(encoding="utf-8")
+        marca = '  spe: ["buscadordeempleo.gov.co"],\n'
+        assert marca in texto
+        nuevas = "".join(f"  {n}: {json.dumps(d)},\n" for n, d in plataformas.items())
+        archivo.write_text(texto.replace(marca, marca + nuevas), encoding="utf-8")
+        manifiesto["host_permissions"] += [
+            f"https://*.{d}/*" for dominios in plataformas.values() for d in dominios
+        ]
     (destino / "manifest.json").write_text(json.dumps(manifiesto), encoding="utf-8")
     return destino
 
@@ -312,9 +378,9 @@ def correr(corutina):
 
 
 async def abrir(tmp_path: Path, url_api: str, portales: Portales, *, vinculado=True,
-                permisos: tuple[str, ...] = ()):  # fmt: skip
+                permisos: tuple[str, ...] = (), plataformas=None):  # fmt: skip
     pw = await playwright_api.async_playwright().start()
-    ruta = copia_extension(tmp_path / "ext", permisos)
+    ruta = copia_extension(tmp_path / "ext", permisos, plataformas)
     try:
         contexto = await pw.chromium.launch_persistent_context(
             str(tmp_path / "perfil"), channel="chromium", headless=True,
@@ -384,6 +450,7 @@ def respuestas_ana(campos: list[dict]) -> list[dict]:
 def test_manifiesto_con_permisos_minimos():
     manifiesto = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
     assert manifiesto["manifest_version"] == 3
+    assert manifiesto["version"] == "1.2.0"
     assert set(manifiesto["permissions"]) == {"storage", "tabs", "alarms", "scripting"}
     for origen in manifiesto["host_permissions"]:
         assert origen.startswith(("https://*.computrabajo.com", "https://*.magneto365.com",
@@ -422,7 +489,7 @@ def test_vinculacion_automatica_desde_la_pagina(tmp_path, api):
     correr(flujo())
     vinculo = api.de("vincular")[0]
     assert vinculo["codigo"] == "ABCD2345"
-    assert vinculo["version"] == "1.1.0"
+    assert vinculo["version"] == "1.2.0"
 
 
 def test_codigo_vencido_lo_dice_en_la_pagina(tmp_path, api):
@@ -1170,6 +1237,67 @@ def test_revisar_respuestas_viene_apagado_y_se_guarda_al_encenderlo(tmp_path, ap
     }  # fmt: skip
 
 
+JS_NIVEL_IA = (
+    "({oculto: document.getElementById('nivel-ia-bloque').hidden,"
+    " valor: document.getElementById('nivel-ia').value,"
+    " deshabilitado: document.getElementById('nivel-ia').disabled,"
+    " opciones: [...document.querySelectorAll('#nivel-ia option')]"
+    ".map(o => [o.value, o.textContent]),"
+    " hoy: document.getElementById('nivel-ia-hoy').textContent})"
+)
+
+
+def test_el_popup_muestra_y_cambia_el_nivel_de_ia(tmp_path, api):
+    api.nivel_ia, api.uso_ia = "normal", {"llamadas": 3, "tokens": 1200}  # API compartida
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            pagina = await nav.popup()
+            await pagina.wait_for_selector("#nivel-ia:not([disabled])", state="attached")
+            inicial = await pagina.evaluate(JS_NIVEL_IA)
+            await pagina.select_option("#nivel-ia", "maximo")
+            await pagina.wait_for_selector("#nivel-ia:not([disabled])", state="attached")
+            tras_cambiar = await pagina.evaluate(JS_NIVEL_IA)
+            await pagina.close()
+            # Al volver a abrir el popup, refleja lo que guardó el servidor
+            pagina = await nav.popup()
+            await pagina.wait_for_selector("#nivel-ia:not([disabled])", state="attached")
+            reabierto = await pagina.evaluate(JS_NIVEL_IA)
+            await pagina.close()
+            return inicial, tras_cambiar, reabierto
+        finally:
+            await cerrar(nav)
+
+    inicial, tras_cambiar, reabierto = correr(flujo())
+    assert inicial["oculto"] is False and inicial["valor"] == "normal"
+    assert inicial["opciones"] == [
+        ["ahorro", "Ahorro · ~2 llamadas"], ["normal", "Normal · ~6 llamadas"],
+        ["maximo", "Máximo · ~14 llamadas"],
+    ]  # fmt: skip
+    assert "Hoy llevas 3 llamadas y 1200 tokens" in inicial["hoy"]
+    assert tras_cambiar["valor"] == "maximo" and reabierto["valor"] == "maximo"
+    assert api.de("nivel_ia_guardar") == [{"nivel": "maximo"}]
+
+
+def test_el_popup_esconde_el_nivel_de_ia_si_el_servidor_no_lo_conoce(tmp_path, api):
+    api.con_nivel_ia = False
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos())
+        try:
+            await nav.latido()
+            pagina = await nav.popup()
+            await pagina.wait_for_timeout(800)
+            return await pagina.evaluate(JS_NIVEL_IA)
+        finally:
+            await cerrar(nav)
+            api.con_nivel_ia = True
+
+    assert correr(flujo())["oculto"] is True
+
+
 def test_olvidar_cuenta_pide_confirmar_dos_veces(tmp_path, api):
     portales = portales_listos()
     api.cuentas["computrabajo"] = {
@@ -1714,7 +1842,7 @@ def test_etiquetas_de_las_tarjetas(tmp_path, api):
             await nav.guardar({
                 "portales": {"computrabajo": {"estado": "listo"},
                              "magneto": {"estado": "sin_sesion"}},
-                "vigilando": {"magneto": True},
+                "vigilando": {"magneto": int(time.time() * 1000)},
                 "selectores_version": {"computrabajo": "1", "magneto": "1"},
             })  # fmt: skip
             await pagina.wait_for_timeout(400)

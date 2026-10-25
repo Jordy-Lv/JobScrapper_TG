@@ -48,6 +48,9 @@ class VacanteIndexada:
     estado_pagina: str | None = None
     detalle_en: datetime | None = None
     ficha: dict[str, str] | None = None  # salario, ubicación… del JobPosting (ver detalle.py)
+    # Campos del formulario de postulación leídos antes de abrir la página (esquema anticipado);
+    # cada uno con las claves de `api.Campo`. None: se descubre al abrir la página.
+    esquema: list[dict] | None = None
 
     @classmethod
     def de_fila(cls, f: sqlite3.Row) -> VacanteIndexada:
@@ -57,6 +60,7 @@ class VacanteIndexada:
             f["id_corto"], f["clave"], f["fuente"], plataforma, f["url"], f["titulo"],
             f["empresa"], de_texto(f["enviada_en"]), f["detalle"], f["estado_pagina"],
             de_texto(f["detalle_en"]), json.loads(f["ficha_json"]) if f["ficha_json"] else None,
+            json.loads(f["esquema_json"]) if f["esquema_json"] else None,
         )  # fmt: skip
 
     @property
@@ -107,6 +111,14 @@ class Indice:
                 (a_texto(ahora - self.retencion),),
             )
         return nuevas
+
+    def guardar_esquema(self, id_corto_: str, campos: list[dict] | None) -> None:
+        """Guarda (o borra, con None) el esquema del formulario que leyó un lector de ATS."""
+        with self.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE vacantes SET esquema_json = ? WHERE id_corto = ?",
+                (json.dumps(campos, ensure_ascii=False) if campos else None, id_corto_),
+            )
 
     def obtener(self, id_corto_: str) -> VacanteIndexada | None:
         fila = self.base.cx.execute(

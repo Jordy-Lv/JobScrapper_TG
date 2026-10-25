@@ -1,8 +1,13 @@
 """Coherencia de plataformas: con `automatica: true` necesita nombre, dominio y selectores."""
 
+import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from buscador_vacantes.asistente import textos as t
+from buscador_vacantes.asistente.reglas_motor import RUTA_REGLAS, leer_reglas
 from buscador_vacantes.asistente.vacantes import PLATAFORMAS
 from buscador_vacantes.comun import config as cfg
 from buscador_vacantes.comun.config import AsistentePlataforma, cargar_configuracion
@@ -39,7 +44,8 @@ def test_elempleo_postula_sola_tras_su_piloto():
     asistente = cargar_configuracion().asistente
     assert asistente.plataformas["elempleo"].automatica is True
     assert "Computrabajo, Magneto y elempleo" in asistente.politica.texto
-    assert asistente.politica.version == 2
+    assert asistente.politica.version == 3
+    assert "documentos PDF que decidas guardar" in asistente.politica.texto
 
 
 def test_falta_un_nombre():
@@ -63,3 +69,31 @@ def test_automatica_sin_selectores_cargados(tmp_path):
 def test_sin_automatica_no_exige_nada():
     plataformas = {"inventada": AsistentePlataforma(automatica=False)}
     assert incompletas(plataformas) == []
+
+
+# --- reglas del motor genérico (assets/asistente/motor_generico.json) ----------------------
+
+
+def test_reglas_del_motor_generico_validas_y_con_version():
+    reglas = leer_reglas()
+    assert reglas.version
+    for clave, textos in reglas.textos:
+        for idioma in ("es", "en", "pt"):
+            assert getattr(textos, idioma), (clave, idioma)
+    assert "beecatcher" in reglas.trampas
+    # El desafío visible del reCAPTCHA Enterprise que usan Greenhouse y Ashby
+    assert any("recaptcha/enterprise/bframe" in s for s in reglas.captcha.desafio)
+
+
+def test_reglas_del_motor_generico_rechaza_un_idioma_faltante(tmp_path):
+    datos = json.loads(RUTA_REGLAS.read_text(encoding="utf-8"))
+    del datos["textos"]["enviar"]["pt"]
+    ruta = tmp_path / "motor_generico.json"
+    ruta.write_text(json.dumps(datos), encoding="utf-8")
+    with pytest.raises(ValidationError, match="pt"):
+        leer_reglas(ruta)
+    datos["textos"]["enviar"]["pt"] = ["enviar"]
+    datos["desconocida"] = 1
+    ruta.write_text(json.dumps(datos), encoding="utf-8")
+    with pytest.raises(ValidationError, match="desconocida"):
+        leer_reglas(ruta)

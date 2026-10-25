@@ -28,7 +28,13 @@ from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.membresia import Comprobador  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
+from buscador_vacantes.asistente.recetas import (  # noqa: E402
+    barrera_de,
+    marcar_barrera,
+    proponer_parche,
+)
 from buscador_vacantes.asistente.respuestas import (  # noqa: E402
+    Pregunta,
     aprendida,
     normalizar_pregunta,
     sembrar_banco,
@@ -596,6 +602,152 @@ def test_borrarme(mundo):
     assert mundo.n.usuarios.obtener(ANA) is None
 
 
+PDF = b"%PDF-1.4 certificado de notas de Ana"
+
+
+def botones_enviados(mundo, chat=ANA):
+    return [b for fila in (mundo.s.ultimo(chat)[2] or []) for b in fila]
+
+
+def test_documentos_vacio_ofrece_subir_y_la_ayuda_lo_menciona(mundo):
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_comando(ANA, "documentos", []))
+    assert "No tienes documentos guardados" in mundo.s.mensajes[-1][1]
+    assert ("➕ Subir un documento", cb("doc", "subir")) in botones_enviados(mundo)
+    assert "/documentos" in t.AYUDA
+
+
+def test_subir_un_documento_con_tipo_listarlo_y_borrarlo(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    correr(mundo.c.al_boton(ANA, cb("doc", "subir")))
+    assert t.DOCUMENTOS_ELEGIR_TIPO in mundo.s.mensajes[-1][1]
+    correr(mundo.c.al_boton(ANA, cb("doc", "tipo", "certificado_notas")))
+    assert "Envíame el PDF" in mundo.s.mensajes[-1][1]
+    correr(mundo.c.al_documento(ANA, PDF, "notas.pdf"))
+    assert "Guardé tu documento" in mundo.s.mensajes[-1][1]
+    [doc] = mundo.n.documentos.listar(usuario.id)
+    assert (doc.tipo, doc.etiqueta, doc.bytes) == (
+        "certificado_notas", "Certificado de notas", len(PDF)
+    )
+    assert mundo.n.documentos.leer(doc) == PDF
+    # El archivo en disco está cifrado: no es el PDF en claro ni lo contiene
+    en_disco = doc.ruta.read_bytes()
+    assert not en_disco.startswith(b"%PDF") and b"certificado de notas" not in en_disco
+    correr(mundo.c.al_comando(ANA, "documentos", []))
+    assert "Certificado de notas" in mundo.s.mensajes[-1][1]
+    correr(mundo.c.al_boton(ANA, cb("doc", "borrar", doc.id)))
+    assert mundo.n.documentos.listar(usuario.id) == [] and not doc.ruta.exists()
+    assert "No tienes documentos guardados" in mundo.s.mensajes[-1][1]
+
+
+def test_documento_de_tipo_otro_pide_nombre_y_uno_nuevo_reemplaza_al_del_mismo_tipo(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    correr(mundo.c.al_boton(ANA, cb("doc", "tipo", "otro")))
+    assert "¿Cómo se llama" in mundo.s.mensajes[-1][1]
+    correr(mundo.c.al_texto(ANA, "Certificado  de inglés"))
+    correr(mundo.c.al_documento(ANA, PDF, "ingles.pdf"))
+    [otro] = mundo.n.documentos.listar(usuario.id)
+    assert (otro.tipo, otro.etiqueta) == ("otro", "Certificado de inglés")
+    for contenido in (PDF, PDF + b" v2"):  # subir otra vez el mismo tipo lo reemplaza
+        correr(mundo.c.al_boton(ANA, cb("doc", "tipo", "carta")))
+        correr(mundo.c.al_documento(ANA, contenido, "carta.pdf"))
+    cartas = [d for d in mundo.n.documentos.listar(usuario.id) if d.tipo == "carta"]
+    assert len(cartas) == 1 and mundo.n.documentos.leer(cartas[0]) == PDF + b" v2"
+    assert len(mundo.n.documentos.listar(usuario.id)) == 2
+
+
+def test_documento_que_no_es_pdf_o_es_muy_grande_se_rechaza(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    correr(mundo.c.al_boton(ANA, cb("doc", "tipo", "portafolio")))
+    correr(mundo.c.al_documento(ANA, b"no soy un pdf", "x.pdf"))
+    assert "no es un PDF" in mundo.s.mensajes[-1][1]
+    grande = b"%PDF" + b"0" * int(mundo.c.config.cv.max_mb * 1024 * 1024)
+    correr(mundo.c.al_documento(ANA, grande, "x.pdf"))
+    assert "supera" in mundo.s.mensajes[-1][1]
+    assert mundo.n.documentos.listar(usuario.id) == []
+
+
+def test_documentos_son_del_usuario_y_se_borran_con_la_cuenta(mundo):
+    correr(alta_completa(mundo, ANA))
+    correr(alta_completa(mundo, LUIS))
+    ana, luis = mundo.n.usuarios.obtener(ANA), mundo.n.usuarios.obtener(LUIS)
+    doc = mundo.n.documentos.guardar(ana, "carta", "Carta", PDF, T0)
+    assert mundo.n.documentos.obtener(luis.id, doc.id) is None
+    correr(mundo.c.al_boton(LUIS, cb("doc", "borrar", doc.id)))  # no es suyo: no se borra
+    assert mundo.n.documentos.obtener(ana.id, doc.id) is not None
+    correr(mundo.c.al_boton(ANA, cb("borrarme")))
+    assert not doc.ruta.exists()
+    assert mundo.base.cx.execute("SELECT COUNT(*) FROM documentos_usuario").fetchone()[0] == 0
+
+
+def test_documento_enviado_sin_pedirlo_no_se_guarda(mundo):
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_documento(ANA, PDF, "x.pdf"))
+    assert "usa /perfil" in mundo.s.mensajes[-1][1]
+    assert mundo.n.documentos.listar(mundo.n.usuarios.obtener(ANA).id) == []
+
+
+def test_limite_de_documentos_por_usuario(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    for n in range(10):
+        mundo.n.documentos.guardar(usuario, "otro", f"Doc {n}", PDF, T0)
+    correr(mundo.c.al_boton(ANA, cb("doc", "tipo", "portafolio")))
+    correr(mundo.c.al_documento(ANA, PDF, "x.pdf"))
+    assert "Ya tienes 10 documentos" in mundo.s.mensajes[-1][1]
+
+
+def esperando_documento(mundo):
+    """Postulación con card 42 que espera el certificado de notas que pide el formulario."""
+    usuario, p = encolar_con_card_42(mundo)
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = ? WHERE id = ?",
+                   (E.ESPERANDO_USUARIO.value, p.id))  # fmt: skip
+    notas = Pregunta("Please upload a copy of your unofficial university transcripts.", "archivo")
+    mundo.n._crear_pendientes_documento(usuario.id, p.id, [notas])
+    correr(mundo.c.notificar({"tipo": "preguntas_pendientes", "usuario_id": usuario.id,
+                              "postulacion_id": p.id}))  # fmt: skip
+    return usuario, p
+
+
+def test_documento_obligatorio_se_pide_en_la_card_y_al_enviarlo_la_postulacion_sigue(mundo):
+    usuario, p = esperando_documento(mundo)
+    texto = [e[2] for e in mundo.s.ediciones if e[1] == 42][-1]
+    assert "Documento necesario" in texto and "transcripts" in texto
+    botones = [b for fila in mundo.s.botones_editados[42] for b in fila]
+    assert [b[0] for b in botones][:2] == [tp.BOTON_ENVIAR_DOCUMENTO, tp.BOTON_DOCUMENTO_RESPALDO]
+    correr(mundo.c.al_documento(ANA, PDF, "notas.pdf"))  # el PDF que esperaba la card
+    [doc] = mundo.n.documentos.listar(usuario.id)
+    assert doc.tipo == "certificado_notas" and mundo.n.documentos.leer(doc) == PDF
+    assert mundo.n.pendientes(usuario.id) == []
+    assert mundo.n.cola.obtener(p.id).estado == E.EN_COLA
+
+
+def test_el_boton_enviar_documento_vuelve_a_pedir_el_pdf(mundo):
+    usuario, p = esperando_documento(mundo)
+    pendiente = mundo.n.pendientes(usuario.id)[0]
+    mundo.c._esperar(usuario, None)  # se perdió la espera
+    correr(mundo.c.al_boton(ANA, cb("docp", pendiente["id"])))
+    assert "Envíame el PDF" in mundo.s.mensajes[-1][1]
+    correr(mundo.c.al_documento(ANA, PDF, "notas.pdf"))
+    assert mundo.n.cola.obtener(p.id).estado == E.EN_COLA
+
+
+def test_dejar_el_documento_en_respaldo_cierra_la_card_con_documento_faltante(mundo):
+    usuario, p = esperando_documento(mundo)
+    pendiente = mundo.n.pendientes(usuario.id)[0]
+    correr(mundo.c.al_boton(ANA, cb("docr", pendiente["id"])))
+    assert mundo.n.cola.obtener(p.id).estado == E.RESPALDO
+    assert mundo.n.pendientes(usuario.id) == []
+    assert mundo.n.documentos.listar(usuario.id) == []
+    visto = " ".join(m[1] for m in mundo.s.mensajes[-3:])
+    visto += " ".join(e[2] for e in mundo.s.ediciones)
+    assert "documento obligatorio" in visto
+
+
 def encolar_con_card_42(mundo):
     correr(alta_completa(mundo, ANA))
     usuario = mundo.n.usuarios.obtener(ANA)
@@ -669,6 +821,33 @@ def test_confirmada_calcula_la_duracion_desde_que_se_tomo(mundo):
         cx.execute("UPDATE postulaciones SET tomada_en = NULL WHERE id = ?", (p.id,))
     datos, _ = mundo.c._datos_resumen(mundo.n.cola.obtener(p.id))
     assert datos.duracion_s is None
+
+
+def test_resumen_cuenta_que_la_cuota_bajo_el_nivel_de_la_postulacion(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+    assert mundo.c._datos_resumen(mundo.n.cola.obtener(p.id))[0].nivel_bajado is None
+    with mundo.base.transaccion() as cx:
+        for detalle in ("maximo>normal", "maximo>ahorro"):  # la cuota siguió agotándose
+            cx.execute(
+                "INSERT INTO postulacion_pasos(postulacion_id, ts, paso, estado, detalle) "
+                "VALUES (?, ?, 'nivel_bajado', 'ok', ?)",
+                (p.id, a_texto(T0), detalle),
+            )
+    datos, _ = mundo.c._datos_resumen(mundo.n.cola.obtener(p.id))
+    assert datos.nivel_bajado == "ahorro"
+
+
+def test_resumen_cuenta_las_respuestas_que_ajusto_el_revisor(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+    with mundo.base.transaccion() as cx:
+        for n in ("2", "1", "x"):  # dos pasadas del formulario; un detalle ajeno se ignora
+            cx.execute(
+                "INSERT INTO postulacion_pasos(postulacion_id, ts, paso, estado, detalle) "
+                "VALUES (?, ?, 'respuestas_revisadas', 'ok', ?)",
+                (p.id, a_texto(T0), n),
+            )
+    datos, _ = mundo.c._datos_resumen(mundo.n.cola.obtener(p.id))
+    assert datos.revisadas == 3
 
 
 def test_cuenta_por_confirmar_muestra_el_correo_y_botones(mundo):
@@ -930,6 +1109,84 @@ def test_toque_en_el_canal_con_postulaciones_en_pausa(mundo):
     correr(mundo.c.al_comando(ANA, "pausa", []))
     r = correr(mundo.c.al_toque_canal(ANA, id_corto("linkedin:1")))
     assert r.alerta and "pausa" in r.texto
+
+
+def test_ia_nivel_muestra_los_tres_niveles_con_su_consumo_y_el_uso_de_hoy(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    with mundo.base.transaccion() as cx:
+        cx.executemany(
+            "INSERT INTO ia_uso(usuario_id, ts, tarea, ok, tokens_in, tokens_out) "
+            "VALUES (?, ?, 'redactar', ?, ?, ?)",
+            [
+                (usuario.id, a_texto(T0), 1, 1000, 234),
+                (usuario.id, a_texto(T0), 1, 500, 66),
+                (usuario.id, a_texto(T0), 0, 900, 0),  # fallida: no cuenta
+                (usuario.id, a_texto(T0 - timedelta(days=1)), 1, 5000, 5000),  # de ayer
+            ],
+        )
+    correr(mundo.c.al_comando(ANA, "ia", ["nivel"]))
+    _, texto, botones = mundo.s.ultimo(ANA)
+    niveles = mundo.n.config.niveles_ia
+    for nombre, nivel in (("Ahorro", niveles.ahorro), ("Normal", niveles.normal),
+                          ("Máximo", niveles.maximo)):  # fmt: skip
+        assert f"<b>{nombre}</b> · ~{nivel.llamadas_estimadas} llamadas por postulación" in texto
+    assert "Hoy llevas 2 llamadas y 1800 tokens" in texto
+    # Normal es el nivel por defecto y es el único marcado
+    assert "✅ <b>Normal</b>" in texto
+    assert "✅ <b>Ahorro</b>" not in texto and "✅ <b>Máximo</b>" not in texto
+    assert [(b[0][0], b[0][1]) for b in botones] == [
+        ("Ahorro", cb("ia", "ahorro")), ("✅ Normal", cb("ia", "normal")),
+        ("Máximo", cb("ia", "maximo")),
+    ]  # fmt: skip
+
+
+def test_ia_nivel_cambia_el_nivel_y_lo_marca(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    assert mundo.n.preferencias.nivel_ia(usuario.id) == "normal"
+    aviso = correr(mundo.c.al_boton(ANA, cb("ia", "maximo")))
+    assert aviso == "Nivel Máximo"
+    assert mundo.n.preferencias.nivel_ia(usuario.id) == "maximo"
+    _, texto, botones = mundo.s.ultimo(ANA)
+    assert "✅ <b>Máximo</b>" in texto and "✅ <b>Normal</b>" not in texto
+    assert botones[2][0][0] == "✅ Máximo"
+    # Un nivel que no existe no cambia nada
+    assert correr(mundo.c.al_boton(ANA, cb("ia", "enorme"))) is None
+    assert mundo.n.preferencias.nivel_ia(usuario.id) == "maximo"
+    correr(mundo.c.al_comando(ANA, "ia", ["otra"]))
+    assert "/ia nivel" in mundo.s.ultimo(ANA)[1]
+
+
+def test_cambiar_el_nivel_no_afecta_una_postulacion_en_curso(mundo):
+    correr(alta_completa(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+    antes, _ = mundo.n.cola.encolar(usuario.id, id_corto("computrabajo:1"), "computrabajo", T0)
+    assert antes.nivel_ia == "normal"  # copiado del usuario al encolar
+    # La postulación sale: se toma y arranca con el nivel con que se encoló
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = ? WHERE id = ?", (E.EN_CURSO, antes.id))
+    correr(mundo.c.al_boton(ANA, cb("ia", "ahorro")))
+    despues, _ = mundo.n.cola.encolar(usuario.id, id_corto("computrabajo:2"), "computrabajo", T0)
+    correr(mundo.c.al_boton(ANA, cb("ia", "maximo")))
+    siguiente, _ = mundo.n.cola.encolar(usuario.id, id_corto("computrabajo:3"), "computrabajo", T0)
+    perfil = mundo.n.cola.encolar_completar_perfil(usuario.id, "computrabajo", T0)
+    nivel = lambda pid: mundo.n.cola.obtener(pid).nivel_ia  # noqa: E731
+    assert nivel(antes.id) == "normal"  # la que ya estaba en curso no cambió
+    assert nivel(despues.id) == "ahorro"
+    assert nivel(siguiente.id) == "maximo"
+    assert nivel(perfil) == "maximo"
+    # Un toque repetido sobre una vacante ya encolada devuelve la existente, sin tocar su nivel
+    repetida, creada = mundo.n.cola.encolar(
+        usuario.id, id_corto("computrabajo:1"), "computrabajo", T0
+    )
+    assert not creada and repetida.nivel_ia == "normal"
+
+
+def test_la_ayuda_menciona_ia_nivel(mundo):
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_comando(ANA, "ayuda", []))
+    assert "/ia nivel" in mundo.s.ultimo(ANA)[1]
 
 
 def test_avisar_apagado_silencia_solo_la_automatica(mundo):
@@ -1730,6 +1987,60 @@ def tocar(mundo, usuario):
 
 def card_guardada(mundo, pid):
     return tp.Card.de_texto(mundo.base.kv_obtener(f"card:{pid}"))
+
+
+SALARIO = {"texto": "¿Cuál es tu aspiración salarial?", "nombre": "q_salario"}
+DOCKER = {"texto": "¿Tienes experiencia con Docker?", "nombre": "q_docker", "tipo": "opciones",
+          "opciones": ["Sí", "No"]}  # fmt: skip
+
+
+def con_esquema(mundo, *campos):
+    mundo.n.indice.guardar_esquema(id_corto("linkedin:1"), list(campos))
+
+
+@respx.mock
+def test_esquema_anticipado_resuelto_sale_a_la_cola_con_las_respuestas_para_la_extension(mundo):
+    usuario = preparar_toque(mundo)
+    con_esquema(mundo, SALARIO)
+    pid, _ = tocar(mundo, usuario)
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA and mundo.n.pendientes(usuario.id) == []
+    resuelto = mundo.n.esquema_resuelto(mundo.n.cola.obtener(pid))
+    assert resuelto == {"q_salario": "1300000"}
+
+
+@respx.mock
+def test_esquema_anticipado_con_un_dato_que_falta_pregunta_en_la_card_antes_de_encolar(mundo):
+    usuario = preparar_toque(mundo)
+    con_esquema(mundo, SALARIO, DOCKER)
+
+    async def flujo():
+        toque = await mundo.c.procesar_toque(usuario, id_corto("linkedin:1"))
+        # Aún sin esperar al resto: la extensión no puede tomarla mientras se resuelve el formulario
+        retenida = mundo.n.cola.obtener(toque.postulacion.id).estado
+        await mundo.c.esperar_tareas()
+        return toque, retenida
+
+    toque, retenida = correr(flujo())
+    pid = toque.postulacion.id
+    assert retenida == E.ESPERANDO_USUARIO
+    assert mundo.n.cola.obtener(pid).estado == E.ESPERANDO_USUARIO
+    [pendiente] = mundo.n.pendientes(usuario.id)
+    assert pendiente["pregunta"] == DOCKER["texto"] and pendiente["postulacion_id"] == pid
+    assert card_guardada(mundo, pid).fase == tp.PREGUNTA
+    # El usuario responde en la card y la postulación sale a la cola
+    correr(mundo.c.al_boton(ANA, cb("pend", pendiente["id"], 0)))
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    assert mundo.n.esquema_resuelto(mundo.n.cola.obtener(pid)) == {
+        "q_salario": "1300000", "q_docker": "Sí",
+    }
+
+
+@respx.mock
+def test_vacante_sin_esquema_se_encola_como_siempre(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    assert mundo.n.esquema_resuelto(mundo.n.cola.obtener(pid)) == {}
 
 
 def de_plataforma(mundo, pid, plataforma):
@@ -2761,3 +3072,247 @@ def test_punta_a_punta_de_sin_permiso_a_sin_sesion_en_el_mismo_mensaje(mundo):
     assert "Inicia sesión en elempleo" in ultima_edicion(mundo)
     assert _etiquetas(mundo.s.botones_editados[42])[0] == "Iniciar sesión"
     assert len(mundo.s.mensajes) == mensajes  # solo se editó la card, no hubo mensajes nuevos
+
+
+# --- motivos del motor genérico y avisos al dueño (6.4) -------------------------------------
+
+
+@pytest.mark.parametrize("estado", [E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO])
+def test_el_motivo_del_motor_generico_llega_a_la_card_de_respaldo(mundo, estado):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, estado, "ats_con_cuenta")))
+    correr(mundo.c.esperar_tareas())
+    texto, botones = card_de(mundo)
+    assert "pide crear una cuenta" in texto
+    assert ("Pegar preguntas", cb("pegar", p.id)) in [b for fila in botones for b in fila]
+    # Es un caso esperado, no un fallo: el dueño no recibe la alerta de revisar evidencia
+    assert not any("Postulación" in m for m in mundo.s.de(DUENO))
+
+
+def test_sin_ia_ofrece_configurar_la_clave_desde_la_card(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.FORMULARIO_DESCONOCIDO,
+                                    "sin_ia")))  # fmt: skip
+    correr(mundo.c.esperar_tareas())
+    texto, botones = card_de(mundo)
+    assert "necesito tu clave de IA" in texto
+    assert botones[0][0] == ("Configurar IA", cb("clave", "nueva"))
+    correr(mundo.c.al_boton(ANA, cb("clave", "nueva")))
+    assert "Pega una clave nueva" in mundo.s.de(ANA)[-1]
+
+
+def test_el_formulario_desconocido_sin_motivo_conocido_sigue_alertando_al_dueno(mundo):
+    usuario, p, _ = postulacion_enviada_con_datos(mundo)
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.FORMULARIO_DESCONOCIDO,
+                                    "no_encontrado")))  # fmt: skip
+    correr(mundo.c.esperar_tareas())
+    assert any("Postulación" in m for m in mundo.s.de(DUENO))
+
+
+def test_el_dueno_recibe_el_aviso_de_la_receta_apagada(mundo):
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO recetas(host, ruta_patron, familia, firma, receta_json, actualizada) "
+            "VALUES ('job-boards.greenhouse.io', '/x', 'greenhouse', '[]', '{}', 'x')"
+        )
+    correr(mundo.c.notificar({"tipo": "receta_apagada", "receta_id": 1, "postulacion_id": 9}))
+    aviso = mundo.s.de(DUENO)[-1]
+    assert "job-boards.greenhouse.io" in aviso and "falló 2 veces seguidas" in aviso
+
+
+def test_el_dueno_recibe_el_parche_nuevo_con_el_selector_y_la_evidencia(mundo):
+    parche = proponer_parche(mundo.base, "computrabajo", "aplicar", "a.btn-nuevo", T0, 9)
+    correr(mundo.c.notificar({"tipo": "parche_nuevo", "parche_id": parche,
+                              "plataforma": "computrabajo", "paso": "aplicar",
+                              "postulacion_id": 9}))  # fmt: skip
+    aviso = mundo.s.de(DUENO)[-1]
+    assert "Parche candidato para <b>Computrabajo</b>" in aviso and "«aplicar»" in aviso
+    assert "<code>&quot;a.btn-nuevo&quot;</code>" in aviso or "a.btn-nuevo" in aviso
+    assert "data/asistente/postulaciones/9/" in aviso
+    correr(mundo.c.notificar({"tipo": "parche_firme", "parche_id": parche,
+                              "plataforma": "computrabajo", "paso": "aplicar",
+                              "postulacion_id": 10}))  # fmt: skip
+    assert "Parche firme" in mundo.s.de(DUENO)[-1] and "JSON revisado" in mundo.s.de(DUENO)[-1]
+
+
+def test_el_aviso_del_dominio_barrera_dice_como_quitarlo(mundo):
+    correr(mundo.c.notificar({"tipo": "dominio_barrera", "host": "ats.example.com",
+                              "motivo": "ats_con_cuenta", "postulacion_id": 9}))  # fmt: skip
+    assert "/barreras quitar ats.example.com" in mundo.s.de(DUENO)[-1]
+
+
+def test_los_avisos_al_dueno_no_van_a_nadie_si_no_hay_dueno(mundo):
+    mundo.c.config.dueno_telegram_id = 0
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.notificar({"tipo": "dominio_barrera", "host": "x.co", "motivo": "oauth",
+                              "postulacion_id": 9}))  # fmt: skip
+    assert len(mundo.s.mensajes) == antes
+
+
+def test_el_dueno_lista_y_quita_dominios_barrera(mundo):
+    correr(alta_completa(mundo, DUENO))
+    marcar_barrera(mundo.base, "ats.example.com", "ats_con_cuenta", T0)
+    correr(mundo.c.al_comando(DUENO, "barreras", []))
+    assert "ats.example.com: ats_con_cuenta" in mundo.s.de(DUENO)[-1]
+    correr(mundo.c.al_comando(DUENO, "barreras", ["quitar", "ATS.example.com"]))
+    assert mundo.s.de(DUENO)[-1] == "No hay dominios barrera."
+    assert barrera_de(mundo.base, "ats.example.com") is None
+    auditoria = mundo.base.cx.execute("SELECT accion FROM auditoria").fetchall()
+    assert "barrera_quitada" in [f[0] for f in auditoria]
+
+
+def test_un_usuario_comun_no_puede_ver_las_barreras(mundo):
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_comando(ANA, "barreras", []))
+    assert "No conozco ese comando" in mundo.s.de(ANA)[-1]
+
+
+def ensayada_con_card_42(mundo, motivo="boton:Submit application"):
+    usuario, p = encolar_con_card_42(mundo)
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE postulaciones SET estado = 'ensayada' WHERE id = ?", (p.id,))
+        cx.execute(
+            "INSERT INTO respuestas(postulacion_id, pregunta, respuesta, origen) "
+            "VALUES (?, '¿Por qué nosotros?', 'Me gusta su producto', 'ia')",
+            (p.id,),
+        )
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.ENSAYADA, motivo)))
+    return usuario, p
+
+
+def test_ensayada_pinta_la_card_con_las_respuestas_y_los_dos_botones(mundo):
+    usuario, p = ensayada_con_card_42(mundo)
+    _, mensaje, texto = mundo.s.ediciones[-1]
+    assert mensaje == 42 and "🧪 Ensayo: no envié nada." in texto
+    assert "Habría pulsado «Submit application»" in texto and "Me gusta su producto" in texto
+    botones = mundo.s.botones_editados[42]
+    datos = [b[1] for fila in botones for b in fila]
+    assert cb("ens", p.id, "real") in datos and cb("ens", p.id, "resp") in datos
+
+
+def test_enviar_de_verdad_vuelve_a_la_cola_sin_ensayo_y_la_card_a_en_cola(mundo):
+    usuario, p = ensayada_con_card_42(mundo)
+    mundo.n.preferencias.fijar_ensayo_usuario(usuario.id, True)
+    assert correr(mundo.c.al_boton(ANA, cb("ens", p.id, "real"))) == "🚀 Enviando de verdad"
+    nueva = mundo.n.cola.obtener(p.id)
+    assert nueva.estado == E.EN_COLA and nueva.forzar_real
+    assert not mundo.n.en_ensayo(nueva)  # aunque el usuario siga en ensayo
+    assert "En cola" in mundo.s.ediciones[-1][2]
+    # Ya no está ensayada: otro toque no hace nada
+    assert "ya no se puede" in correr(mundo.c.al_boton(ANA, cb("ens", p.id, "real")))
+
+
+def test_el_paquete_de_respaldo_de_un_ensayo_termina_con_plataforma_en_ensayo(mundo):
+    usuario, p = ensayada_con_card_42(mundo)
+    correr(mundo.c.al_boton(ANA, cb("ens", p.id, "resp")))
+    assert mundo.n.cola.obtener(p.id).estado == E.RESPALDO
+    assert "estaba en modo ensayo" in mundo.s.ediciones[-1][2]
+
+
+def test_los_botones_del_ensayo_son_solo_del_dueno_de_la_postulacion(mundo):
+    usuario, p = ensayada_con_card_42(mundo)
+    correr(alta_completa(mundo, LUIS))
+    correr(mundo.c.al_boton(LUIS, cb("ens", p.id, "real")))
+    correr(mundo.c.al_boton(LUIS, cb("ens", p.id, "resp")))
+    assert mundo.n.cola.obtener(p.id).estado == E.ENSAYADA
+
+
+def test_un_ensayo_trabado_muestra_la_pantalla_y_el_dueno_recibe_la_evidencia(mundo):
+    usuario, p = encolar_con_card_42(mundo)
+    with mundo.base.transaccion() as cx:
+        mundo.n.cola.paso(cx, p.id, "ensayo_trabado", T0, detalle="pantalla 3: no hay botón")
+    correr(mundo.c.notificar(Evento("resultado", p.id, usuario.id, E.FORMULARIO_DESCONOCIDO, "x")))
+    texto = mundo.s.ediciones[-1][2]
+    assert "Se trabaría en la pantalla 3: no hay botón." in texto
+    assert not any(b[1] == cb("ens", p.id, "real") for f in mundo.s.botones_editados[42] for b in f)
+    assert any("Revisa la evidencia" in m for m in mundo.s.de(DUENO))
+
+
+def test_ensayo_del_dueno_se_enciende_y_apaga_con_el_comando(mundo):
+    correr(alta_completa(mundo, DUENO))
+    dueno = mundo.n.usuarios.obtener(DUENO)
+    correr(mundo.c.al_comando(DUENO, "ensayo", []))
+    assert "apagado" in mundo.s.ultimo(DUENO)[1]
+    correr(mundo.c.al_comando(DUENO, "ensayo", ["on"]))
+    assert "activado" in mundo.s.ultimo(DUENO)[1]
+    assert mundo.n.preferencias.ensayo_usuario(dueno.id)
+    correr(mundo.c.al_comando(DUENO, "ensayo", ["off"]))
+    assert not mundo.n.preferencias.ensayo_usuario(dueno.id)
+    correr(alta_completa(mundo, ANA))
+    correr(mundo.c.al_comando(ANA, "ensayo", ["on"]))
+    assert mundo.s.ultimo(ANA)[1].startswith("No conozco ese comando")
+
+
+def test_plataformas_pone_y_quita_el_ensayo_de_una_plataforma(mundo):
+    correr(alta_completa(mundo, DUENO))
+    config = mundo.n.config
+    correr(mundo.c.al_comando(DUENO, "plataformas", ["magneto", "ensayo"]))
+    assert "magneto" in mundo.n.preferencias.plataformas_en_ensayo(config.ensayo.plataformas)
+    assert "magneto: automática · 🧪 en ensayo" in mundo.s.ultimo(DUENO)[1]
+    correr(mundo.c.al_comando(DUENO, "plataformas", ["magneto", "real"]))
+    assert "magneto" not in mundo.n.preferencias.plataformas_en_ensayo(config.ensayo.plataformas)
+    assert "en ensayo" not in mundo.s.ultimo(DUENO)[1]
+    correr(mundo.c.al_comando(DUENO, "plataformas", ["inexistente", "ensayo"]))
+    assert mundo.n.preferencias.plataformas_en_ensayo(config.ensayo.plataformas) == {}
+
+
+def vigia_del_dueno(mundo):
+    correr(alta_completa(mundo, DUENO))
+    dueno = mundo.n.usuarios.obtener(DUENO)
+    mundo.n.indice.indexar(T0)
+    p = mundo.n.cola.encolar_vigia(dueno.id, id_corto("linkedin:1"), "computrabajo", T0)
+    return dueno, p
+
+
+def test_vigia_limpio_no_le_avisa_nada_al_dueno(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    antes = (len(mundo.s.mensajes), len(mundo.s.ediciones))
+    correr(mundo.c.notificar(Evento("resultado", p.id, dueno.id, E.ENSAYADA, "boton:Aplicar")))
+    assert (len(mundo.s.mensajes), len(mundo.s.ediciones)) == antes
+    assert mundo.n.preferencias.plataformas_en_ensayo([]) == {}
+
+
+def test_vigia_que_falla_avisa_al_dueno_y_deja_la_plataforma_en_ensayo(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    with mundo.base.transaccion() as cx:
+        mundo.n.cola.paso(cx, p.id, "ensayo_trabado", T0, detalle="pantalla 1: sin botón")
+    correr(mundo.c.notificar(
+        Evento("resultado", p.id, dueno.id, E.FORMULARIO_DESCONOCIDO, "no apareció el botón")
+    ))  # fmt: skip
+    aviso = mundo.s.de(DUENO)[-1]
+    assert "El vigía no pudo ensayar Computrabajo" in aviso and "pantalla 1: sin botón" in aviso
+    assert "/plataformas computrabajo real" in aviso
+    assert "computrabajo" in mundo.n.preferencias.plataformas_en_ensayo([])
+    # Un usuario común que toque ⚡ en esa plataforma ahora ensaya en lugar de enviar
+    ana = mundo.n.usuarios.obtener(DUENO)
+    otra, _ = mundo.n.cola.encolar(ana.id, id_corto("linkedin:1"), "computrabajo", T0)
+    assert mundo.n.en_ensayo(otra)
+
+
+def test_vigia_reparado_avisa_que_la_plataforma_cambio_sin_ponerla_en_ensayo(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    with mundo.base.transaccion() as cx:
+        mundo.n.cola.paso(cx, p.id, "respaldo_generico", T0, detalle="paso 2")
+    correr(mundo.c.notificar(Evento("resultado", p.id, dueno.id, E.ENSAYADA, "paso:enviar")))
+    assert "cambió y el asistente lo reparó" in mundo.s.de(DUENO)[-1]
+    assert mundo.n.preferencias.plataformas_en_ensayo([]) == {}
+
+
+def test_vigia_no_abre_card_de_progreso_ni_de_verificacion(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    antes = len(mundo.s.mensajes)
+    for tipo in ("postulando", "verificacion"):
+        correr(mundo.c.notificar({"tipo": tipo, "postulacion_id": p.id, "usuario_id": dueno.id}))
+    correr(mundo.c.notificar({"tipo": "paso", "postulacion_id": p.id, "usuario_id": dueno.id,
+                              "paso": "abrir"}))  # fmt: skip
+    assert len(mundo.s.mensajes) == antes and mundo.c._card(p.id) is None
+
+
+def test_vigia_que_el_navegador_no_pudo_correr_no_es_un_fallo_de_la_plataforma(mundo):
+    dueno, p = vigia_del_dueno(mundo)
+    antes = len(mundo.s.mensajes)
+    correr(mundo.c.notificar(
+        Evento("respaldo", p.id, dueno.id, E.RESPALDO, "navegador_desconectado")
+    ))  # fmt: skip
+    assert len(mundo.s.mensajes) == antes
+    assert mundo.n.preferencias.plataformas_en_ensayo([]) == {}

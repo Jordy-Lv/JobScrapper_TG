@@ -169,8 +169,8 @@ def test_migracion_v4_desde_una_base_v3(tmp_path):
     cx.executescript(ESQUEMA_V3)
     cx.close()
     base = BaseAsistente.abrir(ruta)
-    assert ESQUEMA_VERSION == 4
-    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 4
+    assert ESQUEMA_VERSION == 7
+    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == 7
     banco = base.cx.execute("SELECT pregunta_norm, origen FROM banco_preguntas").fetchall()
     assert [tuple(f) for f in banco] == [("aspiracion salarial", "semilla")]  # sin las de IA
     filas = base.cx.execute("SELECT pregunta_norm, estado FROM respuestas").fetchall()
@@ -186,3 +186,66 @@ def test_migracion_v4_desde_una_base_v3(tmp_path):
         )
     base.cerrar()
     BaseAsistente.abrir(ruta).cerrar()  # reabrir no vuelve a migrar ni falla
+
+
+def test_migracion_v5_desde_una_base_v4(tmp_path):
+    ruta = tmp_path / "v4.db"
+    BaseAsistente.abrir(ruta).cerrar()
+    viejo = sqlite3.connect(ruta)
+    viejo.executescript(
+        "DROP TABLE recetas; DROP TABLE parches_flujo; DROP TABLE dominios_barrera;"
+        "ALTER TABLE postulaciones DROP COLUMN receta_id;"
+        "ALTER TABLE postulaciones DROP COLUMN parches_json;"
+        "UPDATE esquema_version SET version = 4;"
+    )
+    viejo.close()
+    base = BaseAsistente.abrir(ruta)
+    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == ESQUEMA_VERSION
+    assert {"recetas", "parches_flujo", "dominios_barrera"} <= set(base.tablas())
+    columnas = {f["name"] for f in base.cx.execute("PRAGMA table_info(postulaciones)")}
+    assert {"receta_id", "parches_json"} <= columnas
+    base.cerrar()
+
+
+def test_migracion_v6_desde_una_base_v5_deja_a_todos_en_normal(tmp_path):
+    ruta = tmp_path / "v5.db"
+    BaseAsistente.abrir(ruta).cerrar()
+    viejo = sqlite3.connect(ruta)
+    viejo.executescript(
+        "INSERT INTO usuarios(telegram_id, estado, directorio, creado) "
+        "VALUES (1, 'activo', 'u1', 'x');"
+        "INSERT INTO postulaciones(usuario_id, estado, creada, actualizada) "
+        "VALUES (1, 'enviada', 'x', 'x');"
+        "ALTER TABLE usuarios DROP COLUMN nivel_ia;"
+        "ALTER TABLE postulaciones DROP COLUMN nivel_ia;"
+        "UPDATE esquema_version SET version = 5;"
+    )
+    viejo.close()
+    base = BaseAsistente.abrir(ruta)
+    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == ESQUEMA_VERSION
+    assert base.cx.execute("SELECT nivel_ia FROM usuarios").fetchone()["nivel_ia"] == "normal"
+    # Las postulaciones anteriores no llevan nivel: nunca se encolaron con uno
+    assert base.cx.execute("SELECT nivel_ia FROM postulaciones").fetchone()["nivel_ia"] is None
+    base.cerrar()
+
+
+def test_migracion_v7_desde_una_base_v6_agrega_documentos_y_esquema_anticipado(tmp_path):
+    ruta = tmp_path / "v6.db"
+    BaseAsistente.abrir(ruta).cerrar()
+    viejo = sqlite3.connect(ruta)
+    viejo.executescript(
+        "DROP TABLE documentos_usuario;"
+        "CREATE TABLE vacantes_v6 AS SELECT id_corto, clave, fuente, plataforma, url, titulo, "
+        "empresa, categoria, enviada_en, detalle, estado_pagina, detalle_en, requisitos_json, "
+        "indexada_en, ficha_json FROM vacantes;"
+        "DROP TABLE vacantes;"
+        "ALTER TABLE vacantes_v6 RENAME TO vacantes;"
+        "UPDATE esquema_version SET version = 6;"
+    )
+    viejo.close()
+    base = BaseAsistente.abrir(ruta)
+    assert base.cx.execute("SELECT version FROM esquema_version").fetchone()[0] == ESQUEMA_VERSION
+    assert base.cx.execute("SELECT COUNT(*) FROM documentos_usuario").fetchone()[0] == 0
+    columnas = {f["name"] for f in base.cx.execute("PRAGMA table_info(vacantes)")}
+    assert "esquema_json" in columnas
+    base.cerrar()

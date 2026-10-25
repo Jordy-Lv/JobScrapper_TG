@@ -67,6 +67,51 @@ def test_rotacion_sin_perdida(base):
         c.descifrar(fila[0])
 
 
+def test_documentos_se_cifran_y_la_rotacion_los_pasa_a_la_clave_nueva(base, tmp_path):
+    actual, nueva = cifrado.generar_clave(), cifrado.generar_clave()
+    c = Cifrador(actual)
+    archivo = tmp_path / "doc.pdf.cif"
+    archivo.write_bytes(c.cifrar_bytes(b"%PDF-1.4 secreto"))
+    assert b"secreto" not in archivo.read_bytes()
+    with base.transaccion() as cx:
+        cx.execute("INSERT INTO usuarios(telegram_id, directorio, creado) VALUES (1, 'u', ?)",
+                   (AHORA,))  # fmt: skip
+        cx.execute(
+            "INSERT INTO documentos_usuario(usuario_id, tipo, nombre, ruta, bytes, creado) "
+            "VALUES (1, 'carta', 'Carta', ?, 16, ?)",
+            (str(archivo), AHORA),
+        )
+    c.comprobar(base)
+    assert cifrado.rotar(base, actual, nueva) == 1
+    assert Cifrador(nueva).descifrar_bytes(archivo.read_bytes()) == b"%PDF-1.4 secreto"
+    with pytest.raises(ClaveInvalida):
+        c.descifrar_bytes(archivo.read_bytes())
+    assert not list(tmp_path.glob("*.nuevo"))
+    with pytest.raises(ClaveInvalida):
+        c.comprobar(base)  # la clave vieja ya no abre el documento
+
+
+def test_rotacion_con_un_documento_ilegible_no_cambia_nada(base, tmp_path):
+    actual, nueva = cifrado.generar_clave(), cifrado.generar_clave()
+    c = Cifrador(actual)
+    bueno, malo = tmp_path / "bueno.cif", tmp_path / "malo.cif"
+    bueno.write_bytes(c.cifrar_bytes(b"%PDF uno"))
+    malo.write_bytes(Cifrador(cifrado.generar_clave()).cifrar_bytes(b"%PDF dos"))
+    original = bueno.read_bytes()
+    with base.transaccion() as cx:
+        cx.execute("INSERT INTO usuarios(telegram_id, directorio, creado) VALUES (1, 'u', ?)",
+                   (AHORA,))  # fmt: skip
+        for ruta in (bueno, malo):
+            cx.execute(
+                "INSERT INTO documentos_usuario(usuario_id, tipo, nombre, ruta, bytes, creado) "
+                "VALUES (1, 'otro', ?, ?, 8, ?)",
+                (ruta.name, str(ruta), AHORA),
+            )
+    with pytest.raises(ClaveInvalida, match="no se rotó nada"):
+        cifrado.rotar(base, actual, nueva)
+    assert bueno.read_bytes() == original and not list(tmp_path.glob("*.nuevo"))
+
+
 def test_rotacion_con_clave_actual_equivocada_no_cambia_nada(base):
     c = Cifrador(cifrado.generar_clave())
     token = c.cifrar("gemini-1")

@@ -18,12 +18,30 @@ AYUDA = (
     "/vincular · vincular un navegador · /navegadores · ver o revocar\n"
     "/automatico [umbral] · postular solo a lo que encaja contigo\n"
     "/pausa · pausar o reanudar tus postulaciones\n"
+    "/ia nivel · cuánta IA usan tus postulaciones (Ahorro, Normal o Máximo)\n"
+    "/documentos · tu certificado de notas, carta y otros PDF para los formularios\n"
     "/borrarme · borrar todos tus datos"
+)
+
+NOMBRES_NIVEL_IA = {"ahorro": "Ahorro", "normal": "Normal", "maximo": "Máximo"}
+AVISO_RESPUESTAS_REVISADAS = "🔎 El revisor de IA ajustó {n} respuesta(s) antes de enviar"
+AVISO_NIVEL_BAJADO = "Usé el nivel {nivel} porque se agotó tu cuota de IA de hoy"
+
+DOCUMENTOS_VACIO = (
+    "No tienes documentos guardados.\n"
+    "Algunos formularios piden además del CV un certificado de notas, una carta o un "
+    "portafolio. Guárdalos aquí una vez y los adjunto donde corresponda; los guardo cifrados y "
+    "puedes borrarlos cuando quieras."
+)
+DOCUMENTOS_ELEGIR_TIPO = "¿Qué documento vas a guardar?"
+DOCUMENTOS_PEDIR_NOMBRE = "¿Cómo se llama este documento? (por ejemplo «Certificado de inglés»)"
+DOCUMENTOS_PEDIR_PDF = (
+    "Envíame el PDF como archivo (máximo {max_mb:g} MB). Para cancelar usa /documentos."
 )
 
 AYUDA_ADMIN = (
     "\n\n<b>Administración</b>\n/usuarios · /suspender ID · /reactivar ID · /stats · "
-    "/plataformas [nombre on|off]"
+    "/plataformas [nombre on|off|ensayo|real] · /ensayo [on|off] · /barreras [quitar dominio]"
 )
 
 NO_MIEMBRO = (
@@ -106,7 +124,63 @@ MOTIVOS_RESPALDO = {
     "bloqueada": "el portal pidió una verificación que no se completó",
     "formulario_desconocido": "el formulario del portal cambió",
     "fallida": "el portal rechazó el envío",
+    # Lo que el motor genérico no resuelve por ti (motor-generico-autorreparable)
+    "ats_con_cuenta": "esta empresa pide crear una cuenta en su portal de empleo y yo no creo "
+    "cuentas por ti",
+    "captcha": "el sitio pidió resolver un captcha y eso solo lo puedes hacer tú",
+    "oauth": "el sitio solo deja postular entrando con una cuenta de Google, LinkedIn u otro "
+    "servicio",
+    "codigo_verificacion": "el sitio pidió un código de verificación que te llega al correo o "
+    "al teléfono",
+    "sin_ia": "para entender este formulario necesito tu clave de IA y no la tienes configurada "
+    "o se agotó su cuota",
+    "documento_faltante": "el formulario pide un documento obligatorio que no tengo guardado",
+    "nivel_ahorro": "tu nivel de IA es Ahorro y para entender este formulario hacía falta usarla",
+    "plataforma_en_ensayo": "esta postulación estaba en modo ensayo y no se envió nada",
 }
+# Motivos que no son un fallo del asistente: el dueño no necesita revisar su evidencia
+MOTIVOS_SIN_ALERTA = (
+    "ats_con_cuenta", "captcha", "oauth", "codigo_verificacion", "sin_ia", "documento_faltante",
+    "nivel_ahorro",
+)  # fmt: skip
+
+# Avisos al dueño del vigía diario (ensayo de cada plataforma en su navegador)
+VIGIA_REPARADO = (
+    "🛠 El vigía encontró que {portal} cambió y el asistente lo reparó solo. Quedó un parche "
+    "candidato: revísalo en la tabla parches_flujo."
+)
+VIGIA_BLOQUEADA = (
+    "🧩 El vigía no pudo ensayar {portal}: el portal pidió una verificación ({motivo}). "
+    "Revisa tu sesión en ese portal."
+)
+VIGIA_FALLO = (
+    "⚠️ El vigía no pudo ensayar {portal}: {motivo}. Nadie lo reparó, así que dejé la plataforma "
+    "en ensayo para todos hasta que la revises. Mira la evidencia en data/asistente/postulaciones/ "
+    "y, cuando esté lista, usa /plataformas {id} real."
+)
+
+# Avisos al dueño de lo que aprende el motor genérico (eventos del núcleo sin usuario)
+AVISO_RECETA_APAGADA = (
+    "🧾 La receta de <b>{host}</b> se apagó: falló 2 veces seguidas (la última, la postulación "
+    "{pid}). Las próximas postulaciones de ese sitio usan las reglas hasta que un envío "
+    "la reactive."
+)
+AVISO_PARCHE_NUEVO = (
+    "🩹 Parche candidato para <b>{portal}</b>, paso «{paso}» (postulación {pid}):\n"
+    "<code>{selector}</code>\n"
+    "Lo usan como candidato las próximas postulaciones; con un éxito pasa a firme. Evidencia en "
+    "data/asistente/postulaciones/{pid}/."
+)
+AVISO_PARCHE_FIRME = (
+    "✅ Parche firme para <b>{portal}</b>, paso «{paso}»:\n<code>{selector}</code>\n"
+    "Cópialo al JSON revisado de la plataforma para dejarlo fijo."
+)
+AVISO_DOMINIO_BARRERA = (
+    "🚧 <b>{host}</b> quedó como dominio barrera ({motivo}). Sus vacantes irán al respaldo sin "
+    "abrir la página. Para quitarlo: /barreras quitar {host}"
+)
+AVISOS_DUENIO = ("receta_apagada", "parche_nuevo", "parche_firme", "dominio_barrera")
+BARRERAS_VACIAS = "No hay dominios barrera."
 
 # Bloqueos que solo el usuario resuelve en su cuenta del portal. No llevan paquete: el portal
 # tampoco acepta la postulación hecha a mano hasta que se resuelvan.
@@ -159,6 +233,7 @@ ESTADOS = {
     "incierta": "❔ Sin confirmación: verifícala en el portal",
     "fallida": "❌ El portal rechazó el envío",
     "respaldo": "📋 Paquete para postular a mano",
+    "ensayada": "🧪 Ensayada: no se envió nada",
     "cancelada": "🚫 Cancelada",
     "completado": "✅ Perfil completado",
 }

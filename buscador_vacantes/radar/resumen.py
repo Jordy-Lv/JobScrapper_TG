@@ -12,7 +12,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
+from buscador_vacantes.asistente import recetas
 from buscador_vacantes.asistente.datos import BaseAsistente
+from buscador_vacantes.asistente.textos import MOTIVOS_RESPALDO, NOMBRES_PLATAFORMA
 from buscador_vacantes.comun import config as cfg
 from buscador_vacantes.comun.estado import Estado, a_texto
 from buscador_vacantes.comun.fechas import ZONA
@@ -50,6 +52,16 @@ class RespuestaResumen(BaseModel):
     recomendaciones: list[str] = Field(min_length=1, max_length=3)
 
 
+CIFRAS_MOTOR = ("enviadas", "ensayadas", "formulario_desconocido", "incierta", "reparadas",
+                "arbitro", "respaldo")  # fmt: skip
+ESTADOS_CON_MOTIVO = ("respaldo", "formulario_desconocido", "bloqueada", "fallida")
+PASOS_DE_REPARACION = ("reparacion", "respaldo_generico")
+
+
+def _cifras_vacias() -> dict[str, int]:
+    return dict.fromkeys(CIFRAS_MOTOR, 0)
+
+
 @dataclass
 class MetricasAsistente:
     """Cifras agregadas del asistente de postulación: sin ids, nombres ni contenido."""
@@ -63,6 +75,16 @@ class MetricasAsistente:
     respuestas: int = 0
     respuestas_con_ia: int = 0
     preguntas_nuevas_banco: int = 0
+    # Motor genérico: cifras por plataforma y por familia de ATS (CIFRAS_MOTOR) de lo terminado
+    # en las 24 h, los respaldos por motivo y lo que aprendió el motor en el día
+    por_plataforma: dict[str, dict[str, int]] = field(default_factory=dict)
+    por_familia: dict[str, dict[str, int]] = field(default_factory=dict)
+    respaldos_por_motivo: dict[str, int] = field(default_factory=dict)
+    recetas_nuevas: int = 0
+    parches_nuevos: int = 0
+
+    def total_motor(self, cifra: str) -> int:
+        return sum(c[cifra] for c in self.por_plataforma.values())
 
     @property
     def pct_sin_ia(self) -> int | None:
@@ -79,6 +101,9 @@ class MetricasAsistente:
             or self.respaldo
             or self.verificaciones
             or self.preguntas_nuevas_banco
+            or bool(self.por_plataforma)
+            or self.recetas_nuevas
+            or self.parches_nuevos
         )
 
     def para_ia(self) -> dict[str, Any]:
@@ -91,6 +116,15 @@ class MetricasAsistente:
             "verificaciones": self.verificaciones,
             "porcentaje_respuestas_sin_ia": self.pct_sin_ia,
             "preguntas_nuevas_del_banco": self.preguntas_nuevas_banco,
+            # Solo totales: el desglose por plataforma y familia es para el mensaje del dueño
+            "motor_postulaciones_ensayadas": self.total_motor("ensayadas"),
+            "motor_formulario_desconocido": self.total_motor("formulario_desconocido"),
+            "motor_inciertas": self.total_motor("incierta"),
+            "motor_reparadas": self.total_motor("reparadas"),
+            "motor_con_arbitro": self.total_motor("arbitro"),
+            "motor_respaldos_por_motivo": dict(self.respaldos_por_motivo),
+            "recetas_nuevas": self.recetas_nuevas,
+            "parches_nuevos": self.parches_nuevos,
         }
 
 
@@ -304,7 +338,58 @@ def calcular_metricas_asistente(
         "SELECT COUNT(*) FROM banco_preguntas WHERE origen = 'ia' AND creada >= ? AND creada <= ?",
         *rango,
     )
+    _cifras_del_motor(cx, m, rango)
     return m
+
+
+def _cifras_del_motor(cx, m: MetricasAsistente, rango: tuple[str, str]) -> None:
+    """Estados finales, reparaciones, árbitro y respaldos de lo terminado en el periodo, por
+    plataforma y por familia de ATS (la del dominio de la vacante; sin ella, la plataforma)."""
+    filas = cx.execute(
+        "SELECT p.id, p.plataforma, p.estado, p.motivo, v.url FROM postulaciones p "
+        "LEFT JOIN vacantes v ON v.id_corto = p.id_corto WHERE p.tipo IN ('postular', 'vigia') "
+        "AND p.terminada_en >= ? AND p.terminada_en <= ?",
+        rango,
+    ).fetchall()
+    pasos: dict[int, set[str]] = {}
+    if filas:
+        marcas = ", ".join("?" for _ in filas)
+        for f in cx.execute(
+            "SELECT DISTINCT postulacion_id, paso FROM postulacion_pasos WHERE paso IN "
+            f"('arbitro', 'reparacion', 'respaldo_generico') AND postulacion_id IN ({marcas})",
+            [f["id"] for f in filas],
+        ):
+            pasos.setdefault(f["postulacion_id"], set()).add(f["paso"])
+    for f in filas:
+        plataforma = f["plataforma"] or "otras"
+        familia = recetas.familia_de_host(recetas.host_de(f["url"]), plataforma)
+        vistos = pasos.get(f["id"], set())
+        hechas = []
+        if f["estado"] in ("enviada", "ensayada", "formulario_desconocido", "incierta"):
+            nombre = {"enviada": "enviadas", "ensayada": "ensayadas"}.get(f["estado"], f["estado"])
+            hechas.append(nombre)
+        if f["estado"] in ("enviada", "ensayada") and vistos & set(PASOS_DE_REPARACION):
+            hechas.append("reparadas")
+        if "arbitro" in vistos:
+            hechas.append("arbitro")
+        if f["estado"] == "respaldo" or (
+            f["estado"] in ESTADOS_CON_MOTIVO and f["motivo"] in MOTIVOS_RESPALDO
+        ):
+            hechas.append("respaldo")
+            motivo = f["motivo"] or "sin_motivo"
+            m.respaldos_por_motivo[motivo] = m.respaldos_por_motivo.get(motivo, 0) + 1
+        for grupo in (m.por_plataforma.setdefault(plataforma, _cifras_vacias()),
+                      m.por_familia.setdefault(familia, _cifras_vacias())):  # fmt: skip
+            for cifra in hechas:
+                grupo[cifra] += 1
+    m.recetas_nuevas = cx.execute(
+        "SELECT COUNT(*) FROM recetas WHERE COALESCE(creada, actualizada) >= ? "
+        "AND COALESCE(creada, actualizada) <= ?",
+        rango,
+    ).fetchone()[0]
+    m.parches_nuevos = cx.execute(
+        "SELECT COUNT(*) FROM parches_flujo WHERE creado >= ? AND creado <= ?", rango
+    ).fetchone()[0]
 
 
 def _lista(contador: Counter, nombres: Callable[[str], str]) -> str:
@@ -337,13 +422,42 @@ def _nombre_categoria(valor: str) -> str:
 
 def _lineas_asistente(a: MetricasAsistente) -> list[str]:
     sin_ia = "sin respuestas" if a.pct_sin_ia is None else f"{a.pct_sin_ia} % sin IA"
-    return [
+    lineas = [
         f"⚡ Asistente: {a.usuarios_activos} usuarios activos ({a.altas} altas) · "
         f"{a.navegadores_en_linea} navegadores en línea",
         f"📝 Postulaciones: {a.enviadas} enviadas · {a.respaldo} de respaldo · "
         f"{a.verificaciones} verificaciones · respuestas: {sin_ia} · "
         f"preguntas nuevas del banco: {a.preguntas_nuevas_banco}",
     ]
+    if a.por_plataforma:
+        lineas += ["🧩 Motor por plataforma:", *_lineas_cifras(a.por_plataforma, plataformas=True)]
+        familias = {k: v for k, v in a.por_familia.items() if k not in a.por_plataforma}
+        if familias:
+            lineas += ["🧬 Por familia de ATS:", *_lineas_cifras(familias)]
+    if a.respaldos_por_motivo:
+        motivos = _lista(Counter(a.respaldos_por_motivo), escapar)
+        lineas.append(f"📦 Respaldos por motivo: {motivos}")
+    if a.recetas_nuevas or a.parches_nuevos:
+        lineas.append(
+            f"🧠 Aprendió hoy: {_cantidad(a.recetas_nuevas, 'receta nueva', 'recetas nuevas')} · "
+            f"{_cantidad(a.parches_nuevos, 'parche nuevo', 'parches nuevos')}"
+        )
+    return lineas
+
+
+def _lineas_cifras(grupos: dict[str, dict[str, int]], *, plataformas: bool = False) -> list[str]:
+    """Una línea por grupo (plataforma o familia) con todas las cifras, también las que están
+    en cero, para que un «0 de respaldo» sea una buena noticia y no una ausencia."""
+    lineas = []
+    for nombre, c in sorted(grupos.items()):
+        titulo = NOMBRES_PLATAFORMA.get(nombre, nombre.capitalize()) if plataformas else nombre
+        lineas.append(
+            f"• {escapar(titulo)}: {c['enviadas']} enviadas · {c['ensayadas']} ensayadas · "
+            f"{c['formulario_desconocido']} sin reconocer · {c['incierta']} inciertas · "
+            f"{c['reparadas']} reparadas · {c['arbitro']} con árbitro · "
+            f"{c['respaldo']} de respaldo"
+        )
+    return lineas
 
 
 def componer_resumen(

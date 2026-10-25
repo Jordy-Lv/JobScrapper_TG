@@ -278,7 +278,7 @@ def test_asistente_por_defecto_desactivado(config):
     assert asistente.activo is False
     assert asistente.enlace_canal is False
     assert set(asistente.plataformas) == {"computrabajo", "magneto", "elempleo"}
-    assert asistente.plataformas["elempleo"].automatica is False
+    assert asistente.plataformas["elempleo"].automatica is True  # activada en 9c9e46e
     assert {"gemini", "groq", "openrouter", "openai", "anthropic", "deepseek"} <= set(
         asistente.ia.proveedores
     )
@@ -290,6 +290,9 @@ def test_asistente_por_defecto_desactivado(config):
             "carta",
             "responder",
             "clasificar_pregunta",
+            "entender_pagina",
+            "reparar_flujo",
+            "revisar_respuestas",
         }
 
 
@@ -309,6 +312,174 @@ def test_asistente_cuenta_regresiva_por_defecto_cero_y_negativa(tmp_path):
     )
     with pytest.raises(ErrorConfiguracion, match="asistente.cuenta_regresiva_segundos"):
         cargar_configuracion(negativa)
+
+
+def test_asistente_motor_generico_y_secciones_nuevas(config):
+    asistente = config.asistente
+    motor = asistente.motor_generico
+    assert motor.activo is True
+    assert motor.respaldo_declarado is False  # se enciende tras los ensayos del piloto
+    assert (motor.max_pantallas, motor.max_pantallas_una_pregunta) == (12, 40)
+    assert (motor.max_minutos, motor.max_arbitro, motor.max_reparaciones) == (10, 6, 2)
+    assert asistente.autorreparacion.clave_duenio is False
+    assert asistente.ensayo.plataformas == []
+    assert asistente.vigia.hora == "05:30"
+
+
+def test_asistente_secciones_nuevas_por_defecto_sin_config(tmp_path):
+    def quitar(d):
+        for clave in ("motor_generico", "autorreparacion", "ensayo", "vigia"):
+            d["asistente"].pop(clave)
+
+    asistente = cargar_configuracion(escribir_config(tmp_path, quitar)).asistente
+    assert asistente.motor_generico.respaldo_declarado is False
+    assert asistente.motor_generico.max_reparaciones == 2
+    assert asistente.autorreparacion.clave_duenio is False
+    assert asistente.vigia.activo is False
+
+
+@pytest.mark.parametrize(
+    ("cambio", "campo"),
+    [
+        (lambda d: d["asistente"]["vigia"].update(hora="25:00"), "asistente.vigia.hora"),
+        (lambda d: d["asistente"]["motor_generico"].update(max_pantallas=0),
+         "asistente.motor_generico.max_pantallas"),
+        (lambda d: d["asistente"]["ensayo"].update(plataformas=["inventada"]),
+         "ensayo.plataformas desconocidas: inventada"),
+    ],
+    ids=["hora", "pantallas", "ensayo"],
+)  # fmt: skip
+def test_asistente_secciones_nuevas_invalidas(tmp_path, cambio, campo):
+    with pytest.raises(ErrorConfiguracion, match=campo):
+        cargar_configuracion(escribir_config(tmp_path, cambio))
+
+
+def test_asistente_niveles_ia_de_la_configuracion(config):
+    niveles = config.asistente.niveles_ia
+    motor = config.asistente.motor_generico
+    assert [n.max_arbitro for n in (niveles.ahorro, niveles.normal, niveles.maximo)] == [0, 3, 6]
+    assert [n.max_reparaciones for n in (niveles.ahorro, niveles.normal, niveles.maximo)] == [
+        0,
+        1,
+        2,
+    ]
+    assert [n.modelo for n in (niveles.ahorro, niveles.normal, niveles.maximo)] == [
+        "ligero",
+        "configurado",
+        "maximo",
+    ]
+    assert niveles.ahorro.clasificar_preguntas is False
+    assert niveles.normal.clasificar_preguntas and niveles.maximo.clasificar_preguntas
+    calidad = ("requisitos_en_redactor", "ejemplos_estilo", "doble_redaccion", "revisor_final")
+    for nombre in (*calidad, "carta_opcional"):
+        assert getattr(niveles.maximo, nombre) is True
+        assert getattr(niveles.ahorro, nombre) is False
+        assert getattr(niveles.normal, nombre) is False
+    assert niveles.ahorro.llamadas_estimadas < niveles.normal.llamadas_estimadas
+    assert niveles.normal.llamadas_estimadas < niveles.maximo.llamadas_estimadas
+    for nivel in (niveles.ahorro, niveles.normal, niveles.maximo):
+        assert nivel.max_arbitro <= motor.max_arbitro
+        assert nivel.max_reparaciones <= motor.max_reparaciones
+
+
+def test_asistente_niveles_ia_por_defecto_sin_config(tmp_path):
+    def quitar(d):
+        d["asistente"].pop("niveles_ia")
+
+    por_defecto = cargar_configuracion(escribir_config(tmp_path, quitar)).asistente.niveles_ia
+    assert por_defecto == cargar_configuracion().asistente.niveles_ia
+
+
+@pytest.mark.parametrize("campo", ["max_arbitro", "max_reparaciones"])
+@pytest.mark.parametrize("nivel", ["ahorro", "normal", "maximo"])
+def test_asistente_nivel_que_supera_el_techo_se_rechaza(tmp_path, nivel, campo):
+    def subir(d):
+        techo = d["asistente"]["motor_generico"][campo]
+        d["asistente"]["niveles_ia"][nivel][campo] = techo + 1
+
+    with pytest.raises(ErrorConfiguracion, match=rf"niveles_ia\.{nivel}\.{campo}.*supera el tope"):
+        cargar_configuracion(escribir_config(tmp_path, subir))
+
+
+def test_asistente_bajar_el_techo_rechaza_los_niveles_que_lo_superan(tmp_path):
+    ruta = escribir_config(
+        tmp_path, lambda d: d["asistente"]["motor_generico"].update(max_arbitro=2)
+    )
+    with pytest.raises(ErrorConfiguracion, match=r"niveles_ia\.(normal|maximo)\.max_arbitro"):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_nivel_en_el_techo_carga(tmp_path):
+    def en_el_techo(d):
+        motor = d["asistente"]["motor_generico"]
+        d["asistente"]["niveles_ia"]["normal"].update(
+            max_arbitro=motor["max_arbitro"], max_reparaciones=motor["max_reparaciones"]
+        )
+
+    asistente = cargar_configuracion(escribir_config(tmp_path, en_el_techo)).asistente
+    normal = asistente.niveles_ia.normal
+    assert (normal.max_arbitro, normal.max_reparaciones) == (6, 2)
+
+
+@pytest.mark.parametrize(
+    ("cambio", "campo"),
+    [
+        (lambda n: n.update(modelo="enorme"), "niveles_ia.normal.modelo"),
+        (lambda n: n.update(max_arbitro=-1), "niveles_ia.normal.max_arbitro"),
+        (lambda n: n.pop("llamadas_estimadas"), "niveles_ia.normal.llamadas_estimadas"),
+        (lambda n: n.update(revisor_final="quizá"), "niveles_ia.normal.revisor_final"),
+    ],
+    ids=["modelo", "negativo", "sin_estimacion", "booleano"],
+)
+def test_asistente_nivel_invalido_indica_el_campo(tmp_path, cambio, campo):
+    ruta = escribir_config(tmp_path, lambda d: cambio(d["asistente"]["niveles_ia"]["normal"]))
+    with pytest.raises(ErrorConfiguracion, match=campo):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_revisar_respuestas_es_una_tarea_barata_en_todos_los_proveedores(config):
+    for id_, proveedor in config.asistente.ia.proveedores.items():
+        revisor = proveedor.tareas["revisar_respuestas"]
+        ligera = proveedor.tareas["clasificar_pregunta"]
+        assert revisor.temperatura == 0, id_
+        assert (revisor.modelo, revisor.respaldo) == (ligera.modelo, ligera.respaldo), id_
+
+
+def test_asistente_tarea_con_modelo_y_razonamiento_maximos_opcionales(tmp_path, config):
+    for tarea in config.asistente.ia.proveedores["gemini"].tareas.values():
+        assert tarea.modelo_maximo is None and tarea.razonamiento_maximo is None
+
+    def completar(d):
+        _proveedor(d, "anthropic")["tareas"]["responder"].update(
+            modelo_maximo="claude-opus-5-5", razonamiento_maximo="high"
+        )
+
+    cargada = cargar_configuracion(escribir_config(tmp_path, completar))
+    responder = cargada.asistente.ia.proveedores["anthropic"].tareas["responder"]
+    assert (responder.modelo_maximo, responder.razonamiento_maximo) == ("claude-opus-5-5", "high")
+
+
+@pytest.mark.parametrize(
+    ("cambio", "campo"),
+    [
+        (lambda t: t.update(modelo_maximo=""), "tareas.responder.modelo_maximo"),
+        (lambda t: t.update(razonamiento_maximo="extremo"), "tareas.responder.razonamiento_maximo"),
+    ],
+    ids=["modelo_vacio", "razonamiento_desconocido"],
+)
+def test_asistente_tarea_maxima_invalida(tmp_path, cambio, campo):
+    ruta = escribir_config(
+        tmp_path, lambda d: cambio(_proveedor(d, "anthropic")["tareas"]["responder"])
+    )
+    with pytest.raises(ErrorConfiguracion, match=campo):
+        cargar_configuracion(ruta)
+
+
+def test_asistente_ensayo_de_una_plataforma_conocida(tmp_path):
+    ruta = escribir_config(
+        tmp_path, lambda d: d["asistente"]["ensayo"].update(plataformas=["magneto"])
+    )
+    assert cargar_configuracion(ruta).asistente.ensayo.plataformas == ["magneto"]
 
 
 def _proveedor(datos: dict, id_: str = "gemini") -> dict:

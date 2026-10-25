@@ -18,5 +18,5 @@
 ## 4. Verificación y despliegue
 
 - [x] 4.1 🟡 Suite completa en segundo plano (`.venv/Scripts/python -m pytest`, ~11 min) y `.venv/Scripts/ruff check`.
-- [ ] 4.2 👤 Desplegar en el Fedora (PR hacia `main`, `git pull --ff-only`, reinicio del servicio), recargar la extensión en el Chrome del dueño y repetir una postulación de Magneto con encuesta larga; leer en `postulacion_pasos` el `formulario_resuelto` y los `llenado_N`.
+- [x] 4.2 👤 Desplegar en el Fedora (PR hacia `main`, `git pull --ff-only`, reinicio del servicio), recargar la extensión en el Chrome del dueño y repetir una postulación de Magneto con encuesta larga; leer en `postulacion_pasos` el `formulario_resuelto` y los `llenado_N`.
 - [ ] 4.3 👤 Reproducir «Aplicar» sobre una vacante retirada (la CEID, con permiso del dueño) para ver el aviso de «el portal no cargó la postulación».

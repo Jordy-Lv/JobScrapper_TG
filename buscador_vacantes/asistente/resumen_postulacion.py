@@ -34,6 +34,8 @@ class DatosResumen:
     confirmada: bool = True  # False: se envió pero el portal no mostró la confirmación
     duracion_s: int | None = None  # lo que tardó la postulación, de tomada a terminada
     folio: str | None = None  # identificador de la postulación que ve el usuario
+    revisadas: int = 0  # respuestas que el revisor final de IA corrigió o frenó (nivel Máximo)
+    nivel_bajado: str | None = None  # nivel de IA al que bajó la cuota agotada (ahorro | normal)
 
     @property
     def con_encuesta(self) -> bool:
@@ -112,6 +114,10 @@ def tarjeta(d: DatosResumen) -> str:
         lineas = [estado, *([" · ".join(marcas)] if marcas else []), " · ".join(detalle)]
     else:
         lineas = [estado, " · ".join([*marcas, *detalle])]
+    if d.revisadas:
+        lineas.append(t.AVISO_RESPUESTAS_REVISADAS.format(n=d.revisadas))
+    if d.nivel_bajado in t.NOMBRES_NIVEL_IA:
+        lineas.append(t.AVISO_NIVEL_BAJADO.format(nivel=t.NOMBRES_NIVEL_IA[d.nivel_bajado]))
     cuerpo = "\n".join(lineas)
     return "\n".join([*cabecera, "", f"<blockquote>{cuerpo}</blockquote>"])
 

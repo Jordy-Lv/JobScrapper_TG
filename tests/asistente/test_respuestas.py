@@ -22,21 +22,29 @@ from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
 from buscador_vacantes.asistente.ia import ClienteIA  # noqa: E402
 from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     Contexto,
+    DatoFaltante,
     ErrorPegado,
     Origen,
     Pregunta,
+    Redactada,
+    autorizacion_trabajo,
     datos_aprendidos,
+    detectar_idioma,
+    ejemplos_de_estilo,
     elegir_opcion,
     es_consentimiento,
+    es_larga,
     guardar_en_banco,
     normalizar_pregunta,
     recordar,
     recortar_a_limite,
     redactar_formulario,
     resolver,
+    revisar_formulario,
     sembrar_banco,
     semilla,
     separar_preguntas,
+    tipo_archivo,
 )
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
 
@@ -84,13 +92,18 @@ def base(tmp_path):
     base.cerrar()
 
 
-def contexto(base, usuario_id=1, con_ia=True, datos=DATOS):
+def contexto(base, usuario_id=1, con_ia=True, datos=DATOS, plataforma=None, idioma=None,
+             nivel="normal", **calidad):
     cliente = None
+    config = cargar_configuracion().asistente
+    config_niveles = config.niveles_ia
     if con_ia:
-        config = cargar_configuracion().asistente
         cliente = ClienteIA(config.ia.proveedores["gemini"], base, 60, reloj=lambda: AHORA)
     return Contexto(base, usuario_id, datos, AHORA, cliente, "clave" if con_ia else None,
-                    vacante="Practicante de desarrollo Python")  # fmt: skip
+                    vacante="Practicante de desarrollo Python", plataforma=plataforma,
+                    idioma=idioma, nivel=nivel,
+                    clasificar_preguntas=getattr(config_niveles, nivel).clasificar_preguntas,
+                    **calidad)  # fmt: skip
 
 
 def test_semilla_apunta_a_campos_del_catalogo():
@@ -493,3 +506,686 @@ def test_redactor_elige_opciones_en_la_misma_llamada(base):
     assert r[1].valor == "Quiero crecer en desarrollo." and r[1].opcion is None
     assert r[2].opcion is None  # fuera de rango: se ignora
     assert "[opciones: 0) Si · 1) No]" in enviado(ruta)
+
+
+def texto_enviado(ruta, n=0):
+    """Los textos de la llamada n con sus saltos de línea reales (el cuerpo viaja como JSON)."""
+    def textos(valor):
+        if isinstance(valor, str):
+            yield valor
+        elif isinstance(valor, dict):
+            for v in valor.values():
+                yield from textos(v)
+        elif isinstance(valor, list):
+            for v in valor:
+                yield from textos(v)
+
+    return "\n".join(textos(json.loads(enviado(ruta, n))))
+
+
+# --- campos por autocomplete y por name/id -----------------------------------------------------
+
+DATOS_AMPLIADOS = DatosUsuario(
+    PERFIL,
+    {"salario": "2500000", "correo": "ana@gmail.com", "telefono": "3105551234",
+     "nombre": "Ana María Pérez Gómez", "pais": "Colombia"},
+)  # fmt: skip
+
+
+@respx.mock
+def test_first_name_con_given_name_se_llena_sin_ia(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    ctx = contexto(base, datos=DATOS_AMPLIADOS)
+    r = asyncio.run(resolver(Pregunta("First Name", nombre="first_name",
+                                      autocomplete="given-name"), ctx))  # fmt: skip
+    assert (r.valor, r.origen, r.campo) == ("Ana María", Origen.PERFIL, "nombre_pila")
+    assert ruta.call_count == 0
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("pregunta", "campo", "valor"),
+    [
+        # el autocomplete manda aunque la etiqueta no esté en el banco
+        (Pregunta("Your legal first name, as on your passport", autocomplete="given-name"),
+         "nombre_pila", "Ana María"),
+        (Pregunta("Surname(s)", autocomplete="section-work family-name"), "apellido",
+         "Pérez Gómez"),
+        (Pregunta("Where do you reside?", autocomplete="country-name"), "pais", "Colombia"),
+        (Pregunta("Full legal name", autocomplete="name"), "nombre", "Ana María Pérez Gómez"),
+        # tokens de name o id, en cualquier convención
+        (Pregunta("Campo 1", nombre="job_application[first_name]"), "nombre_pila", "Ana María"),
+        (Pregunta("Campo 2", nombre="candidateLastName"), "apellido", "Pérez Gómez"),
+        (Pregunta("Campo 3", nombre="legalNameSection_firstName"), "nombre_pila", "Ana María"),
+        (Pregunta("Campo 4", nombre="_systemfield_name"), "nombre", "Ana María Pérez Gómez"),
+        (Pregunta("Campo 5", nombre="country"), "pais", "Colombia"),
+    ],
+)  # fmt: skip
+def test_autocomplete_y_name_se_resuelven_antes_del_banco_y_sin_ia(base, pregunta, campo, valor):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    r = asyncio.run(resolver(pregunta, contexto(base, datos=DATOS_AMPLIADOS)))
+    assert (r.campo, r.valor, r.origen) == (campo, valor, Origen.PERFIL)
+    assert ruta.call_count == 0
+
+
+def test_codigo_de_pais_del_telefono_no_es_el_pais(base):
+    ctx = contexto(base, con_ia=False, datos=DATOS_AMPLIADOS)
+    r = asyncio.run(resolver(Pregunta("Prefix", nombre="phone_country_code"), ctx))
+    assert r.campo == "telefono"  # lo gana el teléfono
+    r = asyncio.run(resolver(Pregunta("Prefijo", nombre="country_code"), ctx))
+    assert r.falta and r.campo is None
+
+
+def test_campo_por_autocomplete_sin_dato_se_pregunta_una_vez(base):
+    sin_nombre = DatosUsuario(PerfilExtraido(es_cv=True), {})
+    r = asyncio.run(resolver(Pregunta("Anything", autocomplete="family-name"),
+                             contexto(base, con_ia=False, datos=sin_nombre)))  # fmt: skip
+    assert r.falta and r.campo == "apellido"
+
+
+def test_autocomplete_de_pais_elige_la_opcion_del_select(base):
+    pregunta = Pregunta("Country", "opciones", ["Argentina", "Colombia (+57)", "Perú"],
+                        autocomplete="country")  # fmt: skip
+    r = asyncio.run(resolver(pregunta, contexto(base, con_ia=False, datos=DATOS_AMPLIADOS)))
+    assert r.opcion == 1
+
+
+# --- banco en inglés y portugués ----------------------------------------------------------------
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("texto", "campo", "valor"),
+    [
+        ("Pretensão salarial", "salario", "2500000"),
+        ("Qual é a sua pretensão salarial?", "salario", "2500000"),
+        ("What are your monthly pay expectations in Colombian Pesos?", "salario", "2500000"),
+        ("Expected salary", "salario", "2500000"),
+        ("First Name", "nombre_pila", "Ana María"),
+        ("Last name", "apellido", "Pérez Gómez"),
+        ("Sobrenome", "apellido", "Pérez Gómez"),
+        ("Country", "pais", "Colombia"),
+        ("Current city", "ciudad", "Bogotá"),
+        ("Cidade de residência", "ciudad", "Bogotá"),
+        ("Please list your current cumulative GPA.", "promedio", None),
+        ("LinkedIn Profile", "enlace_linkedin", None),
+    ],
+)  # fmt: skip
+def test_banco_reconoce_formulaciones_en_ingles_y_portugues(base, texto, campo, valor):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    r = asyncio.run(resolver(Pregunta(texto), contexto(base, datos=DATOS_AMPLIADOS)))
+    assert r.campo == campo
+    assert (r.valor == valor) if valor else r.falta  # sin el dato en el perfil se pregunta
+    assert ruta.call_count == 0
+
+
+@respx.mock
+def test_nivel_de_ingles_con_opciones_en_ingles(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    pregunta = Pregunta("What is your English level?", "opciones",
+                        ["A1", "A2", "B1 - Intermediate", "B2", "C1"])  # fmt: skip
+    r = asyncio.run(resolver(pregunta, contexto(base)))
+    assert r.opcion == 2 and ruta.call_count == 0
+
+
+def test_semilla_corrige_el_campo_de_una_fila_ya_sembrada(base):
+    norma = normalizar_pregunta("Perfil de LinkedIn")
+    with base.transaccion() as cx:
+        cx.execute("UPDATE banco_preguntas SET campo = 'enlace_portafolio' "
+                   "WHERE pregunta_norm = ?", (norma,))  # fmt: skip
+    assert campo_en_banco(base, "Perfil de LinkedIn") == ("enlace_portafolio", None)
+    assert sembrar_banco(base, AHORA) == 0  # nada nuevo que agregar
+    assert campo_en_banco(base, "Perfil de LinkedIn") == ("enlace_linkedin", None)
+
+
+def test_semilla_no_pisa_lo_que_clasifico_la_ia(base):
+    guardar_en_banco(base, normalizar_pregunta("Pregunta nueva de la IA"), "ciudad", None, AHORA)
+    sembrar_banco(base, AHORA)
+    assert campo_en_banco(base, "Pregunta nueva de la IA") == ("ciudad", None)
+
+
+# --- datos de postulación ampliados ---------------------------------------------------------------
+
+
+@respx.mock
+def test_como_te_enteraste_se_responde_con_la_plataforma(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    pregunta = Pregunta("How did you hear about this opportunity?", "opciones",
+                        ["Indeed", "LinkedIn", "Referral", "Other"])  # fmt: skip
+    r = asyncio.run(resolver(pregunta, contexto(base, plataforma="linkedin")))
+    assert (r.opcion, r.origen, r.campo) == (1, Origen.PERFIL, "fuente_vacante")
+    abierta = asyncio.run(resolver(Pregunta("¿Cómo te enteraste de esta oferta?"),
+                                   contexto(base, plataforma="computrabajo")))  # fmt: skip
+    assert abierta.valor == "Computrabajo"
+    assert ruta.call_count == 0
+
+
+def test_fuente_sin_plataforma_o_sin_opcion_que_calce(base):
+    sin = asyncio.run(resolver(Pregunta("How did you hear about us?"),
+                               contexto(base, con_ia=False)))  # fmt: skip
+    assert sin.falta  # sin plataforma no se inventa la fuente
+    otras = Pregunta("How did you hear about us?", "opciones", ["Referral", "Job board"])
+    r = asyncio.run(resolver(otras, contexto(base, con_ia=False, plataforma="linkedin")))
+    assert r.redactar and r.opcion is None  # la opción no calza: elige el redactor
+
+
+COLOMBIA = "Are you legally authorized to work in Colombia?"
+
+
+def test_autorizacion_para_trabajar_se_pregunta_una_vez_por_pais(base):
+    pregunta = Pregunta(COLOMBIA, "opciones", ["Yes", "No"])
+    antes = asyncio.run(resolver(pregunta, contexto(base, con_ia=False)))
+    assert antes.falta and antes.campo == "autorizacion_trabajo:colombia"
+    guardado = DatosUsuario(PERFIL, {"autorizacion_trabajo:colombia": "Sí"})
+    otra_redaccion = Pregunta("Are you eligible to work legally in Colombia?", "opciones",
+                              ["Yes", "No"])  # fmt: skip
+    for p in (pregunta, otra_redaccion):
+        r = asyncio.run(resolver(p, contexto(base, con_ia=False, datos=guardado)))
+        assert (r.opcion, r.origen) == (0, Origen.PERFIL)
+    otro_pais = Pregunta("Are you legally authorized to work in Mexico?", "opciones", ["Yes", "No"])
+    r = asyncio.run(resolver(otro_pais, contexto(base, con_ia=False, datos=guardado)))
+    assert r.falta and r.campo == "autorizacion_trabajo:mexico"
+
+
+@pytest.mark.parametrize(("texto", "esperado"), [
+    ("Are you legally authorized to work in Colombia?", ("autorizacion_trabajo", "Colombia")),
+    ("¿Tienes autorización para trabajar en Colombia?", ("autorizacion_trabajo", "Colombia")),
+    ("Você tem autorização para trabalhar na Colômbia?", ("autorizacion_trabajo", "Colombia")),
+    ("Are you authorized to work in the U.S.?", ("autorizacion_trabajo", "Estados Unidos")),
+    # sin país conocido o la pregunta contraria: no se contesta con este dato
+    ("Are you legally authorized to work in Narnia?", None),
+    ("Will you require sponsorship to work in Colombia?", None),
+    ("¿Requieres patrocinio de visa para trabajar en Estados Unidos?", None),
+    ("¿Tienes disponibilidad para trabajar en Colombia?", None),
+])  # fmt: skip
+def test_autorizacion_trabajo_reconoce_pais_y_descarta_patrocinio(texto, esperado):
+    assert autorizacion_trabajo(normalizar_pregunta(texto)) == esperado
+
+
+def test_autorizacion_aprendida_manda_sobre_la_regla(base):
+    recordar(base, 1, COLOMBIA, "No", AHORA)
+    r = asyncio.run(resolver(Pregunta(COLOMBIA, "opciones", ["Yes", "No"]),
+                             contexto(base, con_ia=False)))  # fmt: skip
+    assert (r.opcion, r.origen) == (1, Origen.APRENDIDA)
+
+
+@pytest.mark.parametrize(("tipo", "texto", "ayuda", "esperado"), [
+    ("texto", "Expected salary", "Please include currency", "COP 2.500.000"),
+    ("texto", "Pretensão salarial", "Informe a moeda", "COP 2.500.000"),
+    ("texto", "Aspiración salarial", "Indica la moneda", "COP 2.500.000"),
+    ("numero", "Expected salary", "Please include currency", "2500000"),  # un número no lleva texto
+    ("texto", "Expected salary", None, "2500000"),
+])  # fmt: skip
+def test_salario_con_moneda_cuando_la_pregunta_la_pide(base, tipo, texto, ayuda, esperado):
+    r = asyncio.run(resolver(Pregunta(texto, tipo, ayuda=ayuda),
+                             contexto(base, con_ia=False, datos=DATOS_AMPLIADOS)))  # fmt: skip
+    assert r.campo == "salario" and r.valor == esperado
+
+
+@respx.mock
+def test_salario_con_la_moneda_en_la_misma_pregunta(base):
+    respx.post(URL_LITE).mock(return_value=gemini({"campo": "salario", "formato": "dato"}))
+    texto = "What is your expected monthly salary? Please include currency"
+    r = asyncio.run(resolver(Pregunta(texto), contexto(base, datos=DATOS_AMPLIADOS)))
+    assert (r.campo, r.valor) == ("salario", "COP 2.500.000")
+
+
+def test_salario_en_dolares_nunca_manda_la_cifra_en_pesos(base):
+    pregunta = Pregunta("What are your salary expectations in USD?",
+                        ayuda="Please include currency")
+    sin = asyncio.run(resolver(pregunta, contexto(base, con_ia=False, datos=DATOS_AMPLIADOS)))
+    assert sin.falta and sin.campo == "salario_usd"
+    con = DatosUsuario(PERFIL, {"salario": "2500000", "salario_usd": "1500"})
+    r = asyncio.run(resolver(pregunta, contexto(base, con_ia=False, datos=con)))
+    assert r.valor == "USD 1.500" and r.campo == "salario_usd"
+    libre = Pregunta("Salary expectations (USD)")
+    assert asyncio.run(resolver(libre, contexto(base, con_ia=False, datos=con))).valor == "1500"
+
+
+def test_promedio_se_pregunta_y_se_elige_el_rango(base):
+    pregunta = Pregunta("Please list your current cumulative GPA.", "opciones",
+                        ["Below 3.5", "3.5 - 4.0", "4.0 - 4.5", "4.5 - 5.0"])  # fmt: skip
+    assert asyncio.run(resolver(pregunta, contexto(base, con_ia=False))).falta
+    con = DatosUsuario(PERFIL, {"promedio": "4.2"})
+    r = asyncio.run(resolver(pregunta, contexto(base, con_ia=False, datos=con)))
+    assert r.opcion == 2
+
+
+def test_si_no_en_texto_libre_va_en_el_idioma_del_formulario(base):
+    ingles = Pregunta("Are you currently studying?", idioma="en")
+    portugues = Pregunta("Você estuda atualmente?", idioma="pt")
+    espanol = Pregunta("¿Estudias actualmente?")
+    ctx = contexto(base, con_ia=False)
+    assert asyncio.run(resolver(ingles, ctx)).valor == "Yes"
+    assert asyncio.run(resolver(portugues, ctx)).valor == "Sim"
+    assert asyncio.run(resolver(espanol, ctx)).valor == "Sí"
+
+
+@pytest.mark.parametrize("texto", [
+    "I agree to the privacy policy",
+    "Do you consent to the processing of your personal data? (GDPR)",
+    "I have read and accept the Terms and Conditions",
+    "Eu concordo com a política de privacidade",
+    "Sí, he leído y acepto la declaración de privacidad del candidato.",
+])  # fmt: skip
+@respx.mock
+def test_consentimiento_en_ingles_y_portugues_no_se_inventa(base, texto):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    assert es_consentimiento(normalizar_pregunta(texto))
+    r = asyncio.run(resolver(Pregunta(texto, "opciones", ["Yes", "No"]), contexto(base)))
+    assert r.falta and not ruta.called
+
+
+# --- idioma del formulario -----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("textos", "declarado", "esperado"), [
+    (["First Name", "Last Name"], None, "en"),
+    (["Tell us a bit about your background in Technical Support"], "en", "en"),
+    (["Nombre", "¿Cuál es tu aspiración salarial?", "Tienes experiencia?"], "es", "es"),
+    (["¿Cuál es tu aspiración salarial?", "¿Tienes disponibilidad de horario?"], "en", "es"),
+    (["Qual é a sua pretensão salarial?", "Você tem experiência?"], "es", "pt"),
+    (["Why are you interested in this role?", "What is your salary?"], "es", "en"),
+    (["Email", "Phone"], "en", "en"),  # sin palabras que decidan: el declarado
+    (["Email", "Skype"], None, "es"),  # nada que decida: español
+    (["Name", "Nombre"], "en-US", "en"),  # una palabra no basta para llevar la contraria
+])  # fmt: skip
+def test_detectar_idioma(textos, declarado, esperado):
+    preguntas = [Pregunta(t, idioma=declarado) for t in textos]
+    assert detectar_idioma(preguntas) == esperado
+
+
+@respx.mock
+def test_formulario_en_ingles_se_redacta_en_ingles(base):
+    ruta = respx.post(URL_REDACTAR).mock(return_value=gemini({"respuestas": [
+        {"indice": 1, "respuesta": "I have two years of experience in technical support."},
+    ]}))  # fmt: skip
+    pregunta = Pregunta("Tell us a bit about your background in Technical Support", idioma="en",
+                        ayuda="Two or three sentences is enough")  # fmt: skip
+    r = asyncio.run(redactar_formulario([pregunta], contexto(base)))
+    assert r[0].valor.startswith("I have two years")
+    cuerpo = texto_enviado(ruta)
+    assert "<<<DATOS idioma\ninglés\nDATOS>>>" in cuerpo
+    assert "idioma indicado en «idioma»" in cuerpo
+    assert "[ayuda: Two or three sentences is enough]" in cuerpo
+    assert "ana@gmail.com" not in cuerpo
+
+
+@respx.mock
+def test_formulario_en_espanol_declarado_en_ingles_se_redacta_en_espanol(base):
+    ruta = respx.post(URL_REDACTAR).mock(return_value=gemini({"respuestas": []}))
+    preguntas = [Pregunta("¿Por qué te interesa esta vacante?", idioma="en"),
+                 Pregunta("¿Cuál es tu experiencia con soporte técnico?", idioma="en")]  # fmt: skip
+    asyncio.run(redactar_formulario(preguntas, contexto(base)))
+    assert "<<<DATOS idioma\nespañol\nDATOS>>>" in texto_enviado(ruta)
+
+
+@respx.mock
+def test_idioma_del_contexto_manda_sobre_las_etiquetas(base):
+    ruta = respx.post(URL_REDACTAR).mock(return_value=gemini({"respuestas": []}))
+    asyncio.run(redactar_formulario([Pregunta("Motivación")], contexto(base, idioma="pt")))
+    assert "<<<DATOS idioma\nportugués\nDATOS>>>" in texto_enviado(ruta)
+
+
+# --- niveles de IA ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_ahorro_no_clasifica_con_ia_las_preguntas_nuevas_van_a_la_card(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(
+        return_value=gemini({"campo": "salario", "formato": "dato"})
+    )
+    pregunta = Pregunta("¿Cuál es tu pretensión económica mensual?")
+    r = asyncio.run(resolver(pregunta, contexto(base, nivel="ahorro")))
+    assert r.falta and not r.redactar
+    assert ruta.call_count == 0
+    ia = base.cx.execute("SELECT COUNT(*) FROM banco_preguntas WHERE origen = 'ia'").fetchone()
+    assert ia[0] == 0  # lo que no se clasificó no entra al banco
+
+
+@respx.mock
+def test_ahorro_sigue_resolviendo_con_datos_banco_y_lo_aprendido_sin_ia(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    r = asyncio.run(
+        resolver(Pregunta("¿Cuál es tu aspiración salarial?"), contexto(base, nivel="ahorro"))
+    )
+    assert (r.valor, r.origen) == ("1300000", Origen.PERFIL)
+    assert ruta.call_count == 0
+
+
+@respx.mock
+def test_ahorro_si_redacta_las_preguntas_abiertas_con_una_llamada_al_modelo_ligero(base):
+    ligero = respx.post(URL_LITE).mock(return_value=gemini({"respuestas": [
+        {"indice": 1, "respuesta": "Me interesa por el equipo y el stack."}
+    ]}))  # fmt: skip
+    configurado = respx.post(URL_REDACTAR).mock(return_value=gemini({"respuestas": []}))
+    r = asyncio.run(
+        redactar_formulario([Pregunta(COMPUESTA)], contexto(base, nivel="ahorro"))
+    )
+    assert r[0].valor == "Me interesa por el equipo y el stack."
+    assert (ligero.call_count, configurado.call_count) == (1, 0)
+
+
+@respx.mock
+def test_normal_clasifica_con_ia_y_redacta_con_el_modelo_configurado(base):
+    clasifica = respx.post(URL_LITE).mock(
+        return_value=gemini({"campo": "salario", "formato": "dato"})
+    )
+    r = asyncio.run(
+        resolver(Pregunta("¿Cuál es tu pretensión económica mensual?"), contexto(base))
+    )
+    assert r.origen == Origen.BANCO and clasifica.call_count == 1
+    configurado = respx.post(URL_REDACTAR).mock(return_value=gemini({"respuestas": [
+        {"indice": 1, "respuesta": "Estudio Ingeniería de Sistemas."}
+    ]}))  # fmt: skip
+    asyncio.run(redactar_formulario([Pregunta(COMPUESTA)], contexto(base)))
+    assert configurado.call_count == 1
+
+
+# --- calidad del nivel Máximo (6.8) -----------------------------------------------------------
+
+URL_REVISOR = URL_LITE  # revisar_respuestas va al modelo ligero de Gemini
+MOTIVACION = "¿Por qué te interesa esta vacante?"
+PROYECTO = "Cuéntanos de un proyecto del que estés orgulloso"
+ESTILO = "Soy directo y práctico; prefiero frases cortas y claras, con ejemplos concretos."
+
+
+def maximo(base, **extra):
+    """Contexto en Máximo con toda la calidad encendida (como `niveles_ia.maximo`)."""
+    calidad = {
+        "requisitos_en_redactor": True, "ejemplos_estilo": True, "doble_redaccion": True,
+        "revisor_final": True,
+        "requisitos": ["Python (obligatorio)", "Kubernetes (obligatorio)"],
+    }  # fmt: skip
+    return contexto(base, nivel="maximo", **{**calidad, **extra})
+
+
+def aprender(base, pregunta, respuesta, usuario_id=1):
+    recordar(base, usuario_id, pregunta, respuesta, AHORA)
+
+
+def redactada(*respuestas):
+    return gemini({"respuestas": [{"indice": i, "respuesta": r} for i, r in respuestas]})
+
+
+@pytest.mark.parametrize(
+    ("texto", "maximo_pedido", "esperada"),
+    [
+        (MOTIVACION, None, True),
+        ("Why are you interested in this role?", None, True),
+        ("Describe tu experiencia con bases de datos", None, True),
+        ("Tell us about yourself", None, True),
+        ("¿En qué institución estudias?", None, False),
+        ("¿Cuál es tu ciudad?", 100, False),
+        ("¿Cuál es tu ciudad?", 301, True),
+        ("¿Cuál es tu ciudad?", 300, False),
+    ],
+)
+def test_es_larga(texto, maximo_pedido, esperada):
+    assert es_larga(Pregunta(texto, maximo=maximo_pedido)) is esperada
+
+
+def test_ejemplos_de_estilo_son_hasta_cinco_respuestas_largas_del_usuario(base):
+    for n in range(7):
+        aprender(base, f"Pregunta larga número {n}", f"Mi respuesta de estilo número {n}. " * 3)
+    aprender(base, "Pregunta corta", "Sí")
+    aprender(base, "Pregunta reservada", RESERVADO)
+    ejemplos = ejemplos_de_estilo(base, 1)
+    assert len(ejemplos) == 5
+    assert all(len(r) >= 60 and r != RESERVADO for _, r in ejemplos)
+    assert ejemplos_de_estilo(base, 2) == []  # los de otro usuario no se mezclan
+
+
+@respx.mock
+def test_maximo_manda_requisitos_y_estilo_al_redactor(base):
+    aprender(base, "Cuéntame sobre ti", ESTILO)
+    ruta = respx.post(URL_REDACTAR).mock(return_value=redactada((1, "Respuesta corta.")))
+    asyncio.run(redactar_formulario([Pregunta(MOTIVACION)], maximo(base)))
+    cuerpo = texto_enviado(ruta, 0)
+    assert "requisitos_de_la_vacante" in cuerpo and "Kubernetes (obligatorio)" in cuerpo
+    assert "ejemplos_de_estilo" in cuerpo and "frases cortas y claras" in cuerpo
+    assert "NUNCA afirmes" in cuerpo and "NUNCA datos" in cuerpo
+    assert "SEGUNDA versión" not in cuerpo
+
+
+@respx.mock
+def test_normal_no_manda_requisitos_ni_estilo_ni_hace_doble_redaccion(base):
+    aprender(base, "Cuéntame sobre ti", ESTILO)
+    ruta = respx.post(URL_REDACTAR).mock(return_value=redactada((1, "Respuesta corta.")))
+    asyncio.run(redactar_formulario([Pregunta(MOTIVACION)], contexto(base)))
+    cuerpo = texto_enviado(ruta, 0)
+    assert "requisitos_de_la_vacante" not in cuerpo and "ejemplos_de_estilo" not in cuerpo
+    assert ruta.call_count == 1
+
+
+@respx.mock
+def test_requisito_que_el_perfil_no_cumple_nunca_se_afirma(base):
+    respx.post(URL_REDACTAR).mock(side_effect=[
+        redactada((1, "Tengo experiencia con Kubernetes en producción.")),
+        redactada((1, "Además trabajé con Kubernetes y Python.")),
+    ])  # fmt: skip
+    r = asyncio.run(redactar_formulario([Pregunta(MOTIVACION)], maximo(base)))
+    # Se frena la respuesta (queda sin valor: el usuario la escribe) y la otra versión se descarta
+    assert r[0].valor is None and r[0].alternativas == []
+
+
+@respx.mock
+def test_requisito_que_el_usuario_si_declaro_se_puede_mencionar(base):
+    aprender(base, "¿Has usado Kubernetes?", "Sí, en un proyecto del SENA con Docker y Kubernetes")
+    respx.post(URL_REDACTAR).mock(
+        return_value=redactada((1, "Usé Kubernetes y Python en un proyecto del SENA."))
+    )
+    ctx = maximo(base, doble_redaccion=False)
+    r = asyncio.run(redactar_formulario([Pregunta(MOTIVACION)], ctx))
+    assert r[0].valor.startswith("Usé Kubernetes")
+
+
+@respx.mock
+def test_requisito_ajeno_solo_se_vigila_si_el_nivel_manda_requisitos(base):
+    respx.post(URL_REDACTAR).mock(return_value=redactada((1, "Sé Kubernetes.")))
+    r = asyncio.run(redactar_formulario([Pregunta(MOTIVACION)], contexto(base)))
+    assert r[0].valor == "Sé Kubernetes."  # en Normal no hay requisitos que vigilar
+
+
+@respx.mock
+def test_doble_redaccion_solo_de_las_respuestas_largas(base):
+    preguntas = [Pregunta("¿Qué programa cursas?"), Pregunta(MOTIVACION)]
+    ruta = respx.post(URL_REDACTAR).mock(side_effect=[
+        redactada((1, "En la Universidad Nacional."), (2, "Primera versión de la motivación.")),
+        redactada((1, "Segunda versión, con otro enfoque.")),
+    ])  # fmt: skip
+    r = asyncio.run(redactar_formulario(preguntas, maximo(base)))
+    assert ruta.call_count == 2
+    assert r[0].alternativas == []
+    assert r[1].valor == "Primera versión de la motivación."
+    assert r[1].alternativas == ["Segunda versión, con otro enfoque."]
+    segunda = texto_enviado(ruta, 1)
+    assert "SEGUNDA versión" in segunda and MOTIVACION in segunda
+    assert "programa cursas" not in segunda
+
+
+@respx.mock
+def test_doble_redaccion_que_falla_deja_la_primera(base):
+    respx.post(URL_REDACTAR).mock(side_effect=[
+        redactada((1, "Primera versión.")),
+        httpx.Response(400, json={}),
+    ])  # fmt: skip
+    r = asyncio.run(redactar_formulario([Pregunta(MOTIVACION)], maximo(base)))
+    assert r[0].valor == "Primera versión." and r[0].alternativas == []
+
+
+def con_revisor(*veredictos):
+    return gemini({"veredictos": list(veredictos)})
+
+
+def revisar(base, preguntas, redactadas, *veredictos, **extra):
+    with respx.mock:
+        ruta = respx.post(URL_REVISOR).mock(return_value=con_revisor(*veredictos))
+        cambiadas = asyncio.run(revisar_formulario(preguntas, redactadas, maximo(base, **extra)))
+    return cambiadas, ruta
+
+
+def test_revisor_corrige_el_idioma_antes_de_enviar(base):
+    preguntas = [Pregunta("Why are you interested in this role?", maximo=500)]
+    redactadas = {0: Redactada("Me interesa porque quiero aprender en un equipo real.")}
+    cambiadas, ruta = revisar(
+        base, preguntas, redactadas,
+        {"indice": 1, "veredicto": "corregir",
+         "texto": "I am interested because I want to learn on a real team."},
+        idioma="en",
+    )  # fmt: skip
+    assert cambiadas == 1 and redactadas[0].revisada
+    assert redactadas[0].valor == "I am interested because I want to learn on a real team."
+    cuerpo = texto_enviado(ruta)
+    assert "Why are you interested" in cuerpo and "inglés" in cuerpo
+
+
+def test_revisor_corregido_se_recorta_al_limite_del_campo(base):
+    preguntas = [Pregunta(MOTIVACION, maximo=40)]
+    redactadas = {0: Redactada("Texto original.")}
+    larga = "Una frase muy larga. " * 10
+    revisar(base, preguntas, redactadas, {"indice": 1, "veredicto": "corregir", "texto": larga})
+    assert len(redactadas[0].valor) <= 40
+
+
+def test_revisor_dato_dudoso_va_a_la_card_con_la_pregunta_del_dato(base):
+    preguntas = [Pregunta("Cuéntanos tu experiencia laboral")]
+    redactadas = {0: Redactada("Tengo tres años de experiencia como desarrollador.")}
+    cambiadas, _ = revisar(
+        base, preguntas, redactadas,
+        {"indice": 1, "veredicto": "preguntar",
+         "faltan": [{"pregunta": "¿Cuántos años de experiencia tienes?",
+                     "sugerencias": ["Sin experiencia", "1 año"]}]},
+    )  # fmt: skip
+    assert cambiadas == 1
+    assert redactadas[0].valor is None
+    assert [f.pregunta for f in redactadas[0].faltan] == ["¿Cuántos años de experiencia tienes?"]
+
+
+def test_revisor_elige_la_otra_version_y_ok_no_cambia_nada(base):
+    preguntas = [Pregunta(MOTIVACION), Pregunta(PROYECTO)]
+    redactadas = {
+        0: Redactada("Versión uno.", alternativas=["Versión dos."]),
+        1: Redactada("Proyecto bien contado.", alternativas=["Otra manera."]),
+    }
+    cambiadas, _ = revisar(
+        base, preguntas, redactadas,
+        {"indice": 1, "veredicto": "elegir", "eleccion": 2},
+        {"indice": 2, "veredicto": "ok"},
+    )  # fmt: skip
+    assert cambiadas == 1
+    assert redactadas[0].valor == "Versión dos." and redactadas[0].revisada
+    assert redactadas[1].valor == "Proyecto bien contado." and not redactadas[1].revisada
+
+
+def test_revisor_ignora_veredictos_invalidos(base):
+    preguntas = [Pregunta(MOTIVACION)]
+    redactadas = {0: Redactada("Original.", alternativas=["Otra."])}
+    cambiadas, _ = revisar(
+        base, preguntas, redactadas,
+        {"indice": 9, "veredicto": "corregir", "texto": "fuera de rango"},
+        {"indice": 1, "veredicto": "elegir", "eleccion": 7},
+        {"indice": 1, "veredicto": "corregir", "texto": "ya vi este índice"},
+    )  # fmt: skip
+    assert cambiadas == 0 and redactadas[0].valor == "Original."
+
+
+def test_revisor_no_puede_afirmar_un_requisito_que_el_perfil_no_tiene(base):
+    preguntas = [Pregunta(MOTIVACION)]
+    redactadas = {0: Redactada("Me interesa el equipo.")}
+    cambiadas, _ = revisar(
+        base, preguntas, redactadas,
+        {"indice": 1, "veredicto": "corregir", "texto": "Me interesa y domino Kubernetes."},
+    )  # fmt: skip
+    assert cambiadas == 0 and redactadas[0].valor == "Me interesa el equipo."
+
+
+def test_revisor_solo_ve_texto_redactado_por_la_ia(base):
+    """Las opciones, las que piden datos y las que no tienen texto nunca se le envían."""
+    preguntas = [
+        Pregunta("¿Nivel de inglés?", "opciones", ["A2", "B1"]),
+        Pregunta(PROYECTO),
+        Pregunta(MOTIVACION),
+    ]
+    redactadas = {
+        0: Redactada(opcion=1),
+        1: Redactada("Proyecto del inventario.", faltan=[DatoFaltante(pregunta="¿Dónde?")]),
+        2: Redactada("Quiero aprender en un equipo real."),
+    }
+    _, ruta = revisar(base, preguntas, redactadas, {"indice": 1, "veredicto": "ok"})
+    cuerpo = texto_enviado(ruta)
+    assert "Quiero aprender en un equipo real." in cuerpo
+    assert "Nivel de inglés" not in cuerpo and "Proyecto del inventario" not in cuerpo
+    assert "ana@gmail.com" not in cuerpo and "3105551234" not in cuerpo
+
+
+def test_revisor_sin_candidatas_no_llama_a_la_ia(base):
+    with respx.mock:
+        ruta = respx.post(URL_REVISOR).mock(return_value=con_revisor())
+        cambiadas = asyncio.run(
+            revisar_formulario([Pregunta(MOTIVACION)], {0: Redactada(opcion=0)}, maximo(base))
+        )
+    assert cambiadas == 0 and ruta.call_count == 0
+
+
+def test_revisor_que_falla_deja_las_respuestas_como_estaban(base):
+    redactadas = {0: Redactada("Original.")}
+    with respx.mock:
+        respx.post(url__startswith=BASE_URL).mock(return_value=httpx.Response(400, json={}))
+        cambiadas = asyncio.run(
+            revisar_formulario([Pregunta(MOTIVACION)], redactadas, maximo(base))
+        )
+    assert cambiadas == 0 and redactadas[0].valor == "Original."
+
+
+@pytest.mark.parametrize(
+    ("texto", "tipo"),
+    [
+        ("Upload your resume", "cv"),
+        ("Hoja de vida", "cv"),
+        ("Cover letter (optional)", "carta"),
+        ("Carta de presentación", "carta"),
+        ("Transcript", "certificado_notas"),
+        ("Certificado de notas", "certificado_notas"),
+        ("Portfolio", "portafolio"),
+        ("Attach", "cv"),
+    ],
+)
+def test_tipo_de_archivo_por_etiqueta(texto, tipo):
+    assert tipo_archivo(Pregunta(texto, "archivo")) == tipo
+
+
+# --- campos que la receta del sitio ya conoce (6.9) ---------------------------------------------
+
+
+@respx.mock
+def test_receta_resuelve_un_campo_nuevo_sin_clasificarlo_con_ia(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    pregunta = Pregunta("Pretensión mensual (COP)", nombre="question_9", campo_receta="salario")
+    r = asyncio.run(resolver(pregunta, contexto(base, con_ia=False)))
+    assert (r.valor, r.origen, r.campo) == ("1300000", Origen.PERFIL, "salario")
+    con_ia = asyncio.run(resolver(pregunta, contexto(base)))
+    assert con_ia.valor == "1300000" and ruta.call_count == 0
+
+
+def test_receta_con_redactar_manda_la_pregunta_al_redactor_y_sin_ia_a_la_card(base):
+    pregunta = Pregunta("Tell us about yourself", nombre="question_7", campo_receta="redactar")
+    assert asyncio.run(resolver(pregunta, contexto(base))).redactar is True
+
+
+def test_receta_no_pisa_lo_que_el_usuario_respondio_ni_los_consentimientos(base):
+    aprender(base, "Pretensión mensual (COP)", "2000000")
+    aprendida_ = Pregunta("Pretensión mensual (COP)", campo_receta="salario")
+    assert asyncio.run(resolver(aprendida_, contexto(base))).valor == "2000000"
+    consentimiento = Pregunta("Acepto la política de privacidad", campo_receta="correo")
+    assert asyncio.run(resolver(consentimiento, contexto(base))).falta is True
+
+
+def test_receta_con_un_campo_que_no_es_del_catalogo_se_ignora(base):
+    pregunta = Pregunta("Pretensión mensual (COP)", campo_receta="inventado")
+    assert asyncio.run(resolver(pregunta, contexto(base, con_ia=False))).falta is True
+
+
+def test_receta_con_campo_de_parametro_sin_parametro_se_ignora(base):
+    pregunta = Pregunta("Python level", campo_receta="nivel_herramienta")
+    assert asyncio.run(resolver(pregunta, contexto(base, con_ia=False))).falta is True

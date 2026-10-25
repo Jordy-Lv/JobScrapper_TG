@@ -275,3 +275,37 @@ def test_completar_perfil_ignora_tope_y_pausa(cola):
     ejecutar(cola, p.id, T0)
     perfil = cola.obtener(cola.encolar_completar_perfil(1, CT, T0))
     assert cola.restriccion(perfil, T0 + timedelta(seconds=5)) is None
+
+
+def test_ensayada_es_final_sin_envio_y_se_envia_de_verdad_desde_la_vacante(cola):
+    p, _ = cola.encolar(1, "abc", CT, T0)
+    evento = ejecutar(cola, p.id, T0, E.ENSAYADA)
+    assert evento.estado == E.ENSAYADA
+    final = cola.obtener(p.id)
+    assert final.estado == E.ENSAYADA and not final.envio_pulsado and final.terminada_en
+    # «Enviar de verdad» la reencola desde la vacante y la exime del ensayo
+    assert cola.enviar_de_verdad(p.id, T0 + timedelta(minutes=1))
+    nueva = cola.obtener(p.id)
+    assert nueva.estado == E.EN_COLA and nueva.forzar_real and not nueva.envio_pulsado
+    # Solo vale para lo ensayado
+    assert not cola.enviar_de_verdad(p.id, T0)
+    # Un ensayo también se puede reintentar con ⚡
+    q, _ = cola.encolar(1, "def", CT, T0)
+    ejecutar(cola, q.id, T0, E.ENSAYADA)
+    assert cola.reintentar(q.id, T0 + timedelta(minutes=3))
+    assert cola.obtener(q.id).estado == E.EN_COLA and not cola.obtener(q.id).forzar_real
+
+
+def test_el_vigia_va_despues_de_lo_real_no_cuenta_para_el_tope_y_respeta_la_pausa(cola):
+    vigia = cola.encolar_vigia(1, "vig", CT, T0)
+    assert vigia.tipo == "vigia" and vigia.estado == E.EN_COLA
+    assert cola.encolar_vigia(1, "vig", CT, T0) is None  # una sola vez por vacante
+    assert cola.siguiente(1, LISTOS, T0).id == vigia.id
+    real, _ = cola.encolar(1, "abc", CT, T0 + timedelta(seconds=1))
+    assert cola.siguiente(1, LISTOS, T0).id == real.id  # lo real primero, aunque llegó después
+    # Ni el tope diario ni la lista de postulaciones del usuario lo cuentan
+    ejecutar(cola, vigia.id, T0, E.ENSAYADA)
+    assert cola.postulaciones_hoy(1, T0) == 0  # el ensayo no gasta el tope diario
+    assert cola.de_usuario(1, "vig") is None and cola.en_espera() == [real]
+    # Pero la pausa entre portales sí cuenta lo que ensayó el vigía
+    assert cola.restriccion(real, T0).codigo == "pausa"

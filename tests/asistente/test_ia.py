@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -300,3 +300,108 @@ def test_modelo_retirado_usa_el_respaldo(entorno):
         return_value=ok({"respuesta": "ok", "suficiente": True})
     )
     assert generar(cliente).respuesta == "ok"
+
+
+# --- niveles de IA: modelo por nivel y bajada por cuota ---------------------------------------
+
+LISTO = ok({"respuesta": "listo", "suficiente": True})
+MODELOS = BASE + "models/"
+
+
+def generar_en(cliente, nivel):
+    return asyncio.run(
+        cliente.generar(
+            "carta", CLAVE, 1, "Redacta la respuesta.",
+            [Parte(datos("vacante", "Practicante de Python"))], Salida, nivel=nivel,
+        )
+    )  # fmt: skip
+
+
+@pytest.fixture
+def con_modelo_maximo(entorno):
+    """Un proveedor que sí define el modelo completo de Máximo para la tarea `carta`."""
+    cliente, _ = entorno
+    proveedor = cliente.config
+    carta = proveedor.tareas["carta"].model_copy(
+        update={"modelo_maximo": "gemini-pro-latest", "razonamiento_maximo": "high"}
+    )
+    ajustado = proveedor.model_copy(update={"tareas": {**proveedor.tareas, "carta": carta}})
+    otro = ClienteIA(ajustado, cliente.base, 50, reloj=lambda: AHORA)
+    yield otro
+    asyncio.run(otro.cerrar())
+
+
+@respx.mock
+def test_maximo_usa_el_modelo_completo_con_mas_razonamiento(con_modelo_maximo):
+    ruta = respx.post(MODELOS + "gemini-pro-latest:generateContent").mock(return_value=LISTO)
+    assert generar_en(con_modelo_maximo, "maximo").respuesta == "listo"
+    assert '"high"' in ruta.calls.last.request.content.decode()
+    assert con_modelo_maximo.preferencias.nivel_bajado(1, AHORA) is None
+
+
+@respx.mock
+def test_cuota_agotada_en_maximo_sigue_en_normal_y_lo_anota(con_modelo_maximo):
+    completo = respx.post(MODELOS + "gemini-pro-latest:generateContent").mock(
+        return_value=error_429(3600)
+    )
+    normal = respx.post(URL).mock(return_value=LISTO)
+    assert generar_en(con_modelo_maximo, "maximo").respuesta == "listo"
+    assert (completo.call_count, normal.call_count) == (1, 1)
+    # Las siguientes postulaciones del día ya arrancan en Normal
+    prefs = con_modelo_maximo.preferencias
+    assert prefs.nivel_bajado(1, AHORA) == "normal"
+    assert prefs.nivel_efectivo(1, "maximo", AHORA) == "normal"
+    assert prefs.nivel_efectivo(1, "maximo", AHORA + timedelta(days=1)) == "maximo"
+
+
+@respx.mock
+def test_cuota_agotada_en_normal_sigue_en_ahorro_con_el_modelo_ligero(entorno):
+    cliente, _ = entorno
+    for modelo in ("gemini-flash-latest", "gemini-3.5-flash", "gemini-flash-lite-latest"):
+        respx.post(MODELOS + f"{modelo}:generateContent").mock(return_value=error_429(3600))
+    ligero = respx.post(MODELOS + "gemini-3.1-flash-lite:generateContent").mock(return_value=LISTO)
+    assert generar_en(cliente, "normal").respuesta == "listo"
+    assert ligero.call_count == 1
+    assert cliente.preferencias.nivel_bajado(1, AHORA) == "ahorro"
+
+
+@respx.mock
+def test_ahorro_usa_directamente_el_modelo_ligero(entorno):
+    cliente, _ = entorno
+    configurado = respx.post(URL).mock(return_value=LISTO)
+    ligero = respx.post(MODELOS + "gemini-flash-lite-latest:generateContent").mock(
+        return_value=LISTO
+    )
+    assert generar_en(cliente, "ahorro").respuesta == "listo"
+    assert (configurado.call_count, ligero.call_count) == (0, 1)
+    assert cliente.preferencias.nivel_bajado(1, AHORA) is None
+
+
+@respx.mock
+def test_sin_cuota_en_ningun_nivel_falla_sin_anotar_bajada_ni_repetir_modelos(entorno):
+    cliente, _ = entorno
+    todas = respx.post(url__startswith=MODELOS).mock(return_value=error_429(3600))
+    with pytest.raises(CuotaAgotada):
+        generar_en(cliente, "maximo")
+    # Máximo y Normal usan la misma cadena (sin modelo_maximo): no se repite; Ahorro agrega la suya
+    assert todas.call_count == 6
+    assert cliente.preferencias.nivel_bajado(1, AHORA) is None
+
+
+@respx.mock
+def test_tope_diario_en_maximo_tambien_baja_y_falla_si_ningun_nivel_alcanza(entorno):
+    cliente, _ = entorno
+    respx.post(url__startswith=MODELOS).mock(return_value=LISTO)
+    for _ in range(3):
+        generar_en(cliente, "normal")
+    with pytest.raises(TopeAlcanzado):
+        generar_en(cliente, "maximo")
+    assert cliente.preferencias.nivel_bajado(1, AHORA) is None
+
+
+def test_nivel_desconocido_se_trata_como_normal(entorno):
+    cliente, _ = entorno
+    with respx.mock:
+        configurado = respx.post(URL).mock(return_value=LISTO)
+        assert generar_en(cliente, "enorme").respuesta == "listo"
+    assert configurado.call_count == 1

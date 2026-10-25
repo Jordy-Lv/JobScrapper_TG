@@ -21,6 +21,13 @@ from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo  # noqa: E402
+from buscador_vacantes.asistente.pantalla import (  # noqa: E402
+    Boton,
+    Consulta,
+    ConsultaReparacion,
+    Peticion,
+    Resumen,
+)
 from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     REDACTAR,
     Origen,
@@ -40,6 +47,7 @@ T0 = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "detalle"
 URL_CT = "https://co.computrabajo.com/ofertas-de-trabajo/oferta-1"
 URL_LI = "https://co.linkedin.com/jobs/view/4475512580"
+CT = "computrabajo"
 
 PERFIL = PerfilExtraido(
     es_cv=True,
@@ -216,6 +224,44 @@ def test_formulario_con_dato_faltante_pregunta_y_reanuda(mundo):
     assert not resultado.faltan
     assert resultado.respuestas[1].texto == "No"
     assert resultado.cv is not None and resultado.cv.name == "CV_Ana_Perez.pdf"
+
+
+@respx.mock
+def test_como_te_enteraste_y_autorizacion_para_trabajar_sin_ia(mundo):
+    respx.get(URL_CT).mock(
+        return_value=httpx.Response(200, text=(FIXTURES / "computrabajo.html").read_text("utf-8"))
+    )
+    mundo.vincular()
+    toque = mundo.nucleo.tocar(mundo.usuario, id_corto("computrabajo:1"))
+    pid = toque.postulacion.id
+    navegador = mundo.base.cx.execute("SELECT id FROM navegadores").fetchone()[0]
+    mundo.nucleo.cola.tomar(pid, navegador, T0)
+    mundo.nucleo.cola.iniciar(pid, navegador, T0)
+    p = mundo.nucleo.cola.obtener(pid)
+    preguntas = [
+        Pregunta("How did you hear about this opportunity?", "opciones",
+                 ["Indeed", "Computrabajo", "Other"]),
+        Pregunta("Are you legally authorized to work in Colombia?", "opciones", ["Yes", "No"]),
+    ]  # fmt: skip
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    # La fuente sale de la plataforma de la vacante; la autorización se le pregunta al usuario
+    assert [(r.campo, r.texto) for r in resultado.respuestas] == [
+        ("fuente_vacante", "Computrabajo")
+    ]
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert pendiente["campo"] == "autorizacion_trabajo:colombia"
+    mundo.nucleo.cola.esperar_usuario(pid, navegador, T0)
+    assert mundo.nucleo.responder_pendiente(mundo.usuario.id, pendiente["id"], "Sí")
+    # La respuesta sirve para cualquier otra pregunta por Colombia, aunque la redacten distinto
+    mundo.nucleo.cola.tomar(pid, navegador, T0 + timedelta(minutes=3))
+    mundo.nucleo.cola.iniciar(pid, navegador, T0 + timedelta(minutes=3))
+    p = mundo.nucleo.cola.obtener(pid)
+    otra = Pregunta("Are you eligible to work legally in Colombia?", "opciones", ["Yes", "No"])
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, [otra]))
+    assert not resultado.faltan and resultado.respuestas[0].texto == "Yes"
+    assert mundo.nucleo.datos_usuario(mundo.usuario.id).cuestionario[
+        "autorizacion_trabajo:colombia"
+    ] == "Sí"
 
 
 def test_clave_gemini_cifrada(mundo):
@@ -730,3 +776,579 @@ def test_cuestionario_de_elempleo_se_redacta_en_una_sola_llamada(mundo):
         ("Sí", Origen.IA),
     ]
     assert "(máximo 2000 caracteres)" in ruta.calls[0].request.content.decode("utf-8")
+
+
+# --- árbitro de pantallas (entender_pagina) ---------------------------------------------------
+
+URL_ENTENDER = (
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
+)
+
+
+def consulta_de_pantalla():
+    peticion = Peticion(
+        "desconocida", None, "en", "https://empresa.co/jobs/1?token=SECRETO",
+        [Pregunta("City")], [Boton(indice=0, texto="Quick apply")], None,
+        Resumen(encabezados=["Backend Engineer"]), None, False,
+    )  # fmt: skip
+    return Consulta(peticion)
+
+
+@respx.mock
+def test_arbitro_de_pantalla_usa_la_clave_del_usuario_y_valida_el_esquema(mundo):
+    pid = en_curso(mundo)
+    p = mundo.nucleo.cola.obtener(pid)
+    ruta = respx.post(URL_ENTENDER).mock(return_value=gemini({
+        "clase": "intermedia",
+        "acciones": [{"accion": "borrar", "indice": 0}, {"accion": "avanzar", "indice": 0}],
+        "motivo": "Hay que avanzar",
+    }))  # fmt: skip
+    decision = asyncio.run(mundo.nucleo.arbitrar_pantalla(p, consulta_de_pantalla()))
+    assert decision.clase == "intermedia"
+    assert [(a.accion, a.indice) for a in decision.acciones] == [("avanzar", 0)]
+    assert ruta.call_count == 1
+    cuerpo = ruta.calls[0].request.content.decode("utf-8")
+    assert "Backend Engineer" in cuerpo and "Quick apply" in cuerpo
+    assert "SECRETO" not in cuerpo and "ana@gmail.com" not in cuerpo
+    uso = mundo.base.cx.execute("SELECT tarea, ok FROM ia_uso").fetchall()
+    assert [tuple(f) for f in uso] == [("entender_pagina", 1)]
+
+
+def test_arbitro_de_pantalla_sin_clave_devuelve_none(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p = mundo.nucleo.cola.obtener(pid)
+    assert asyncio.run(mundo.nucleo.arbitrar_pantalla(p, consulta_de_pantalla())) is None
+
+
+@respx.mock
+def test_arbitro_de_pantalla_con_falla_de_la_ia_devuelve_none(mundo):
+    pid = en_curso(mundo)
+    p = mundo.nucleo.cola.obtener(pid)
+    respx.post(url__startswith="https://generativelanguage").mock(
+        return_value=gemini({"clase": "inventada"})
+    )
+    assert asyncio.run(mundo.nucleo.arbitrar_pantalla(p, consulta_de_pantalla())) is None
+
+
+# --- reparación de un paso fallido (reparar_flujo) --------------------------------------------
+
+URL_REPARAR = (
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
+)
+
+
+def consulta_de_reparacion():
+    return ConsultaReparacion(consulta_de_pantalla().peticion, "clic:postular", "no se encontró")
+
+
+REPARACION = {
+    "clase": "formulario",
+    "acciones": [{"accion": "cerrar_modal", "indice": 0}, {"accion": "tocar_todo", "indice": 0}],
+    "motivo": "Un aviso tapa el botón",
+    "diagnostico": "El aviso de cookies cubre el botón",
+}
+
+
+@respx.mock
+def test_reparar_usa_la_clave_del_usuario_y_registra_su_uso(mundo):
+    pid = en_curso(mundo)
+    p = mundo.nucleo.cola.obtener(pid)
+    ruta = respx.post(URL_REPARAR).mock(return_value=gemini(REPARACION))
+    r = asyncio.run(mundo.nucleo.reparar_pantalla(p, consulta_de_reparacion()))
+    assert [(a.accion, a.indice) for a in r.acciones] == [("cerrar_modal", 0)]
+    assert r.diagnostico == "El aviso de cookies cubre el botón"
+    cuerpo = ruta.calls[0].request.content.decode("utf-8")
+    assert "clic:postular" in cuerpo and "ana@gmail.com" not in cuerpo
+    uso = mundo.base.cx.execute("SELECT usuario_id, tarea FROM ia_uso").fetchall()
+    assert [tuple(f) for f in uso] == [(mundo.usuario.id, "reparar_flujo")]
+
+
+@respx.mock
+def test_reparar_sin_clave_del_usuario_y_clave_duenio_apagada_es_sin_ia(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p = mundo.nucleo.cola.obtener(pid)
+    duenio = mundo.nucleo.usuarios.crear(999, "Dueño", T0)
+    mundo.nucleo.guardar_clave_gemini(duenio.id, "clave_duenio")
+    mundo.nucleo.config.dueno_telegram_id = 999
+    ruta = respx.post(url__startswith="https://generativelanguage").mock(
+        return_value=gemini(REPARACION)
+    )
+    assert asyncio.run(mundo.nucleo.reparar_pantalla(p, consulta_de_reparacion())) is None
+    assert ruta.call_count == 0  # la clave del dueño no se toca si no se activó
+
+
+@respx.mock
+def test_reparar_con_clave_duenio_usa_la_del_dueno_y_queda_a_su_nombre(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p = mundo.nucleo.cola.obtener(pid)
+    duenio = mundo.nucleo.usuarios.crear(999, "Dueño", T0)
+    mundo.nucleo.guardar_clave_gemini(duenio.id, "clave_duenio")
+    mundo.nucleo.config.dueno_telegram_id = 999
+    mundo.nucleo.config.autorreparacion.clave_duenio = True
+    ruta = respx.post(URL_REPARAR).mock(return_value=gemini(REPARACION))
+    r = asyncio.run(mundo.nucleo.reparar_pantalla(p, consulta_de_reparacion()))
+    assert r is not None and ruta.call_count == 1
+    assert ruta.calls[0].request.headers["x-goog-api-key"] == "clave_duenio"
+    uso = mundo.base.cx.execute("SELECT usuario_id, tarea FROM ia_uso").fetchall()
+    assert [tuple(f) for f in uso] == [(duenio.id, "reparar_flujo")]
+
+
+@respx.mock
+def test_reparar_prefiere_la_clave_del_usuario_aunque_este_la_del_dueno(mundo):
+    pid = en_curso(mundo)
+    p = mundo.nucleo.cola.obtener(pid)
+    duenio = mundo.nucleo.usuarios.crear(999, "Dueño", T0)
+    mundo.nucleo.guardar_clave_gemini(duenio.id, "clave_duenio")
+    mundo.nucleo.config.dueno_telegram_id = 999
+    mundo.nucleo.config.autorreparacion.clave_duenio = True
+    ruta = respx.post(URL_REPARAR).mock(return_value=gemini(REPARACION))
+    asyncio.run(mundo.nucleo.reparar_pantalla(p, consulta_de_reparacion()))
+    assert ruta.calls[0].request.headers["x-goog-api-key"] == "clave"
+
+
+# --- dominios barrera y parches en los selectores (6.3) -------------------------------------
+
+
+def test_vacante_de_un_dominio_barrera_va_al_respaldo_sin_abrir_la_pagina(mundo):
+    from buscador_vacantes.asistente.recetas import marcar_barrera, quitar_barrera
+
+    mundo.vincular()
+    marcar_barrera(mundo.base, "co.computrabajo.com", "ats_con_cuenta", T0)
+    toque = mundo.nucleo.tocar(mundo.usuario, id_corto("computrabajo:1"))
+    assert toque.camino == Camino.RESPALDO and toque.motivo == "ats_con_cuenta"
+    assert toque.postulacion.estado == E.RESPALDO and toque.postulacion.motivo == "ats_con_cuenta"
+    # El dueño quita el dominio y la siguiente vacante vuelve a ir sola
+    assert quitar_barrera(mundo.base, "co.computrabajo.com")
+    otra = mundo.nucleo.tocar(mundo.usuario, id_corto("linkedin:1"))
+    assert otra.motivo != "ats_con_cuenta"
+
+
+def test_los_selectores_llevan_los_parches_antepuestos_y_otra_version(mundo):
+    from buscador_vacantes.asistente.recetas import proponer_parche, resultado_parches
+
+    contenido = {"postular": [{"nombre": "aplicar", "accion": "ir", "selector": ["a.viejo"]}]}
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO selectores(plataforma, version, contenido_json, cargado_en) "
+            "VALUES ('computrabajo', '2026.10.06-2', ?, 'x')",
+            (json.dumps(contenido),),
+        )
+    assert mundo.nucleo.selectores("computrabajo") == ("2026.10.06-2", contenido)
+    pid = proponer_parche(mundo.base, "computrabajo", "aplicar", "a.nuevo", T0)
+    version, parchado = mundo.nucleo.selectores("computrabajo")
+    assert version == f"2026.10.06-2+p{pid}"
+    assert parchado["postular"][0]["selector"] == ["a.nuevo", "a.viejo"]
+    # Descartado, vuelven los selectores revisados y la versión original
+    resultado_parches(mundo.base, [pid], False, T0)
+    assert mundo.nucleo.selectores("computrabajo") == ("2026.10.06-2", contenido)
+    assert mundo.nucleo.selectores("magneto") is None
+
+
+# --- nivel Máximo: calidad de las respuestas y carta (6.8) --------------------------------------
+
+URL_REVISOR = (
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
+)
+
+
+def en_curso_maximo(mundo, con_ia=True):
+    mundo.nucleo.preferencias.fijar_nivel_ia(mundo.usuario.id, "maximo")  # antes de encolar
+    return en_curso(mundo, con_ia)
+
+
+def respuestas_revisadas(mundo, pid):
+    filas = mundo.base.cx.execute(
+        "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? "
+        "AND paso = 'respuestas_revisadas'",
+        (pid,),
+    ).fetchall()
+    return [f["detalle"] for f in filas]
+
+
+@respx.mock
+def test_maximo_redacta_dos_veces_y_el_revisor_final_ajusta_antes_de_enviar(mundo):
+    pid = en_curso_maximo(mundo)
+    p, _ = tomar(mundo, pid)
+    redactor = respx.post(URL_REDACTAR).mock(side_effect=[
+        redactadas(
+            {"indice": 1, "respuesta": "Estudio ADSO en el SENA."},
+            {"indice": 2, "respuesta": "Quiero aplicar Python en un equipo real."},
+            {"indice": 3, "respuesta": "Hice un inventario en Django."},
+        ),
+        redactadas(  # segunda versión, solo de las largas: motivación y proyecto
+            {"indice": 1, "respuesta": "Busco crecer aplicando Python con gente más senior."},
+            {"indice": 2, "respuesta": "Construí un inventario con Django y SQL."},
+        ),
+    ])  # fmt: skip
+    revisor = respx.post(URL_REVISOR).mock(return_value=gemini({"veredictos": [
+        {"indice": 1, "veredicto": "ok"},
+        {"indice": 2, "veredicto": "elegir", "eleccion": 2},
+        {"indice": 3, "veredicto": "corregir", "texto": "Hice un inventario con Django y SQL."},
+    ]}))  # fmt: skip
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert redactor.call_count == 2 and revisor.call_count == 1
+    assert not resultado.faltan
+    assert [r.valor for r in resultado.respuestas] == [
+        "Estudio ADSO en el SENA.",
+        "Busco crecer aplicando Python con gente más senior.",
+        "Hice un inventario con Django y SQL.",
+        "1300000",
+    ]
+    assert respuestas_revisadas(mundo, pid) == ["2"]
+    # De las respuestas, el revisor solo ve las redactadas por la IA: no el dato simple (salario)
+    # ni el contacto del usuario
+    enviado = revisor.calls[0].request.content.decode("utf-8")
+    assert "Pregunta: ¿Cuál es tu aspiración salarial" not in enviado
+    assert "Respuesta: 1300000" not in enviado
+    assert "ana@gmail.com" not in enviado and "3105551234" not in enviado
+    assert "Estudio ADSO" in enviado and "Segunda versión" in enviado
+
+
+@respx.mock
+def test_maximo_dato_dudoso_del_revisor_se_pregunta_en_la_card(mundo):
+    pid = en_curso_maximo(mundo)
+    p, _ = tomar(mundo, pid)
+    respx.post(URL_REDACTAR).mock(side_effect=[
+        redactadas({"indice": 1, "respuesta": "Tengo tres años de experiencia en Python."}),
+        redactadas({"indice": 1, "respuesta": "Llevo tres años programando en Python."}),
+    ])  # fmt: skip
+    respx.post(URL_REVISOR).mock(return_value=gemini({"veredictos": [{
+        "indice": 1, "veredicto": "preguntar",
+        "faltan": [{"pregunta": "¿Cuántos años de experiencia tienes?",
+                    "sugerencias": ["1 año", "Sin experiencia"]}],
+    }]}))  # fmt: skip
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, [Pregunta(ABIERTAS[1])]))
+    assert [r.pregunta.texto for r in resultado.faltan] == [ABIERTAS[1]]
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert (pendiente["pregunta"], pendiente["tipo"]) == (
+        "¿Cuántos años de experiencia tienes?", "dato"
+    )
+    assert respuestas_revisadas(mundo, pid) == ["1"]
+
+
+@respx.mock
+def test_maximo_nunca_afirma_un_requisito_de_la_vacante_que_el_perfil_no_tiene(mundo):
+    pid = en_curso_maximo(mundo)
+    p, _ = tomar(mundo, pid)
+    mundo.base.cx.execute(
+        "UPDATE vacantes SET requisitos_json = ? WHERE id_corto = ?",
+        (json.dumps({"requisitos": {"obligatorios": ["Python", "Kubernetes"], "deseables": []}}),
+         p.id_corto),
+    )  # fmt: skip
+    mundo.base.cx.commit()
+    redactor = respx.post(URL_REDACTAR).mock(side_effect=[
+        redactadas({"indice": 1, "respuesta": "Domino Kubernetes y Python."}),
+        redactadas({"indice": 1, "respuesta": "He operado clústeres de Kubernetes."}),
+    ])  # fmt: skip
+    respx.post(URL_REVISOR).mock(return_value=gemini({"veredictos": []}))
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, [Pregunta(ABIERTAS[1])]))
+    enviado = redactor.calls[0].request.content.decode("utf-8")
+    assert "Kubernetes (obligatorio)" in enviado and "Python (obligatorio)" in enviado
+    assert [r.pregunta.texto for r in resultado.faltan] == [ABIERTAS[1]]  # se pregunta al usuario
+    assert not resultado.respuestas
+
+
+@respx.mock
+def test_normal_no_hace_doble_redaccion_ni_revisa(mundo):
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    redactor = respx.post(URL_REDACTAR).mock(return_value=redactadas(
+        {"indice": 1, "respuesta": "Estudio ADSO en el SENA."},
+        {"indice": 2, "respuesta": "Quiero aplicar Python."},
+        {"indice": 3, "respuesta": "Hice un inventario."},
+    ))  # fmt: skip
+    revisor = respx.post(URL_REVISOR).mock(return_value=gemini({"veredictos": []}))
+    asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert redactor.call_count == 1 and revisor.call_count == 0
+    assert respuestas_revisadas(mundo, pid) == []
+
+
+def archivo(texto, obligatoria=True):
+    return Pregunta(texto, "archivo", obligatoria=obligatoria)
+
+
+def pdf_guardado(mundo, tipo, contenido=b"%PDF-1.4 del usuario"):
+    return mundo.nucleo.documentos.guardar(mundo.usuario, tipo, tipo, contenido, T0)
+
+
+@respx.mock
+def test_maximo_adjunta_una_carta_en_pdf_si_es_opcional(mundo):
+    pid = en_curso_maximo(mundo)
+    p, _ = tomar(mundo, pid)
+    ruta = respx.post(URL_REDACTAR).mock(return_value=gemini(
+        {"carta": "Me interesa la vacante y estudio Ingeniería de Sistemas."}
+    ))
+    paquete = asyncio.run(
+        mundo.nucleo.documentos_pantalla(p, [archivo("Cover letter (optional)", False)])
+    )
+    nombre, contenido = paquete.documentos["carta"]
+    assert set(paquete.documentos) == {"carta"} and not paquete.faltan
+    assert nombre == "Carta_Ana_Perez.pdf" and contenido.startswith(b"%PDF")
+    # Se reutiliza: una segunda pantalla con el mismo campo no vuelve a llamar a la IA
+    asyncio.run(mundo.nucleo.documentos_pantalla(p, [archivo("Carta de presentación", False)]))
+    assert ruta.call_count == 1
+
+
+@respx.mock
+def test_normal_deja_vacia_la_carta_opcional(mundo):
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    ruta = respx.post(URL_REDACTAR).mock(return_value=gemini({"carta": "Hola."}))
+    paquete = asyncio.run(
+        mundo.nucleo.documentos_pantalla(p, [archivo("Cover letter (optional)", False)])
+    )
+    assert paquete.documentos == {} and not paquete.faltan and ruta.call_count == 0
+
+
+@respx.mock
+def test_la_carta_obligatoria_se_redacta_en_cualquier_nivel_y_el_cv_no_es_carta(mundo):
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    respx.post(URL_REDACTAR).mock(return_value=gemini({"carta": "Me interesa la vacante."}))
+    sin_carta = asyncio.run(mundo.nucleo.documentos_pantalla(p, [archivo("Resume/CV")]))
+    assert sin_carta.documentos == {}
+    paquete = asyncio.run(mundo.nucleo.documentos_pantalla(p, [archivo("Cover letter")]))
+    assert set(paquete.documentos) == {"carta"}
+
+
+def test_carta_sin_ia_usa_el_mensaje_basico_con_datos_del_perfil(mundo):
+    pid = en_curso_maximo(mundo, con_ia=False)
+    p, _ = tomar(mundo, pid)
+    paquete = asyncio.run(mundo.nucleo.documentos_pantalla(p, [archivo("Cover letter", True)]))
+    assert paquete.documentos["carta"][1].startswith(b"%PDF")
+
+
+@respx.mock
+def test_el_certificado_de_notas_del_usuario_va_en_el_campo_de_notas(mundo):
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    pdf_guardado(mundo, "certificado_notas", b"%PDF-1.4 mis notas")
+    ruta = respx.post(url__startswith="https://generativelanguage").mock(
+        return_value=gemini({})
+    )
+    transcript = "Please upload a copy of your unofficial university transcripts."
+    paquete = asyncio.run(
+        mundo.nucleo.documentos_pantalla(p, [archivo("Resume/CV"), archivo(transcript)])
+    )
+    assert set(paquete.documentos) == {"certificado_notas"} and not paquete.faltan
+    nombre, contenido = paquete.documentos["certificado_notas"]
+    assert nombre == "Notas_Ana_Perez.pdf" and contenido == b"%PDF-1.4 mis notas"
+    assert ruta.call_count == 0 and mundo.nucleo.pendientes(mundo.usuario.id) == []
+
+
+@respx.mock
+def test_la_carta_guardada_por_el_usuario_manda_sobre_la_redactada(mundo):
+    pid = en_curso_maximo(mundo)
+    p, _ = tomar(mundo, pid)
+    pdf_guardado(mundo, "carta", b"%PDF-1.4 mi carta")
+    ruta = respx.post(url__startswith="https://generativelanguage").mock(
+        return_value=gemini({"carta": "No debería usarse."})
+    )
+    paquete = asyncio.run(mundo.nucleo.documentos_pantalla(p, [archivo("Cover letter", False)]))
+    assert paquete.documentos["carta"][1] == b"%PDF-1.4 mi carta" and ruta.call_count == 0
+
+
+def test_documento_obligatorio_sin_guardar_queda_pendiente_y_la_postulacion_espera(mundo):
+    pid = en_curso(mundo)
+    p, navegador = tomar(mundo, pid)
+    notas = archivo("Please upload a copy of your unofficial university transcripts.")
+    paquete = asyncio.run(mundo.nucleo.documentos_pantalla(p, [archivo("Resume/CV"), notas]))
+    assert paquete.documentos == {} and [q.texto for q in paquete.faltan] == [notas.texto]
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert (pendiente["tipo"], pendiente["campo"], pendiente["postulacion_id"]) == (
+        "documento", "certificado_notas", pid
+    )
+    aviso = {"tipo": "preguntas_pendientes", "usuario_id": mundo.usuario.id, "postulacion_id": pid}
+    assert aviso in mundo.eventos
+    # Otra pasada de la misma pantalla no repite la pregunta
+    asyncio.run(mundo.nucleo.documentos_pantalla(p, [notas]))
+    assert len(mundo.nucleo.pendientes(mundo.usuario.id)) == 1
+    mundo.nucleo.cola.esperar_usuario(pid, navegador, T0)
+    # Con el documento guardado la postulación vuelve a la cola
+    pdf_guardado(mundo, "certificado_notas")
+    assert mundo.nucleo.documento_recibido(mundo.usuario.id, pendiente["id"]) is True
+    assert mundo.nucleo.cola.obtener(pid).estado == E.EN_COLA
+    assert mundo.nucleo.pendientes(mundo.usuario.id) == []
+    assert mundo.nucleo.documento_recibido(mundo.usuario.id, pendiente["id"]) is False
+
+
+def test_dejar_el_documento_obligatorio_manda_la_vacante_al_respaldo(mundo):
+    pid = en_curso(mundo)
+    p, navegador = tomar(mundo, pid)
+    asyncio.run(mundo.nucleo.documentos_pantalla(p, [archivo("Transcript")]))
+    mundo.nucleo.cola.esperar_usuario(pid, navegador, T0)
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert mundo.nucleo.documento_a_respaldo(mundo.usuario.id, pendiente["id"]) == pid
+    assert mundo.nucleo.cola.obtener(pid).estado == E.RESPALDO
+    assert mundo.nucleo.pendientes(mundo.usuario.id) == []
+    assert mundo.nucleo.documento_a_respaldo(mundo.usuario.id, pendiente["id"]) is None
+
+
+# --- esquema anticipado (7.3) ---------------------------------------------------------------
+
+
+def test_esquema_de_la_vacante_se_guarda_y_los_campos_mal_formados_se_ignoran(mundo):
+    mundo.nucleo.indice.indexar(T0)
+    corta = id_corto("computrabajo:1")
+    assert mundo.nucleo.indice.obtener(corta).esquema is None
+    mundo.nucleo.indice.guardar_esquema(corta, [
+        {"texto": "¿Cuál es tu aspiración salarial?", "nombre": "q1", "maximo": 20},
+        {"nombre": "sin_texto"},  # mal formado: no tiene etiqueta
+        {"texto": "Ciudad", "tipo": "texto", "obligatoria": False},
+    ])  # fmt: skip
+    preguntas = mundo.nucleo.esquema_de(mundo.nucleo.indice.obtener(corta))
+    assert [(p.texto, p.nombre, p.obligatoria) for p in preguntas] == [
+        ("¿Cuál es tu aspiración salarial?", "q1", True), ("Ciudad", None, False),
+    ]
+    mundo.nucleo.indice.guardar_esquema(corta, None)
+    assert mundo.nucleo.indice.obtener(corta).esquema is None
+    assert mundo.nucleo.esquema_de(None) == []
+
+
+def test_anticipar_el_esquema_resuelve_todo_y_deja_las_respuestas_guardadas(mundo):
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    mundo.nucleo.indice.guardar_esquema(p.id_corto, [
+        {"texto": "¿Cuál es tu aspiración salarial?", "nombre": "q_salario"},
+        {"texto": "Resume", "tipo": "archivo"},
+    ])  # fmt: skip
+    vacante = mundo.nucleo.indice.obtener(p.id_corto)
+    assert asyncio.run(mundo.nucleo.anticipar_esquema(p, vacante)) is True
+    assert mundo.nucleo.esquema_resuelto(p) == {"q_salario": "1300000"}  # el CV va aparte
+    assert mundo.nucleo.pendientes(mundo.usuario.id) == []
+
+
+def test_anticipar_el_esquema_con_un_dato_que_falta_deja_la_pregunta_y_devuelve_false(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p, _ = tomar(mundo, pid)
+    mundo.nucleo.indice.guardar_esquema(p.id_corto, [
+        {"texto": "¿Cuál es tu aspiración salarial?", "nombre": "q_salario"},
+        {"texto": "¿Tienes experiencia con Docker?", "nombre": "q_docker"},
+    ])  # fmt: skip
+    vacante = mundo.nucleo.indice.obtener(p.id_corto)
+    assert asyncio.run(mundo.nucleo.anticipar_esquema(p, vacante)) is False
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert pendiente["pregunta"] == "¿Tienes experiencia con Docker?"
+    assert mundo.nucleo.esquema_resuelto(p) == {"q_salario": "1300000"}
+
+
+def test_vacante_sin_esquema_se_da_por_resuelta(mundo):
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    vacante = mundo.nucleo.indice.obtener(p.id_corto)
+    assert asyncio.run(mundo.nucleo.anticipar_esquema(p, vacante)) is True
+    assert mundo.nucleo.esquema_resuelto(p) == {}
+
+
+# --- vigía: ensayo diario de cada plataforma en el navegador del dueño -------------------------
+
+
+def vigia_listo(mundo, hora="10:00"):
+    """El dueño es el usuario del mundo, con navegador vinculado y selectores cargados."""
+    mundo.nucleo.config.dueno_telegram_id = mundo.usuario.telegram_id
+    mundo.nucleo.config.vigia.activo = True
+    mundo.nucleo.config.vigia.hora = hora
+    mundo.nucleo.cargar_selectores()
+    mundo.nucleo.indice.indexar(T0)
+    mundo.vincular()
+    return mundo.nucleo
+
+
+def test_el_vigia_encola_un_ensayo_por_plataforma_y_una_sola_vez_al_dia(mundo):
+    nucleo = vigia_listo(mundo)
+    [p] = nucleo.programar_vigia(T0)  # solo Computrabajo tiene una vacante en el índice
+    assert p.tipo == "vigia" and p.plataforma == CT and p.estado == E.EN_COLA
+    assert p.usuario_id == mundo.usuario.id and p.origen == "vigia"
+    assert nucleo.en_ensayo(p)  # el vigía nunca envía
+    assert nucleo.programar_vigia(T0 + timedelta(minutes=1)) == []
+    # Al otro día no hay otra vacante distinta: no repite la de ayer
+    assert nucleo.programar_vigia(T0 + timedelta(days=1)) == []
+
+
+def test_el_vigia_respeta_la_hora_la_ventana_y_el_interruptor(mundo):
+    nucleo = vigia_listo(mundo, hora="05:30")  # T0 son las 10:00: fuera de la ventana de 3 h
+    assert nucleo.programar_vigia(T0) == []
+    assert nucleo.programar_vigia(T0 - timedelta(hours=9)) == []  # 20:00 de ayer en Bogotá
+    nucleo.config.vigia.hora = "09:00"
+    assert len(nucleo.programar_vigia(T0)) == 1  # 10:00, a una hora de la prevista
+    nucleo.config.vigia.activo = False
+    assert nucleo.programar_vigia(T0 + timedelta(days=1)) == []
+
+
+def test_el_vigia_necesita_el_navegador_del_dueno(mundo):
+    nucleo = mundo.nucleo
+    nucleo.config.vigia.activo = True
+    nucleo.config.vigia.hora = "10:00"
+    nucleo.cargar_selectores()
+    nucleo.config.dueno_telegram_id = mundo.usuario.telegram_id
+    assert nucleo.programar_vigia(T0) == []  # sin navegador vinculado
+    nucleo.config.dueno_telegram_id = 5
+    mundo.vincular()
+    assert nucleo.programar_vigia(T0) == []  # el dueño no está registrado
+
+
+def test_el_vigia_elige_una_vacante_reciente_abierta_y_que_el_dueno_no_tenga(mundo):
+    nucleo = vigia_listo(mundo)
+    corto = id_corto("computrabajo:1")
+    uid = mundo.usuario.id
+    assert nucleo.vacante_para_vigia(uid, CT, T0).id_corto == corto
+    # Ya la tiene en la cola
+    nucleo.cola.encolar(uid, corto, CT, T0)
+    assert nucleo.vacante_para_vigia(uid, CT, T0) is None
+    with mundo.base.transaccion() as cx:
+        cx.execute("DELETE FROM postulaciones")
+        cx.execute("UPDATE vacantes SET estado_pagina = 'cerrada' WHERE id_corto = ?", (corto,))
+    assert nucleo.vacante_para_vigia(uid, CT, T0) is None  # cerrada
+    with mundo.base.transaccion() as cx:
+        cx.execute("UPDATE vacantes SET estado_pagina = 'ok' WHERE id_corto = ?", (corto,))
+    assert nucleo.vacante_para_vigia(uid, CT, T0 + timedelta(days=4)) is None  # muy vieja
+    assert nucleo.vacante_para_vigia(uid, CT, T0 + timedelta(days=2)).id_corto == corto
+    assert nucleo.vacante_para_vigia(uid, "magneto", T0) is None  # sin vacantes de otra plataforma
+
+
+def test_una_postulacion_real_pasa_antes_que_el_vigia_y_lo_reemplaza_si_es_la_misma(mundo):
+    nucleo = vigia_listo(mundo)
+    [vigia] = nucleo.programar_vigia(T0)
+    assert nucleo.cola.de_usuario(mundo.usuario.id, vigia.id_corto) is None  # no cuenta como suya
+    toque = nucleo.tocar(mundo.usuario, vigia.id_corto)
+    assert toque.camino == Camino.AUTOMATICA and toque.postulacion.tipo == "postular"
+    assert nucleo.cola.obtener(vigia.id) is None  # el ensayo cedió el lugar
+    # Con las dos en la cola, la real sale primero
+    nucleo.config.vigia.hora = "10:00"
+    publicar(mundo, "computrabajo", "2", "https://co.computrabajo.com/ofertas-de-trabajo/oferta-2")
+    otro = nucleo.cola.encolar_vigia(
+        mundo.usuario.id, id_corto("computrabajo:2"), CT, T0 - timedelta(minutes=5)
+    )
+    assert otro is not None
+    siguiente = nucleo.cola.siguiente(mundo.usuario.id, {CT}, T0)
+    assert siguiente.id == toque.postulacion.id
+
+
+@pytest.mark.parametrize(
+    ("estado", "motivo", "resultado", "en_ensayo"),
+    [
+        (E.ENSAYADA, "boton:Aplicar", "ok", False),
+        (E.FORMULARIO_DESCONOCIDO, "no apareció el botón", "fallo", True),
+        (E.FALLIDA, None, "fallo", True),
+        (E.FORMULARIO_DESCONOCIDO, "ats_con_cuenta", "omitida", False),
+        (E.BLOQUEADA, "captcha_visible", "bloqueada", False),
+        (E.VACANTE_CERRADA, None, "omitida", False),
+        (E.RESPALDO, "navegador_desconectado", "omitida", False),
+    ],
+)
+def test_el_resultado_del_vigia_solo_pone_en_ensayo_lo_que_fallo_sin_reparar(
+    mundo, estado, motivo, resultado, en_ensayo
+):
+    nucleo = vigia_listo(mundo)
+    [p] = nucleo.programar_vigia(T0)
+    assert nucleo.cerrar_vigia(p, estado, motivo) == resultado
+    assert (CT in nucleo.preferencias.plataformas_en_ensayo([])) is en_ensayo
+
+
+def test_un_ensayo_del_vigia_que_se_reparo_no_pone_la_plataforma_en_ensayo(mundo):
+    nucleo = vigia_listo(mundo)
+    [p] = nucleo.programar_vigia(T0)
+    with mundo.base.transaccion() as cx:
+        nucleo.cola.paso(cx, p.id, "respaldo_generico", T0, detalle="paso 2")
+    assert nucleo.cerrar_vigia(p, E.ENSAYADA, "boton:Aplicar") == "reparado"
+    assert nucleo.preferencias.plataformas_en_ensayo([]) == {}

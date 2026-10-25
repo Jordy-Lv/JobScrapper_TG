@@ -15,7 +15,8 @@ con el texto «postulación automatizada» y la decisión final es del dueño (t
 | GetOnBoard | [Terms and Conditions Agreement](https://www.getonbrd.com/about/tos), v1.1 del 2026-09-17 | Es el contrato de las **empresas clientes**. Prohíbe «copying or permitting automatic downloading» de su propiedad intelectual y entrenar modelos con la plataforma; puede limitar el uso excesivo de su API. No habla de postular en nombre de alguien ni de bots de candidato. | **Dudosa, poca información**: el texto vigente para candidatos no apareció. Hay que leer las «Platform Policies» antes de cualquier piloto. |
 | Servicio Público de Empleo | — | No se revisó: ver la medición de abajo. | Sin objeto por ahora. |
 
-LinkedIn sigue fuera de alcance por sus términos.
+LinkedIn quedó fuera de alcance por sus términos hasta el 2026-10-21, cuando el dueño revirtió esa
+decisión: ver la sección «LinkedIn» al final.
 
 ## Volumen real de vacantes (tarea 1.3, `vacantes.db` del Fedora, 2026-10-14)
 
@@ -219,3 +220,378 @@ texto quedó escrito. «Enviar respuestas» está `disabled` hasta que todo tien
 pregunta sin botones ni campo abierto también termina `formulario_desconocido` con la evidencia.
 
 **Estado.** Verificada con una postulación real (2026-10-17, postulación 43, «Auxiliar de Infraestructura TIC para Apartadó», Servicio de Empleo Comfama): terminó `enviada` por el modal «Se ha enviado tu aplicación», con 2 preguntas respondidas y guardadas (el tratamiento de datos lo había decidido el usuario; la otra, de confirmar la participación, la redactó la IA). `verificado.postulacion` pasó a `true` en la versión `2026.10.17-2`. El perfil (`verificado.perfil`) sigue sin verificar.
+
+## LinkedIn
+
+Sección del change `medir-destinos-linkedin` (tareas 6.1 y 6.2, e insumo de la 6.3).
+
+### Decisión del dueño y riesgo (2026-10-21)
+
+- El dueño revirtió el *non-goal* de LinkedIn. Se automatizan la **Solicitud sencilla** y las
+  **solicitudes externas** (página de la empresa o ATS), para el dueño y para los invitados, con
+  **envío final automático también en páginas que el bot no conoce**.
+- **Riesgo aceptado:** la sección 8.2 de las condiciones de uso de LinkedIn prohíbe bots y extensiones
+  que automaticen acciones. LinkedIn puede restringir la cuenta del dueño y la de los invitados. Por eso
+  cada invitado debe aceptar ese riesgo de forma expresa (nueva versión de la autorización) y poder
+  apagar LinkedIn para sí mismo.
+- **Reglas que no cambian:** no se evaden captchas ni protecciones anti-bot, no se crean cuentas y no se
+  escriben credenciales en ningún ATS. Tampoco se envían mensajes en nombre del usuario (WhatsApp,
+  correo). Todo eso termina en el paquete de respaldo.
+
+### Medición (tarea 5.1, con la sesión del dueño)
+
+30 vacantes enviadas al canal del 12 al 15 de octubre: **11 externas, 4 sencillas, 9 cerradas y 6
+pausadas** (detalle en `openspec/changes/medir-destinos-linkedin/design.md`). La mitad ya no recibía
+solicitudes a los 6-9 días: conviene postular pronto y no gastar el turno en vacantes cerradas
+(`jobPosting/{id}` ya las distingue sin sesión).
+
+### Reconocimiento de los destinos (2026-10-21)
+
+Sin sesión: 20 GET públicos, uno cada ~8 s y ninguno bloqueado. En el navegador integrado, solo se leyó
+el DOM de Workday, Ashby y Typeform, sin escribir ni enviar nada. En Workday se pulsó «Solicitar
+manualmente» y en Typeform «start», dos botones que solo cambian de pantalla. No se guardan nombres de
+empresas: solo familias y dominios.
+
+| Familia (de 11) | Cómo se arma | Campos y marcado | CV | Preguntas propias | ¿Cuenta? | Captcha / iframes | API pública de lectura |
+|---|---|---|---|---|---|---|---|
+| **Greenhouse** (4: 3 por `grnh.se` → 301 a `job-boards.greenhouse.io/{tablero}/jobs/{id}`, 1 directa) | HTML completo desde el servidor (Remix). El esquema también viene en `window.__remixContext` (`questions`). `form#application-form` | `input#first_name`/`#last_name`/`#email` con `autocomplete` `given-name`/`family-name`/`email`; `#phone` `type=tel`; `label[for]` con «*», `aria-label` y `aria-required="true"`. Las listas son react-select: `input[role=combobox]` con `aria-labelledby`, más un `<input required>` oculto; las opciones **no están en el DOM** hasta abrir la lista. País y «Location (City)» son combobox con búsqueda | `input#resume[type=file]` oculto tras «Attach» (también Dropbox, Google Drive o «Enter manually»), `accept=.pdf,.doc,.docx,.txt,.rtf`. Carta opcional (`#cover_letter`) | `question_{id}`: 5 en un tablero y 11-13 en el otro. Sí/No (autorización para trabajar en Colombia, ubicación, carrera), texto (universidad, salario en COP o «con moneda», LinkedIn), rangos de promedio, nivel de inglés A1–C1, «¿cómo te enteraste?» y **un archivo obligatorio extra (certificado de notas)** | **No**. «Autofill my application» (MyGreenhouse) es opcional | reCAPTCHA Enterprise **invisible** al enviar (`GOOGLE_RECAPTCHA_INVISIBLE_KEY`). Sin iframes en el tablero alojado; muchas empresas lo **incrustan en su sitio** con un iframe `boards.greenhouse.io/embed/job_app` | **Sí**: `boards-api.greenhouse.io/v1/boards/{tablero}/jobs/{id}?questions=true` (200): `questions` con `name`, `type` (`input_text`, `input_file`, `textarea`, `multi_value_single_select`, `multi_value_multi_select`), `values` y `required`, más `location_questions`, `demographic_questions` y `compliance` (EEOC) |
+| **Workday** (2: `wd12`, `wd501`) | SPA pura. Sin navegador, la URL responde `{"widget":"redirect","externalSpa":true}` | Todo con `data-automation-id`. Paso 1 de 6, «Create Account/Sign In»: `email`, `password` y `verifyPassword` (`autocomplete=new-password`), `createAccountCheckbox` y un **campo trampa** `beecatcher` | «Rellenar automáticamente con currículo» o «Solicitar manualmente» (después de la cuenta) | `questionnaireId` en el JSON; pasos My Information, My Experience, Application Questions, Voluntary Disclosures y Review | **Sí, por empresa** (verificado) | No se vieron | **Sí**: `/wday/cxs/{tenant}/{sitio}/job/{ruta}` (`canApply`, `questionnaireId`, `includeResumeParsing`, `endDate`) |
+| **Pandapé** de Computrabajo (1: `*.pandape.computrabajo.com`) | HTML desde el servidor (ASP.NET y jQuery Validate unobtrusive, como Computrabajo) | El detalle lleva a `/ApplyCT/{id}`: un formulario `POST /Apply` que pide solo el correo (`input#Email type=email`, `actionFrom=SetEmail`, `requireLoginCt=false` y token antifalsificación) | No se vio | No se vio | **Sin confirmar**: identifica la candidatura por el correo y lo siguiente solo aparece al enviarlo | No se vieron | No |
+| **Ashby** (1: `jobs.ashbyhq.com/{org}/{id}/application`) | SPA (React). `window.__appData` no trae el formulario | **Sin `<form>`**; `name` e `id` = ruta del campo (`_systemfield_name`, `_systemfield_email`, UUID), `label[for]` y `required`. Botón `type=submit` «Submit Application» | Dos `input[type=file]`: **el primero, sin etiqueta, es «Autofill from resume»**; el CV es `#_systemfield_resume` | Esta vacante: nombre, correo, teléfono (opcional) y CV. El esquema admite `String`, `Email`, `Phone`, `File`, `Boolean`, `ValueSelect`, `MultiValueSelect`, `LongText`, `Number`, `Date` y `Location` | **No** | reCAPTCHA Enterprise **invisible**: los iframes `anchor` y `bframe` están en la página desde que carga, ocultos | **Sí**: `api.ashbyhq.com/posting-api/job-board/{org}` (vacantes con `applyUrl`, sin formulario) y `POST jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting` (lo que llama la propia página, sin autenticación): `applicationForm.sections[].fieldEntries[]` con `path`, `type`, `isRequired` y `selectableValues` |
+| **Typeform** (1: `{cuenta}.typeform.com/to/{id}`) | SPA. **La definición completa** está en `window.rendererData.form` | **Una pregunta por pantalla**: `input` con `aria-labelledby="{id}-title"` y «*» en el título; botones `[data-qa=ok-button]` («start») y `[data-qa^=ok-button-visible]` («Continue»); pantalla de bienvenida y de gracias | `file_upload` obligatorio (PDF, 10 MB) | 17 preguntas: `short_text`, `email`, `phone_number`, 6 `long_text` de experiencia y motivación (redacción), `multiple_choice` (años de experiencia, herramientas) | **No** | No se vieron | Lectura de la propia página (`rendererData`); la API oficial pide token |
+| **SuccessFactors** (1: `careers.{empresa}.com`, SAP RMK «j2w») | HTML desde el servidor | Detalle con `a.dialogApplyBtn` → `/talentcommunity/apply/{id}/`, que sin sesión hace 301 a la portada, con un formulario a `career2.successfactors.eu/career?…login_ns=register` (`ucc_email`). Banner de cookies | — | — | **Sí** (registro con contraseña) | No se vieron | No |
+| **Acortador** (1: `ai-job.link`) | — | 302 → `wa.me/{número}?text=…` → `api.whatsapp.com`: **un chat de WhatsApp** con el mensaje ya escrito y el código de la vacante | — | — | — (no es un formulario) | — | — |
+
+**Pide cuenta:** de las 11 externas, **6 no** (Greenhouse 4, Ashby y Typeform), **3 sí** (Workday 2 y
+SuccessFactors), Pandapé está **sin confirmar** y 1 **no es un formulario** (WhatsApp).
+
+**Lo que se aprende para el diseño:**
+1. **El marcado accesible es la regla.** Greenhouse, Ashby y Typeform etiquetan cada campo (`label[for]`,
+   `aria-labelledby`, `aria-label`) y marcan los obligatorios (`required`, `aria-required`, «*»). El motor
+   actual ya lee casi todo eso; le faltan los widgets ARIA (`role=combobox` con opciones que se cargan al
+   abrir, `aria-haspopup=listbox`, `role=radio`).
+2. **No siempre hay `<form>`** (Ashby). El contenedor se deduce de los campos visibles.
+3. **El captcha invisible está casi siempre.** Greenhouse y Ashby cargan reCAPTCHA Enterprise desde el
+   inicio, con sus iframes ocultos. El motor actual ya solo cuenta un captcha **visible** (`buscar` filtra
+   por `visible`), y el modo genérico debe mantener esa regla: «**desafío visible**» (un iframe del
+   desafío con tamaño y a la vista, o el texto de verificación), nunca «hay un script de captcha», porque
+   eso mandaría casi todo al respaldo. Hay que sumar `recaptcha/enterprise/bframe` a los selectores.
+4. **Hay trampas y señuelos:** un campo trampa oculto (`beecatcher` en Workday) y un `input[type=file]` de
+   «autofill» antes del CV (Ashby). El motor nunca llena campos ocultos ni fuera de pantalla, y elige el
+   archivo por su etiqueta.
+5. **Hay archivos obligatorios distintos del CV** (certificado de notas) y datos que el perfil no tiene
+   (promedio). No se inventan: se le preguntan al usuario o la vacante va al respaldo.
+6. **Tres familias publican su esquema** (API o JSON en la página): el formulario se puede conocer
+   **antes** de abrirlo, para resolver todas las respuestas en una sola llamada al redactor.
+7. **Formularios en inglés.** Hay que responder en el idioma del formulario y entender etiquetas en
+   inglés y portugués.
+8. Lo que no es formulario (WhatsApp) y lo que exige cuenta (Workday, SuccessFactors) se puede saber
+   **por el dominio**, antes de abrir nada.
+
+Pendiente de ver con sesión (👤, en el change de postulación): la **Solicitud sencilla** dentro de
+LinkedIn (un modal de varios pasos), el paso siguiente de Pandapé después del correo y la verificación
+por código que Greenhouse puede pedir al enviar (conocida, no vista aquí).
+
+### Qué se reutiliza del asistente
+
+| Pieza | Hoy | Para LinkedIn |
+|---|---|---|
+| `extension/motor.js` | Pasos declarativos por portal (`detectar`, `clic`, `enviar`, `formulario`, `llenar`, `confirmar`). `leerCampos` ya resuelve `label[for]`, la etiqueta envolvente, `aria-label`, `aria-labelledby`, el título del bloque y `placeholder`, y detecta lo obligatorio por `required`, `aria-required`, `data-val-*` y «*». `asignarValor` usa el *setter* nativo (sirve para React). `adjuntar` sube el PDF con `DataTransfer` | Base del modo genérico: se añaden widgets ARIA, la deducción del contenedor, la clasificación de botones, la detección de resultado y las barreras |
+| `extension/servicio.js` | Abre la pestaña, inyecta el motor, coordina los pasos, `correrSeguro` ante una navegación, `formulario()` → `/formulario`, `envio` antes del clic, verificación con la pestaña visible, evidencia sin valores | El bucle genérico es otro `ejecutar` con los mismos ladrillos. Se añade la inyección en iframes (`allFrames`) |
+| `extension/portales.js` | `DOMINIOS` por plataforma, `paginaPermitida` y `PROHIBIDAS` | La plataforma «externa» admite cualquier `https` salvo la lista de prohibidas, ampliada con inicio de sesión, cuenta, pagos y OAuth |
+| `assets/asistente/selectores/*.json` | Datos versionados que entrega el servidor (sin código remoto) | El mismo formato sirve para las **recetas por dominio** que aprende el bot |
+| `asistente/respuestas.py` | Orden: tipo y `name` → aprendidas → consentimiento al usuario → banco → clasificación con IA → redactor por formulario (`redactar_formulario`, una llamada) → «falta dato» por la card | Se mantiene el orden y se añaden `autocomplete`, los sinónimos en inglés y portugués y el idioma de respuesta |
+| `asistente/campos.py` | Catálogo cerrado de 19 campos + `conoce`/`idioma` | Hacen falta `nombre_pila`, `apellido`, `pais`, `enlace_linkedin`, `autorizacion_trabajo` (con parámetro: país), `promedio` y `fuente_vacante` (la respuesta a «¿cómo te enteraste?» es «LinkedIn» sin preguntar) |
+| Card de Telegram y `esperando_usuario` | Preguntas pendientes con botones, respuesta recordada | Igual, más los archivos extra que el usuario quiera dar una vez |
+
+### Diseño del modo genérico
+
+**Idea central:** no se escribe un flujo por ATS. Un solo bucle **lee la pantalla, decide, llena,
+avanza y vuelve a leer**. Lo específico de cada sitio son datos (recetas) que el bot aprende solo.
+
+#### 1. Clasificar el destino antes de abrirlo
+
+En la pestaña de LinkedIn, con la sesión del usuario, el motor lee el tipo de solicitud: el botón
+«Solicitud sencilla» o `a[href*="/safety/go"]` con el parámetro `url`. Luego limpia la URL y llama a
+`familia_de` (del change de medición). Con eso decide:
+
+| Resultado | Qué pasa |
+|---|---|
+| Cerrada o pausada (`jobPosting` o la propia página) | `vacante_cerrada`, sin abrir nada más |
+| `wa.me`, `api.whatsapp.com`, `mailto:`, `t.me` | Respaldo («la empresa recibe por WhatsApp o correo»), con el enlace |
+| Familia con cuenta conocida (Workday, SuccessFactors, Taleo, iCIMS, Gupy…) o dominio aprendido como barrera | Respaldo inmediato, motivo `ats_con_cuenta` |
+| Solicitud sencilla | Bucle genérico dentro del modal de LinkedIn |
+| Cualquier otra (Greenhouse, Ashby, Lever, Typeform, Pandapé, sitio propio, acortador…) | Bucle genérico, con el adaptador de la familia si existe |
+
+Los acortadores se resuelven solos, porque la pestaña sigue las redirecciones; la clasificación se
+repite sobre la URL final.
+
+#### 2. El bucle
+
+Cada vuelta es una «pantalla». Tope de 12 pantallas (40 en los formularios de una pregunta por pantalla,
+como Typeform) y de 10 minutos.
+
+1. **Leer la pantalla** (`leerPantalla`). El resultado es uno de estos:
+   - **barrera**: `input[type=password]` visible; `autocomplete` `current-password`/`new-password`;
+     textos como «crear cuenta», «create account», «inicia sesión para postular», «sign in to apply» o
+     «criar conta» junto al formulario; solo botones de OAuth («Apply with LinkedIn/Google») como
+     camino; desafío de captcha **visible**; código de verificación. → para.
+   - **intermedia**: descripción de la vacante con un botón o enlace de postular («Apply», «Aplicar»,
+     «Postular», «Solicitar», «Candidatar-se», «I'm interested») y sin formulario → se pulsa, sin
+     contarlo como envío.
+   - **formulario**: hay campos visibles → esquema.
+   - **éxito**: textos («thank you for applying», «application received», «gracias por postularte»,
+     «hemos recibido tu postulación», «candidatura enviada»…), URL (`/confirmation`, `/thank`,
+     `/success`, `submitted`) o el formulario desaparece y aparece un encabezado nuevo.
+   - **error**: campos con `aria-invalid="true"`, `[role=alert]` o mensajes de validación junto a los
+     campos.
+   - **desconocida**: nada de lo anterior.
+
+   Antes de leer, si un banner de cookies tapa la página, se pulsa la opción que rechaza las no
+   esenciales («Rechazar», «Declinar», «Reject all»), como en Workday y SuccessFactors. Pandapé solo
+   ofrece «Aceptar y cerrar», que es un consentimiento: no se pulsa mientras el banner no tape los campos.
+2. **Extraer el esquema** (amplía `leerCampos`):
+   - *Contenedor*: el `form` con más campos visibles o, si no hay ninguno (Ashby), el ancestro común
+     más cercano de los campos visibles. Se excluyen el banner de cookies, el buscador y la cabecera.
+   - *Controles*: los nativos más `role=combobox`/`listbox`/`radiogroup`/`radio`/`checkbox`/`switch`,
+     `button[aria-haspopup=listbox]` y `contenteditable`. Si las opciones de un combobox no están en el
+     DOM, se abre (foco y flecha abajo), se leen los `[role=option]` y se cierra con Escape. En las
+     listas enormes o con búsqueda (país, ciudad) se manda solo la marca `busqueda: true`.
+   - *Por campo*: `texto` (etiqueta), `ayuda` (`aria-describedby`), `tipo`, `opciones`, `obligatoria`,
+     `nombre`, `autocomplete`, `maximo`, `accept` (archivos) e `idioma` (el `lang` de la página o el
+     detectado).
+   - *Fuera siempre*: ocultos, fuera de pantalla, `tabindex=-1` con `aria-hidden`, trampas (`beecatcher`,
+     `honeypot`, `website` oculto), contraseñas, `g-recaptcha-response` y el `input[type=file]` sin
+     etiqueta si hay otro etiquetado como CV.
+   - Si un **adaptador** dio el esquema antes de abrir (punto 4), la pantalla solo se empareja con él.
+3. **Resolver en el servidor** (el `resolver` actual, ampliado), en este orden:
+   1. `autocomplete` → campo: `given-name`, `family-name`, `name`, `email`, `tel`/`tel-national`,
+      `address-level2`, `country`/`country-name`, `url`, `organization`.
+   2. `type` y tokens de `name`/`id`: `first_name`, `last_name`, `email`, `phone`, `resume`, `cv`,
+      `cover_letter`, `linkedin`, `website`, `location`, `_systemfield_*`.
+   3. Respuestas aprendidas del usuario y banco compartido, **sembrado también en inglés y portugués**
+      («First Name», «Sobrenome», «LinkedIn Profile», «How did you hear about…», «Are you legally
+      authorized to work in…», «desired salary», «pretensão salarial», «English level»…).
+   4. Clasificación con IA (ya existe) → se guarda en el banco.
+   5. Redactor por formulario (ya existe): una llamada por pantalla, o una por formulario si el esquema
+      vino antes. **Responde en el idioma del formulario** y respeta `maximo` y la moneda que pida la
+      pregunta.
+   6. Lo que falta, los consentimientos y los **archivos obligatorios distintos del CV** → card de
+      Telegram (`esperando_usuario`). En la primera versión, un archivo extra obligatorio lleva al
+      respaldo. Los opcionales se dejan vacíos.
+   7. Preguntas voluntarias de diversidad (EEOC): la opción «prefiero no responder» si existe; si no, se
+      dejan vacías cuando no son obligatorias.
+4. **Llenar y comprobar** (amplía `llenar`): texto con el *setter* nativo; combobox (escribir, esperar
+   las opciones, pulsar la que coincide y **leer lo que quedó mostrado**); radios y casillas ARIA (clic y
+   `aria-checked`); fechas en el formato del `placeholder`; teléfono con selector de país (+57 y número);
+   archivo con `DataTransfer` en el `input[type=file]` etiquetado como CV. Si un campo no quedó como se
+   quería, no se avanza: `formulario_desconocido` con la evidencia, como hoy.
+5. **Avanzar o enviar.** Se clasifican los botones del contenedor y los de justo debajo:
+   - *avanzar*: siguiente, continuar, next, continue, próximo, revisar, review, «OK»;
+   - *enviar*: enviar, submit, apply, postular, aplicar, «submit application», «enviar solicitud»,
+     «enviar candidatura»;
+   - *nunca*: cancelar, volver, guardar borrador, subir o adjuntar, autofill, «locate me», iniciar
+     sesión, «apply with…», compartir.
+
+   Con `type=submit` y un solo candidato, ese gana. Si hay ambigüedad, decide el árbitro (punto 6).
+   Antes de **enviar** se reporta `envio` al servidor (la regla de no reenviar se mantiene) y se espera
+   a que el botón se habilite.
+6. **Árbitro con IA (solo cuando las reglas dudan).** Para una página que no se entiende (no se sabe si
+   hay barrera, cuál es el botón o si se envió), se manda a la IA un **resumen de la página sin valores**:
+   la lista numerada de elementos visibles e interactivos con su rol y texto, los encabezados y los
+   avisos. La IA responde un índice y una etiqueta (`avanzar`, `enviar`, `exito`, `barrera`, `error`).
+   Es una llamada corta y solo en los casos dudosos. Es lo que permite operar en un ATS que nunca se vio
+   sin que nadie escriba selectores.
+7. **Detectar el resultado** (hasta 25 s, también después de navegar): con éxito → `enviada`; con error
+   de validación → **una** sola vuelta de corrección (releer los campos marcados y resolverlos de
+   nuevo) y, si sigue igual, `formulario_desconocido`; con campos nuevos → otra vuelta del bucle; con
+   barrera → respaldo; si nada cambió tras «avanzar» → `formulario_desconocido`; si nada claro tras
+   «enviar» → `incierta`. Un código de verificación por correo después de enviar se le pide al usuario
+   por la card (tiene el correo a mano) o, si no responde en 10 minutos, queda `incierta`.
+
+#### 3. Aprender de cada página (recetas por dominio)
+
+- Tras cada `enviada`, la extensión reporta la **receta** de ese sitio, **sin valores**: host y patrón de
+  ruta, familia, y por pantalla una firma (las claves de los campos en orden), el mapeo campo → dato del
+  catálogo (o «redactar»), el selector del botón usado (avanzar o enviar) y la señal de éxito vista
+  (texto, URL o selector). Tiene la misma política que el banco de preguntas: no guarda datos
+  personales y se comparte entre usuarios.
+- El servidor la guarda (`recetas_dominio`: host, familia, firma, receta en JSON, éxitos, fallos,
+  versión) y la entrega con el trabajo, como hoy los selectores. En la siguiente vacante de ese dominio,
+  o de esa familia si el dominio es nuevo, el motor **prueba primero la receta**. Si la firma no
+  coincide, vuelve a las heurísticas.
+- También se aprende lo negativo: si el dominio pide cuenta o no es un formulario, las vacantes
+  siguientes de ese dominio van al respaldo **sin abrir la página**.
+- **Autocorrección:** cuando una página falla con evidencia, el servidor le pide a la IA, sobre el HTML
+  sin valores, una **receta candidata** (otro botón, otra señal de éxito, otro contenedor). Se prueba en
+  la siguiente vacante de ese dominio y solo pasa a firme con un éxito. Una receta con 2 fallos
+  seguidos se apaga (vuelven las heurísticas) y se avisa al dueño.
+- Las recetas son datos interpretados por `motor.js`, nunca código remoto, igual que
+  `assets/asistente/selectores/`. Una receta con 3 éxitos puede pasarse a mano a un archivo revisado.
+
+#### 4. Adaptadores que valen la pena
+
+Un adaptador es corto. Da el esquema antes de abrir la página (para resolver todo en una sola llamada)
+y declara el botón y la señal de éxito de la familia. No reemplaza al bucle.
+
+| Adaptador | Por qué | Qué aporta |
+|---|---|---|
+| **Greenhouse** | La familia más frecuente de la muestra (4 de 11) y muy común en vacantes remotas | Esquema desde `boards-api` o `__remixContext` (con las opciones de los combobox), `#resume`, «Submit application», detección del iframe `embed/job_app` en sitios propios |
+| **Solicitud sencilla de LinkedIn** | 4 de las 15 abiertas, y se queda dentro de LinkedIn | Modal de varios pasos (`[role=dialog]`): elegir el CV, preguntas de selección, «Siguiente», «Revisar», «Enviar solicitud». Pide reconocimiento con sesión (👤) |
+| **Ashby** | Frecuente en startups; sin `<form>` | Esquema por la consulta GraphQL; evita el campo de «autofill» |
+| **Typeform** | Una pregunta por pantalla y muchas preguntas largas | Esquema desde `rendererData`: el redactor responde todo en una llamada y el bucle solo pulsa «Continue» |
+| **Lever** (no apareció en la muestra) | Muy común; `jobs.lever.co/{empresa}/{id}/apply`, sin cuenta, API pública `api.lever.co/v0/postings/{empresa}/{id}` | Esquema y botón |
+| Workday, SuccessFactors, Taleo, iCIMS | Piden cuenta | **Ninguno**: solo la regla del clasificador (respaldo) |
+
+#### 5. Cobertura estimada
+
+Sobre la muestra, con las 15 abiertas (11 externas y 4 sencillas):
+
+| Capa | Externas que completaría (de 11) | Comentario |
+|---|---|---|
+| Clasificador y barreras | 0 automáticas, pero **4 al respaldo sin perder tiempo** (Workday 2, SuccessFactors 1, WhatsApp 1) | Es correcto que esas cuatro vayan al respaldo |
+| Bucle genérico solo | **2-3** (Ashby, el Greenhouse sin archivo extra y, con suerte, Typeform) | Los combobox de react-select y las 17 pantallas de Typeform son los puntos frágiles |
+| + adaptadores (Greenhouse, Ashby, Typeform) | **3 seguras** | Las 3 de un tablero de Greenhouse piden un certificado de notas obligatorio |
+| + preguntas y archivos extra por la card | **6** | El usuario da el promedio y sube el certificado una vez |
+| + Pandapé, si después del correo no pide contraseña | **7** | Por confirmar |
+| Solicitud sencilla | **+4 de 4** si el modal se comporta como se espera | Por confirmar con sesión |
+
+Con todas las capas: **10-11 de las 15 abiertas (67-73 %)** sin intervención, y las demás al respaldo con
+motivo claro. Sin la Solicitud sencilla ni los archivos extra, el mínimo es **3 de 15 (20 %)**.
+
+Para páginas nunca vistas, en general (estimación por el comportamiento conocido de cada familia, sin
+medir): el bucle genérico con el árbitro debería completar **más o menos la mitad** de los formularios
+públicos de una sola página en el primer intento. Los fallos terminan en `formulario_desconocido` sin
+enviar nada. Con las recetas, un dominio que funcionó una vez sigue funcionando **sobre el 90 %** de las
+veces. **Cuidado:** la muestra es pequeña (11 externas, 3 del mismo tablero), así que estas cifras son
+orientativas. La medición de 100 vacantes (tarea 4.1) da la distribución real de familias.
+
+#### 6. Permisos, seguridad y ritmo
+
+- **Permiso opcional amplio** (`https://*/*`), pedido desde el popup con una explicación clara y solo a
+  quien activó LinkedIn. Sin él, las externas van al respaldo. Inyección con `allFrames` para los
+  formularios incrustados.
+- **Páginas prohibidas ampliadas:** inicio de sesión, registro, recuperar contraseña, pagos, OAuth
+  (`accounts.google.com`, `login.microsoftonline.com`, `linkedin.com/oauth`) y cualquier dominio de banca.
+  Si el flujo salta a un dominio no relacionado con la vacante y no es un ATS conocido, se detiene.
+- **Nunca:** crear cuentas, escribir contraseñas, resolver captchas, aceptar OAuth, enviar mensajes,
+  pagar, ni subir documentos que el usuario no autorizó. Los consentimientos los decide el usuario, como
+  hoy.
+- **Ritmo en LinkedIn:** una postulación a la vez, pausas humanas y un tope diario por usuario (por
+  ejemplo, 15), para no llamar la atención sobre la cuenta.
+- **Por usuario:** aceptación expresa del riesgo de LinkedIn (sube la versión de la autorización) e
+  interruptores separados para «Solicitud sencilla» y «páginas externas».
+
+### IA del usuario y autorreparación (decisión del dueño, 2026-10-21)
+
+El dueño aprobó que el bot entienda los formularios con la IA que cada usuario configuró en Telegram
+(Gemini, Groq, OpenRouter, OpenAI, Anthropic o DeepSeek, por `ClienteIA`), que llene solo, que use la
+IA únicamente cuando la necesite y que, si algo falla, se repare y siga. Además pidió que esto valga
+**para todas las plataformas**, no solo para LinkedIn.
+
+**Meta realista:** «sin fallos» no se puede garantizar, porque las páginas cambian, se caen o piden cosas
+que el usuario no tiene. La meta es **nunca fallar mal** (no inventar, no enviar dos veces, no escribir
+donde no se debe) y **repararse solo** en la mayoría de los casos, aprendiendo para que no se repita.
+
+#### Capas, de la más barata a la más cara
+
+1. **Reglas**: `autocomplete`, etiquetas, botones y textos conocidos. Sin costo.
+2. **Flujo declarado o receta**: los pasos de `assets/asistente/selectores/*.json` en Computrabajo,
+   Magneto y elempleo, y las recetas aprendidas en los demás sitios. Sin costo.
+3. **Árbitro** (tarea de IA nueva, `entender_pagina`): solo cuando las reglas dudan. Recibe la lista
+   numerada de elementos visibles sin valores y responde un índice y una acción.
+4. **Reparación** (tarea de IA nueva, `reparar_flujo`): cuando un paso falla **antes de enviar**.
+   Recibe la evidencia (HTML sin valores, el paso que falló y el motivo) y propone una corrección.
+
+Cuenta aproximada por postulación: una llamada al redactor y de 0 a 3 al árbitro. En un dominio con
+receta, casi siempre 0.
+
+#### Autorreparación dentro de la misma postulación
+
+- **Antes de pulsar «enviar»** reintentar es seguro. La reparación propone una acción: otro botón, un
+  campo que faltó, cerrar un modal o esperar más. Se aplica y se reintenta, como máximo 2 veces por
+  postulación. Si funciona, la corrección queda como receta o como **parche candidato** de los
+  selectores.
+- **Después de pulsar «enviar»** nunca se reintenta solo, porque podría postular dos veces. Si el
+  resultado no es claro, queda `incierta`, como hoy.
+- **En las plataformas declaradas** (Computrabajo, Magneto, elempleo), un paso que falla antes del envío
+  ya no termina directamente en `formulario_desconocido`: primero entra el bucle genérico con la
+  reparación. El fallo del cuestionario de elempleo del 2026-10-17 es el caso de prueba: el bucle lo
+  habría leído como un formulario más.
+- Los parches de los selectores declarados se aplican como **candidatos** (solo para la siguiente
+  postulación de esa plataforma) y pasan a firmes con un éxito. Al dueño le llega el parche con la
+  evidencia para pasarlo al JSON revisado cuando quiera.
+
+#### Límites duros de la IA
+
+- Solo responde con **índices de la lista** que le pasó el motor y con una acción de una lista cerrada
+  (`llenar`, `pulsar`, `elegir`, `esperar`, `cerrar_modal`, `avanzar`, `enviar`, `exito`, `barrera`,
+  `respaldo`). Nunca escribe selectores, URL ni contraseñas, y nunca navega por su cuenta.
+- Su salida se valida con pydantic, como la del redactor. Un índice que no existe se descarta.
+- El texto de la página va delimitado como datos (`INSTRUCCION_DATOS`): si una página intenta darle
+  órdenes a la IA, no logra nada fuera de esa lista.
+- Nunca recibe valores del usuario en el resumen de la página. Las respuestas personales siguen saliendo
+  del redactor, con la clave del propio usuario.
+
+#### Qué clave paga cada cosa
+
+- **Respuestas y árbitro**: la clave del usuario, como hoy, porque son su postulación y sus datos.
+- **Reparación**: la clave del usuario cuya postulación falló. Como la receta que sale de ahí no tiene
+  datos personales y sirve a todos, el dueño puede activar `asistente.autorreparacion.clave_duenio`
+  para que, sin cuota del usuario, repare la clave del dueño. Viene apagado: hoy ninguna tarea usa la
+  clave de otro usuario.
+- Sin IA o sin cuota: reglas y recetas compartidas. Si hace falta IA y no hay, respaldo con el motivo
+  `sin_ia`.
+
+#### Niveles de IA por usuario (decisión del dueño, 2026-10-22)
+
+El bot no depende de la IA: la usa solo cuando hace falta, y cada usuario elige cuánta con `/ia nivel` o en
+el popup.
+
+- **Ahorro**: IA solo para redactar las preguntas abiertas. Sin árbitro ni reparación; lo dudoso va a la card
+  o al respaldo.
+- **Normal** (por defecto): además, clasifica preguntas nuevas, árbitro hasta 3 y 1 reparación.
+- **Máximo**, «lo mejor de lo mejor»: modelo completo con más razonamiento, respuestas alineadas a los
+  requisitos de la vacante, el estilo del usuario, doble redacción de las respuestas largas, un revisor final
+  que corrige idioma, límites e incoherencias antes de enviar, carta opcional en PDF, árbitro hasta 6 y 2
+  reparaciones.
+
+La seguridad es igual en los tres niveles. Si se acaba la cuota, el nivel baja en vez de fallar, y cada nivel
+muestra su costo. Sin IA, el bot sigue con reglas, recetas y los datos del usuario. Detalle en el change
+`motor-generico-autorreparable` (capacidad `nivel-ia-postulacion`).
+
+#### Mejoras propuestas además de lo pedido
+
+1. **Preparación anticipada.** Al tocar ⚡, el servidor lee el esquema del formulario **antes de
+   abrirlo**, cuando la familia lo publica (API de Greenhouse, Ashby y Lever, o el JSON de Typeform), y resuelve todas las respuestas. Lo que falte se pregunta en la **misma card**, antes de
+   encolar. La postulación ya no se detiene a la mitad para preguntar.
+2. **Perfil de postulación ampliado y documentos.** Por Telegram, una sola vez: autorización para
+   trabajar, salario en COP y en USD, nivel de inglés, promedio, LinkedIn y portafolio. Además, los
+   documentos extra (certificado de notas o carta en PDF), que se guardan cifrados y se adjuntan solo
+   cuando un formulario los pide por etiqueta.
+3. **Modo ensayo.** Llena todo y **no pulsa enviar**: reporta qué habría enviado y dónde se trabó.
+   Sirve por plataforma y por usuario, y es el primer paso de cada piloto. Una o dos semanas de ensayo
+   en LinkedIn miden la cobertura real y acumulan recetas sin arriesgar postulaciones ni la cuenta.
+4. **Vigía diario de portales.** Una vez al día, en modo ensayo, el navegador del dueño abre una
+   vacante abierta de cada plataforma y recorre el flujo hasta antes de enviar. Si algo cambió, se
+   repara o avisa **antes** de que le falle a un usuario.
+5. **Banco de pruebas con páginas reales.** Copias recortadas de formularios de cada familia y portal
+   como fixtures, con el motor corriendo en Playwright contra un envío falso. Cada versión de la
+   extensión debe mantener o subir el porcentaje de éxito.
+6. **Métricas por familia y plataforma**: éxito, `formulario_desconocido`, reparaciones, uso de IA y
+   motivos de respaldo. Aparecen en el resumen semanal del dueño y en el panel de administración.
+
+### Propuesta de changes (insumo de la tarea 6.3)
+
+Para que valga en todas las plataformas, el trabajo se divide en **dos changes**:
+
+1. **`motor-generico-autorreparable`** (todas las plataformas): el bucle genérico en `motor.js` y
+   `servicio.js` (widgets ARIA, contenedor deducido, botones, resultado, barreras, iframes), el
+   resolvedor ampliado (`autocomplete`, sinónimos en inglés y portugués, campos nuevos, idioma), las
+   tareas de IA `entender_pagina` y `reparar_flujo`, la autorreparación, las recetas por dominio y los
+   parches candidatos, la preparación anticipada, el perfil ampliado con documentos, el modo ensayo,
+   el vigía, el banco de pruebas y las métricas. Se prueba primero sobre Computrabajo, Magneto y elempleo.
+2. **`postular-linkedin`**: el clasificador de destino, la plataforma «externa» con el permiso amplio,
+   los adaptadores de Greenhouse, Ashby, Typeform y Lever, la Solicitud sencilla (con reconocimiento 👤),
+   la aceptación del riesgo, los interruptores por usuario, el tope diario y los pilotos en modo ensayo y
+   luego reales. Depende del primero.

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Protocol
 
 from buscador_vacantes.asistente import preguntas_tarjeta as pt
-from buscador_vacantes.asistente import progreso, resumen_postulacion, tarjeta, vinculos
+from buscador_vacantes.asistente import progreso, recetas, resumen_postulacion, tarjeta, vinculos
 from buscador_vacantes.asistente import tarjeta_postulacion as tp
 from buscador_vacantes.asistente import textos as t
 from buscador_vacantes.asistente.campos import RESERVADO
@@ -35,10 +35,12 @@ from buscador_vacantes.asistente.cv_lectura import (
     leer_cv,
     validar_archivo,
 )
+from buscador_vacantes.asistente.documentos import TIPOS_DOCUMENTO, ErrorDocumento
 from buscador_vacantes.asistente.enlaces import PREFIJO_VACANTE
 from buscador_vacantes.asistente.ia import ClaveInvalida, CuotaAgotada, ErrorIA, Saturado
 from buscador_vacantes.asistente.membresia import Comprobador, SinPermisos
 from buscador_vacantes.asistente.nucleo import Camino, Nucleo, Toque
+from buscador_vacantes.asistente.preferencias import NIVELES_IA
 from buscador_vacantes.asistente.respuestas import (
     Contexto,
     ErrorPegado,
@@ -375,7 +377,11 @@ class Conversacion:
         usuario = self.n.usuarios.obtener(tid)
         if usuario is None or not self._permitir(tid):
             return
-        if usuario.paso_alta != "cv" and not (self._esperando(usuario) or {}).get("tipo") == "cv":
+        esperando = self._esperando(usuario) or {}
+        if esperando.get("tipo") == "documento":
+            await self._recibir_documento(usuario, esperando, contenido)
+            return
+        if usuario.paso_alta != "cv" and not esperando.get("tipo") == "cv":
             await self._enviar(usuario, "Si quieres reemplazar tu hoja de vida usa /perfil.")
             return
         try:
@@ -1223,6 +1229,9 @@ class Conversacion:
                 }  # fmt: skip
         if card.fase == tp.REVISION:
             d.revision = self.n.respuestas_en_revision(pid)
+        if card.fase == tp.ENSAYADA:
+            ensayo = self.n.datos_ensayo(pid)
+            d.revision, d.ensayo = ensayo.pop("respuestas"), ensayo
         if card.fase in (tp.CONFIRMADA, tp.INCIERTA):
             p = self.n.cola.obtener(pid)
             if p is not None:
@@ -1558,6 +1567,13 @@ class Conversacion:
                 )
                 return None
             toque = self.n.tocar(usuario, id_corto, origen=origen)
+            # Una vacante con el formulario ya leído: la postulación espera (sin esperar a nadie
+            # más) mientras se resuelve todo de antemano; no hay await entre tocar y retener
+            retenida = (
+                toque.camino == Camino.AUTOMATICA
+                and bool(self.n.esquema_de(toque.vacante))
+                and self.n.cola.retener(toque.postulacion.id, self.n.ahora())
+            )
         if toque.camino == Camino.NO_DISPONIBLE:
             await self._decir(
                 usuario, mensaje_id, "Esa vacante ya no está disponible en el asistente."
@@ -1594,7 +1610,7 @@ class Conversacion:
             self._guardar_tarjeta(usuario, None)  # el bloque de conexión ya no aplica
         await self._pintar_card(usuario, pid, crear=True)
         if toque.camino == Camino.AUTOMATICA:
-            self._en_segundo_plano(self._preparar(usuario, toque))
+            self._en_segundo_plano(self._preparar(usuario, toque, retenida=retenida))
         return toque
 
     async def al_toque_canal(self, tid: int, id_corto: str) -> RespuestaToque:
@@ -1649,26 +1665,40 @@ class Conversacion:
             )
         return RespuestaToque("Esa vacante ya no está disponible.", alerta=True)
 
-    async def _preparar(self, usuario: Usuario, toque) -> None:
+    async def _preparar(self, usuario: Usuario, toque, *, retenida: bool = False) -> None:
+        pid = toque.postulacion.id
         try:
-            afinidad, _, parcial = await self.n.preparar(
-                usuario, toque.vacante, toque.postulacion.id
-            )
+            afinidad, _, _ = await self.n.preparar(usuario, toque.vacante, pid)
         except Exception:  # noqa: BLE001 - la extensión lo genera si hace falta
-            log.exception("No se pudo preparar la postulación %s", toque.postulacion.id)
-            return
+            log.exception("No se pudo preparar la postulación %s", pid)
+            afinidad = None
         if afinidad:
             texto = f"🎯 Afinidad {afinidad.porcentaje} %"
             if afinidad.faltan:
                 texto += f" · te falta: {t.e(', '.join(afinidad.faltan[:5]))}"
-            pid = toque.postulacion.id
             card = self._obtener_card(pid, crear=False)
             if card is None:
                 await self._enviar(usuario, texto)
-                return
-            card.afinidad = texto
-            self._guardar_card(pid, card)
-            await self._pintar_card(usuario, pid)
+            else:
+                card.afinidad = texto
+                self._guardar_card(pid, card)
+                await self._pintar_card(usuario, pid)
+        if retenida:
+            await self._resolver_esquema(usuario, toque)
+
+    async def _resolver_esquema(self, usuario: Usuario, toque) -> None:
+        """Esquema anticipado: resuelve el formulario de la vacante antes de que la extensión abra
+        la pestaña. Lo que falte se pregunta en la card; si todo se resolvió, la postulación sale
+        a la cola. Si algo falla, también sale: la extensión lo resuelve al abrir la página."""
+        pid = toque.postulacion.id
+        try:
+            actual = self.n.cola.obtener(pid)
+            resuelto = actual is None or await self.n.anticipar_esquema(actual, toque.vacante)
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudo resolver de antemano el formulario de %s", pid)
+            resuelto = True
+        if resuelto:
+            self.n.cola.reanudar(pid, self.n.ahora(), (E.ESPERANDO_USUARIO,))
 
     # --- texto libre ------------------------------------------------------------------
 
@@ -1701,6 +1731,8 @@ class Conversacion:
             self.n.guardar_perfil(usuario.id, datos.perfil)
             self._esperar(usuario, None)
             await self._mostrar_enfoque(usuario)
+        elif tipo == "documento_nombre":
+            await self._nombre_documento(usuario, texto)
         elif tipo == "cuestionario":
             await self._texto_cuestionario(usuario, texto, mensaje_id)
         elif tipo == "pendiente":
@@ -1729,6 +1761,7 @@ class Conversacion:
         p = self.n.cola.obtener(pid)
         vacante = self.n.indice.obtener(p.id_corto) if p and p.id_corto else None
         clave = self.n.clave_gemini(usuario.id)
+        nivel = self.n.nivel_de(p) if p else "normal"
         ctx = Contexto(
             self.n.base,
             usuario.id,
@@ -1737,6 +1770,8 @@ class Conversacion:
             self.n.cliente_ia(usuario.id) if clave else None,
             clave,
             vacante.resumen if vacante else "",
+            nivel=nivel,
+            clasificar_preguntas=getattr(self.config.niveles_ia, nivel).clasificar_preguntas,
         )
         self._esperar(usuario, None)
         resueltas = [(pregunta, await resolver(pregunta, ctx)) for pregunta in preguntas]
@@ -1874,7 +1909,11 @@ class Conversacion:
                 await self._enviar(usuario, "✅ Gracias, lo recordaré.")
 
     async def _preguntar_pendiente(self, usuario: Usuario, pendiente: dict) -> None:
-        self._esperar(usuario, {"tipo": "pendiente", "id": pendiente["id"]})
+        if pendiente["tipo"] == "documento":  # el PDF que pide el formulario, no un texto
+            self._esperar(usuario, {"tipo": "documento", "clase": pendiente["campo"],
+                                    "pendiente": pendiente["id"]})  # fmt: skip
+        else:
+            self._esperar(usuario, {"tipo": "pendiente", "id": pendiente["id"]})
         pid = pendiente.get("postulacion_id")
         if pid is None:  # sin postulación no hay card: se pregunta en un mensaje
             opciones = json.loads(pendiente["opciones_json"] or "[]")
@@ -1928,6 +1967,23 @@ class Conversacion:
                 elif args[0] == "borrar":
                     self.n.guardar_clave_gemini(usuario.id, None)
                     await self._enviar(usuario, "🗑 Clave de Gemini borrada.")
+                elif args[0] == "nueva":  # «Configurar IA» de la card de respaldo
+                    await self._c_clave(usuario, [])
+            case "doc":
+                await self._boton_documento(usuario, args)
+            case "docp":  # «📎 Enviar documento» de la card
+                pendiente = next(
+                    (p for p in self.n.pendientes(usuario.id) if p["id"] == int(args[0])), None
+                )
+                if pendiente and pendiente["tipo"] == "documento":
+                    await self._preguntar_pendiente(usuario, pendiente)
+                    await self._pedir_pdf(usuario)
+            case "docr":  # «Dejar en respaldo»: sin el documento la vacante la completa el usuario
+                pid = self.n.documento_a_respaldo(usuario.id, int(args[0]))
+                self._esperar(usuario, None)
+                if pid is not None:
+                    await self.notificar(Evento("respaldo", pid, usuario.id, E.RESPALDO,
+                                                "documento_faltante"))  # fmt: skip
             case "provpag":
                 guardado = self.n.base.kv_obtener(f"prov_msg:{usuario.id}")
                 if guardado:
@@ -2072,6 +2128,8 @@ class Conversacion:
                 if toque is not None and toque.camino == Camino.AUTOMATICA:
                     return "🔁 Reintentando"
                 return None
+            case "ens":
+                return await self._boton_ensayo(usuario, int(args[0]), args[1])
             case "seg":
                 pid, seguimiento = int(args[0]), args[1]
                 with self.n.base.transaccion() as cx:
@@ -2130,6 +2188,11 @@ class Conversacion:
                 with self.n.base.transaccion() as cx:
                     cx.execute("UPDATE usuarios SET pausado = ? WHERE id = ?", (nuevo, usuario.id))
                 return "Postulaciones en pausa" if nuevo else "Postulaciones reanudadas"
+            case "ia":
+                if args and args[0] in NIVELES_IA:
+                    self.n.preferencias.fijar_nivel_ia(usuario.id, args[0])
+                    await self._c_ia(usuario, ["nivel"])
+                    return f"Nivel {t.NOMBRES_NIVEL_IA[args[0]]}"
         return None
 
     async def _avisar_ya_vinculado(self, usuario: Usuario) -> bool:
@@ -2195,6 +2258,8 @@ class Conversacion:
             "navegadores": self._c_navegadores,
             "automatico": self._c_automatico,
             "pausa": self._c_pausa,
+            "ia": self._c_ia,
+            "documentos": self._c_documentos,
             "borrarme": self._c_borrarme,
         }.get(comando)
         if dueno:
@@ -2204,6 +2269,8 @@ class Conversacion:
                 "reactivar": self._a_reactivar,
                 "stats": self._a_stats,
                 "plataformas": self._a_plataformas,
+                "ensayo": self._a_ensayo,
+                "barreras": self._a_barreras,
             }.get(comando)
         if manejador is None:
             await self._enviar(
@@ -2401,6 +2468,116 @@ class Conversacion:
         texto = await self.al_boton(usuario.telegram_id, cb("pausa"))
         await self._enviar(usuario, f"⏯ {texto}.")
 
+    # --- documentos extra (certificado de notas, carta, portafolio…) -----------------------
+
+    async def _c_documentos(self, usuario: Usuario, args) -> None:
+        """`/documentos`: los PDF que el usuario guardó además del CV, para subir y borrar."""
+        self._esperar(usuario, None)
+        documentos = self.n.documentos.listar(usuario.id)
+        if not documentos:
+            texto = t.DOCUMENTOS_VACIO
+        else:
+            lineas = ["<b>Tus documentos</b>"]
+            for d in documentos:
+                fecha = d.creado.astimezone().strftime("%d/%m/%Y")
+                lineas.append(f"📄 {t.e(d.etiqueta)} · {max(1, d.bytes // 1024)} KB · {fecha}")
+            texto = "\n".join(lineas)
+        botones = [[(f"🗑 Borrar {d.etiqueta}"[:60], cb("doc", "borrar", d.id))] for d in documentos]
+        botones.append([("➕ Subir un documento", cb("doc", "subir"))])
+        await self._enviar(usuario, texto, botones)
+
+    async def _boton_documento(self, usuario: Usuario, args: list[str]) -> None:
+        if args[0] == "lista":
+            await self._c_documentos(usuario, [])
+        elif args[0] == "subir":
+            tipos = [[(n, cb("doc", "tipo", clave))] for clave, n in TIPOS_DOCUMENTO.items()]
+            await self._enviar(usuario, t.DOCUMENTOS_ELEGIR_TIPO, tipos)
+        elif args[0] == "tipo" and len(args) > 1 and args[1] in TIPOS_DOCUMENTO:
+            if args[1] == "otro":
+                self._esperar(usuario, {"tipo": "documento_nombre"})
+                await self._enviar(usuario, t.DOCUMENTOS_PEDIR_NOMBRE)
+            else:
+                self._esperar(usuario, {"tipo": "documento", "clase": args[1]})
+                await self._pedir_pdf(usuario)
+        elif args[0] == "borrar" and len(args) > 1 and args[1].isdigit():
+            if self.n.documentos.borrar(usuario.id, int(args[1])):
+                await self._enviar(usuario, "🗑 Documento borrado.")
+            await self._c_documentos(usuario, [])
+
+    async def _nombre_documento(self, usuario: Usuario, texto: str) -> None:
+        nombre = " ".join(texto.split())
+        if not nombre:
+            await self._enviar(usuario, t.DOCUMENTOS_PEDIR_NOMBRE)
+            return
+        self._esperar(usuario, {"tipo": "documento", "clase": "otro", "nombre": nombre})
+        await self._pedir_pdf(usuario)
+
+    async def _pedir_pdf(self, usuario: Usuario) -> None:
+        await self._enviar(usuario, t.DOCUMENTOS_PEDIR_PDF.format(max_mb=self.config.cv.max_mb))
+
+    async def _recibir_documento(self, usuario: Usuario, esperando: dict, contenido: bytes) -> None:
+        try:
+            validar_archivo(contenido, self.config.cv)
+            clase = esperando.get("clase", "otro")
+            nombre = esperando.get("nombre") or TIPOS_DOCUMENTO.get(clase, clase)
+            documento = self.n.documentos.guardar(
+                usuario, clase, nombre, contenido, self.n.ahora()
+            )
+        except (CVInvalido, ErrorDocumento) as exc:
+            await self._enviar(usuario, f"❌ {t.e(exc)}")
+            return
+        self._esperar(usuario, None)
+        pendiente_id = esperando.get("pendiente")
+        pid = None
+        if pendiente_id is not None:  # el documento que esperaba una postulación
+            fila = next((p for p in self.n.pendientes(usuario.id) if p["id"] == pendiente_id), None)
+            pid = fila["postulacion_id"] if fila else None
+            self.n.documento_recibido(usuario.id, pendiente_id)
+        await self._enviar(
+            usuario,
+            f"✅ Guardé tu documento: <b>{t.e(documento.etiqueta)}</b> (cifrado). "
+            "Lo adjunto solo en los formularios que lo pidan.",
+            [[("📄 Ver mis documentos", cb("doc", "lista"))]],
+        )
+        if pid is not None and self._card(pid) is not None:
+            restantes = self.n.pendientes(usuario.id)
+            if any(r["postulacion_id"] == pid for r in restantes):
+                await self._preguntar_pendiente(usuario, next(
+                    r for r in restantes if r["postulacion_id"] == pid))  # fmt: skip
+            else:
+                await self._poner_fase(usuario, pid, tp.EN_COLA)
+
+    async def _c_ia(self, usuario: Usuario, args) -> None:
+        """`/ia nivel`: los tres niveles con su consumo, el uso de hoy y el nivel actual."""
+        if args and args[0].lower() != "nivel":
+            await self._enviar(usuario, "Usa /ia nivel para ver y cambiar tu nivel de IA.")
+            return
+        resumen = self.n.preferencias.resumen_nivel_ia(
+            usuario.id, self.config.niveles_ia, self.n.ahora()
+        )
+        lineas = [
+            "<b>Nivel de IA de tus postulaciones</b>",
+            "Cuánta IA usa cada postulación (llamadas aproximadas):",
+        ]
+        botones = []
+        for nivel in resumen["niveles"]:
+            actual = nivel["clave"] == resumen["nivel"]
+            lineas.append(
+                f"{'✅' if actual else '▫️'} <b>{nivel['nombre']}</b> · "
+                f"~{nivel['llamadas_estimadas']} llamadas por postulación"
+            )
+            botones.append(
+                [(f"{'✅ ' if actual else ''}{nivel['nombre']}", cb("ia", nivel["clave"]))]
+            )
+        hoy = resumen["hoy"]
+        lineas += [
+            "",
+            f"Hoy llevas {hoy['llamadas']} llamadas y {hoy['tokens']} tokens.",
+            "El cambio vale para las postulaciones siguientes; las que ya están en curso "
+            "terminan con el nivel con que empezaron.",
+        ]
+        await self._enviar(usuario, "\n".join(lineas), botones)
+
     async def _c_borrarme(self, usuario: Usuario, args) -> None:
         await self._enviar(
             usuario,
@@ -2465,16 +2642,64 @@ class Conversacion:
         await self._enviar(usuario, "\n".join(lineas))
 
     async def _a_plataformas(self, usuario: Usuario, args) -> None:
-        if len(args) == 2 and args[0] in self.config.plataformas and args[1] in ("on", "off"):
-            self.config.plataformas[args[0]].automatica = args[1] == "on"
-            self.n.usuarios.auditar(
-                usuario.telegram_id, "plataforma", args[0], self.n.ahora(), args[1]
-            )
-            await self.revisar_esperas()
+        if len(args) == 2 and args[0] in self.config.plataformas:
+            nombre, valor = args
+            ahora = self.n.ahora()
+            if valor in ("on", "off"):
+                self.config.plataformas[nombre].automatica = valor == "on"
+            elif valor == "ensayo":
+                self.n.preferencias.poner_en_ensayo(nombre, "dueño", ahora)
+            elif valor == "real":
+                self.n.preferencias.quitar_de_ensayo(nombre)
+            if valor in ("on", "off", "ensayo", "real"):
+                self.n.usuarios.auditar(usuario.telegram_id, "plataforma", nombre, ahora, valor)
+                await self.revisar_esperas()
+        en_ensayo = self.n.preferencias.plataformas_en_ensayo(self.config.ensayo.plataformas)
         lineas = ["<b>Plataformas</b> (hasta reiniciar; el valor fijo está en config.yaml)"]
         for nombre, ajustes in self.config.plataformas.items():
-            lineas.append(f"• {nombre}: {'automática' if ajustes.automatica else 'solo paquete'}")
+            modo = "automática" if ajustes.automatica else "solo paquete"
+            if nombre in en_ensayo:
+                modo += " · 🧪 en ensayo"
+            lineas.append(f"• {nombre}: {modo}")
+        lineas.append("\n/plataformas NOMBRE on|off|ensayo|real")
         await self._enviar(usuario, "\n".join(lineas))
+
+    async def _boton_ensayo(self, usuario: Usuario, pid: int, accion: str) -> str | None:
+        """Botones de la card ensayada: «Enviar de verdad» vuelve a la cola sin ensayo y
+        «Paquete de respaldo» la termina como una plataforma en prueba."""
+        if accion == "real":
+            if not self.n.enviar_de_verdad(usuario.id, pid):
+                return "Esta postulación ya no se puede enviar así"
+            await self._poner_fase(usuario, pid, tp.EN_COLA)
+            return "🚀 Enviando de verdad"
+        if not self.n.ensayo_a_respaldo(usuario.id, pid):
+            return None
+        await self.notificar(Evento("respaldo", pid, usuario.id, E.RESPALDO,
+                                    "plataforma_en_ensayo"))  # fmt: skip
+        return None
+
+    async def _a_ensayo(self, usuario: Usuario, args) -> None:
+        """`/ensayo on|off`: tus postulaciones llenan todo y se detienen antes de enviar."""
+        if args and args[0] in ("on", "off"):
+            self.n.preferencias.fijar_ensayo_usuario(usuario.id, args[0] == "on")
+        if self.n.preferencias.ensayo_usuario(usuario.id):
+            estado = "activado: tus postulaciones llenan todo y se detienen antes de enviar."
+        else:
+            estado = "apagado: tus postulaciones se envían."
+        await self._enviar(usuario, f"🧪 Ensayo {estado}\nUsa /ensayo on o /ensayo off.")
+
+    async def _a_barreras(self, usuario: Usuario, args) -> None:
+        """Dominios que exigen cuenta u OAuth: sus vacantes van al respaldo sin abrir la página."""
+        if len(args) == 2 and args[0] == "quitar":
+            if recetas.quitar_barrera(self.n.base, args[1].lower()):
+                self.n.usuarios.auditar(
+                    usuario.telegram_id, "barrera_quitada", args[1], self.n.ahora()
+                )
+        lista = recetas.barreras(self.n.base)
+        lineas = [f"• {t.e(b['host'])}: {t.e(b['motivo'])}" for b in lista]
+        await self._enviar(
+            usuario, "\n".join(["<b>Dominios barrera</b>", *lineas]) if lista else t.BARRERAS_VACIAS
+        )
 
     # --- avisos del núcleo ------------------------------------------------------------
 
@@ -2487,7 +2712,71 @@ class Conversacion:
         except Exception:  # noqa: BLE001 - un aviso fallido no debe tumbar la API ni la cola
             log.exception("No se pudo enviar el aviso %s", evento)
 
+    async def _avisar_duenio(self, d: dict) -> None:
+        """Lo que aprende el motor genérico y el dueño debe saber (eventos sin usuario)."""
+        if not self.config.dueno_telegram_id:
+            return
+        base = self.n.base
+        portal = t.NOMBRES_PLATAFORMA.get(d.get("plataforma", ""), d.get("plataforma", ""))
+        selector = d.get("selector")
+        if selector is None and d.get("parche_id"):
+            fila = base.cx.execute(
+                "SELECT selector_json FROM parches_flujo WHERE id = ?", (d["parche_id"],)
+            ).fetchone()
+            selector = fila["selector_json"] if fila else ""
+        if not isinstance(selector, str):
+            selector = json.dumps(selector, ensure_ascii=False)
+        match d["tipo"]:
+            case "receta_apagada":
+                fila = base.cx.execute(
+                    "SELECT host FROM recetas WHERE id = ?", (d["receta_id"],)
+                ).fetchone()
+                texto = t.AVISO_RECETA_APAGADA.format(
+                    host=t.e(fila["host"] if fila else d["receta_id"]), pid=d["postulacion_id"]
+                )
+            case "parche_nuevo":
+                texto = t.AVISO_PARCHE_NUEVO.format(
+                    portal=t.e(portal), paso=t.e(d["paso"]), selector=t.e(selector),
+                    pid=d["postulacion_id"],
+                )  # fmt: skip
+            case "parche_firme":
+                texto = t.AVISO_PARCHE_FIRME.format(
+                    portal=t.e(portal), paso=t.e(d["paso"]), selector=t.e(selector)
+                )
+            case "dominio_barrera":
+                texto = t.AVISO_DOMINIO_BARRERA.format(host=t.e(d["host"]), motivo=t.e(d["motivo"]))
+            case _:
+                return
+        await self._enviar(self.config.dueno_telegram_id, texto)
+
+    async def _avisar_vigia(self, usuario: Usuario, p, ev: Evento) -> None:
+        """Resultado del ensayo diario del vigía: al dueño solo le avisa lo que no salió limpio."""
+        resultado = self.n.cerrar_vigia(p, ev.estado, ev.detalle)
+        if ev.tipo in ("reencolada", "navegador_desconectado") or resultado in ("ok", "omitida"):
+            return
+        portal = t.NOMBRES_PLATAFORMA.get(p.plataforma or "", p.plataforma or "?")
+        datos = self.n.datos_ensayo(p.id)
+        motivo = t.e(datos["trabado"] or ev.detalle or ev.estado)
+        if resultado == "reparado":
+            texto = t.VIGIA_REPARADO.format(portal=t.e(portal))
+        elif resultado == "bloqueada":
+            texto = t.VIGIA_BLOQUEADA.format(portal=t.e(portal), motivo=motivo)
+        else:
+            texto = t.VIGIA_FALLO.format(portal=t.e(portal), motivo=motivo, id=p.plataforma)
+        await self._enviar(usuario, texto)
+
+    def _es_vigia(self, pid: int | None) -> bool:
+        p = self.n.cola.obtener(pid) if pid else None
+        return p is not None and p.tipo == "vigia"
+
     async def _avisar_dict(self, d: dict) -> None:
+        if d["tipo"] in t.AVISOS_DUENIO:
+            await self._avisar_duenio(d)
+            return
+        if d["tipo"] in ("postulando", "paso", "verificacion") and self._es_vigia(
+            d.get("postulacion_id")
+        ):
+            return  # el ensayo del vigía no tiene card de progreso
         usuario = self.n.usuarios.por_id(d["usuario_id"]) if "usuario_id" in d else None
         if usuario is None:
             return
@@ -2627,6 +2916,13 @@ class Conversacion:
             afinidad=fila["afinidad"], requisitos=requisitos,
             respuestas=[dict(r) for r in respuestas], pasos=[x["paso"] for x in pasos],
             cv_adjunto=adjunto, confirmada=confirmada, folio=f"P-{p.id}",
+            revisadas=sum(
+                int(x["detalle"]) for x in pasos
+                if x["paso"] == "respuestas_revisadas" and (x["detalle"] or "").isdigit()
+            ),
+            nivel_bajado=next(  # el último «de>a» que anotó la API de la extensión
+                (x["detalle"].partition(">")[2] for x in reversed(pasos)
+                 if x["paso"] == "nivel_bajado" and x["detalle"]), None),
         )  # fmt: skip
         if fila["tomada_en"] and fila["terminada_en"]:
             tardo = de_texto(fila["terminada_en"]) - de_texto(fila["tomada_en"])
@@ -2772,6 +3068,9 @@ class Conversacion:
         p = self.n.cola.obtener(ev.postulacion_id)
         if p is None:
             return
+        if p.tipo == "vigia":
+            await self._avisar_vigia(usuario, p, ev)
+            return
         if p.tipo != "postular":
             if ev.estado == E.COMPLETADO:
                 nombre = t.NOMBRES_PLATAFORMA.get(p.plataforma, p.plataforma)
@@ -2801,11 +3100,21 @@ class Conversacion:
             and (ev.detalle or "") in t.BLOQUEOS_PORTAL
         ):
             await self._cerrar_card(usuario, p.id, tp.BLOQUEO, motivo=ev.detalle)
+        elif ev.estado == E.ENSAYADA:
+            await self._cerrar_card(usuario, p.id, tp.ENSAYADA, motivo=ev.detalle)
         elif ev.estado in CON_RESPALDO:
-            motivo = ev.detalle if ev.tipo == "respaldo" else str(ev.estado)
-            await self._cerrar_card(usuario, p.id, tp.RESPALDO, motivo=motivo)
+            motivo = (
+                ev.detalle
+                if ev.tipo == "respaldo" or (ev.detalle or "") in t.MOTIVOS_RESPALDO
+                else str(ev.estado)
+            )
+            trabado = ev.estado != E.RESPALDO and self.n.datos_ensayo(p.id)["trabado"]
+            # Un ensayo que se trabó muestra en qué pantalla y por qué, no el paquete de respaldo
+            await self._cerrar_card(usuario, p.id, tp.ENSAYADA if trabado else tp.RESPALDO,
+                                    motivo=motivo)  # fmt: skip
             if (
                 ev.estado in (E.FORMULARIO_DESCONOCIDO, E.BLOQUEADA)
+                and motivo not in t.MOTIVOS_SIN_ALERTA
                 and self.config.dueno_telegram_id
             ):
                 await self._enviar(

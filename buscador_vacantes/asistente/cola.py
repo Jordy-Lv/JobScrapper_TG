@@ -40,6 +40,7 @@ class E(StrEnum):
     INCIERTA = "incierta"
     FALLIDA = "fallida"
     RESPALDO = "respaldo"  # se entregó el paquete para copiar
+    ENSAYADA = "ensayada"  # llenó todo y se detuvo antes de enviar (modo ensayo)
     CANCELADA = "cancelada"
     COMPLETADO = "completado"  # trabajo completar_perfil terminado
 
@@ -49,18 +50,21 @@ ACTIVAS = (E.TOMADA, E.EN_CURSO, E.VERIFICACION)
 # Resultados que puede reportar la extensión al terminar
 FINALES_EXTENSION = {
     E.ENVIADA, E.YA_POSTULADA, E.VACANTE_CERRADA, E.FORMULARIO_DESCONOCIDO, E.INCIERTA,
-    E.FALLIDA, E.ESPERANDO_SESION, E.CUENTA_DISTINTA, E.BLOQUEADA, E.COMPLETADO,
+    E.FALLIDA, E.ESPERANDO_SESION, E.CUENTA_DISTINTA, E.BLOQUEADA, E.COMPLETADO, E.ENSAYADA,
 }  # fmt: skip
 # Estados que entregan el paquete de respaldo al usuario
 CON_RESPALDO = {E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO}
 # Resultados que el usuario puede reintentar tocando ⚡ otra vez. No hay riesgo de duplicar:
 # antes de llenar nada la extensión revisa si el portal ya tiene la postulación (ya_postulada)
-REINTENTABLES = (E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO, E.CANCELADA)
+REINTENTABLES = (
+    E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO, E.CANCELADA, E.ENSAYADA,
+)
 
 
 class Tipo(StrEnum):
     POSTULAR = "postular"
     COMPLETAR_PERFIL = "completar_perfil"
+    VIGIA = "vigia"  # ensayo diario de una plataforma en el navegador del dueño (nunca envía)
 
 
 @dataclass
@@ -80,6 +84,9 @@ class Postulacion:
     tomada_en: datetime | None
     terminada_en: datetime | None
     afinidad: int | None
+    nivel_ia: str | None = None  # el del usuario al encolar: un cambio posterior no la afecta
+    forzar_real: bool = False  # «Enviar de verdad» tras un ensayo: ni el ensayo del usuario ni el
+    # de la plataforma la detienen
 
     @classmethod
     def de_fila(cls, f: sqlite3.Row) -> Postulacion:
@@ -88,6 +95,7 @@ class Postulacion:
             E(f["estado"]), f["motivo"], f["origen"], f["navegador_id"],
             bool(f["envio_pulsado"]), de_texto(f["creada"]), de_texto(f["actualizada"]),
             de_texto(f["tomada_en"]), de_texto(f["terminada_en"]), f["afinidad"],
+            f["nivel_ia"], bool(f["forzar_real"]),
         )  # fmt: skip
 
 
@@ -124,7 +132,7 @@ class Cola:
 
     def de_usuario(self, usuario_id: int, id_corto: str) -> Postulacion | None:
         fila = self.base.cx.execute(
-            "SELECT * FROM postulaciones WHERE usuario_id = ? AND id_corto = ?",
+            "SELECT * FROM postulaciones WHERE usuario_id = ? AND id_corto = ? AND tipo != 'vigia'",
             (usuario_id, id_corto),
         ).fetchone()
         return Postulacion.de_fila(fila) if fila else None
@@ -193,12 +201,18 @@ class Cola:
             return existente, False
         try:
             with self.base.transaccion() as cx:
+                # Un ensayo del vigía sobre esta vacante cede el lugar a la postulación real
+                cx.execute(
+                    "DELETE FROM postulaciones WHERE usuario_id = ? AND id_corto = ? "
+                    "AND tipo = 'vigia'",
+                    (usuario_id, id_corto),
+                )
                 pid = cx.execute(
                     "INSERT INTO postulaciones(usuario_id, id_corto, tipo, plataforma, estado, "
-                    "origen, afinidad, creada, actualizada) VALUES (?, ?, 'postular', ?, ?, ?, "
-                    "?, ?, ?)",
+                    "origen, afinidad, creada, actualizada, nivel_ia) VALUES (?, ?, 'postular', "
+                    "?, ?, ?, ?, ?, ?, (SELECT nivel_ia FROM usuarios WHERE id = ?))",
                     (usuario_id, id_corto, plataforma, E.EN_COLA, origen, afinidad,
-                     a_texto(ahora), a_texto(ahora)),
+                     a_texto(ahora), a_texto(ahora), usuario_id),
                 ).lastrowid  # fmt: skip
                 self.paso(cx, pid, "encolada", ahora, E.EN_COLA, origen)
         except sqlite3.IntegrityError:  # carrera con otro toque: gana el primero
@@ -208,6 +222,25 @@ class Cola:
         nueva = self.obtener(pid)
         assert nueva is not None
         return nueva, True
+
+    def encolar_vigia(
+        self, usuario_id: int, id_corto: str, plataforma: str, ahora: datetime
+    ) -> Postulacion | None:
+        """Un ensayo del vigía sobre una vacante que el usuario no tiene en la cola. None si ya
+        tiene una postulación (o un ensayo) de esa vacante."""
+        try:
+            with self.base.transaccion() as cx:
+                pid = cx.execute(
+                    "INSERT INTO postulaciones(usuario_id, id_corto, tipo, plataforma, estado, "
+                    "origen, creada, actualizada, nivel_ia) VALUES (?, ?, 'vigia', ?, ?, "
+                    "'vigia', ?, ?, (SELECT nivel_ia FROM usuarios WHERE id = ?))",
+                    (usuario_id, id_corto, plataforma, E.EN_COLA, a_texto(ahora), a_texto(ahora),
+                     usuario_id),
+                ).lastrowid  # fmt: skip
+                self.paso(cx, pid, "encolada", ahora, E.EN_COLA, "vigia")
+        except sqlite3.IntegrityError:
+            return None
+        return self.obtener(pid)
 
     def encolar_completar_perfil(self, usuario_id: int, plataforma: str, ahora: datetime) -> int:
         """Un solo trabajo pendiente de completar perfil por usuario y plataforma."""
@@ -221,8 +254,9 @@ class Cola:
         with self.base.transaccion() as cx:
             pid = cx.execute(
                 "INSERT INTO postulaciones(usuario_id, tipo, plataforma, estado, origen, creada, "
-                "actualizada) VALUES (?, 'completar_perfil', ?, ?, 'sistema', ?, ?)",
-                (usuario_id, plataforma, E.EN_COLA, a_texto(ahora), a_texto(ahora)),
+                "actualizada, nivel_ia) VALUES (?, 'completar_perfil', ?, ?, 'sistema', ?, ?, "
+                "(SELECT nivel_ia FROM usuarios WHERE id = ?))",
+                (usuario_id, plataforma, E.EN_COLA, a_texto(ahora), a_texto(ahora), usuario_id),
             ).lastrowid
             self.paso(cx, pid, "encolada", ahora, E.EN_COLA, "completar_perfil")
         return pid
@@ -251,21 +285,24 @@ class Cola:
         """Lo que frena a una postulación esperando; la misma regla que usa ``siguiente``.
 
         Completar perfil solo espera a que no haya otra en curso; postular respeta además el
-        tope diario y la pausa entre postulaciones.
+        tope diario y la pausa entre postulaciones; el vigía (que no envía) solo la pausa.
         """
         if self.base.cx.execute(
             "SELECT 1 FROM postulaciones WHERE usuario_id = ? AND estado IN (?, ?, ?)",
             (p.usuario_id, *ACTIVAS),
         ).fetchone():
             return Restriccion("en_curso", None)  # de a una por usuario
-        if p.tipo != Tipo.POSTULAR:
+        if p.tipo == Tipo.COMPLETAR_PERFIL:
             return None
-        if self.postulaciones_hoy(p.usuario_id, ahora) >= self.config.topes.usuario_dia:
+        if (
+            p.tipo == Tipo.POSTULAR
+            and self.postulaciones_hoy(p.usuario_id, ahora) >= self.config.topes.usuario_dia
+        ):
             manana = de_texto(self._inicio_dia(ahora)) + timedelta(days=1)
             return Restriccion("tope_diario", manana)
         ultima = self.base.cx.execute(
             "SELECT MAX(terminada_en) FROM postulaciones WHERE usuario_id = ? "
-            "AND tipo = 'postular' AND terminada_en IS NOT NULL",
+            "AND tipo IN ('postular', 'vigia') AND terminada_en IS NOT NULL",
             (p.usuario_id,),
         ).fetchone()[0]
         if ultima:
@@ -279,11 +316,13 @@ class Cola:
     ) -> Postulacion | None:
         """El próximo trabajo que puede tomar un navegador del usuario, o None.
 
-        Completar perfil va primero. Se respetan el tope diario y la pausa entre postulaciones.
+        Completar perfil va primero y el vigía al final. Se respetan el tope diario y la pausa
+        entre postulaciones.
         """
         filas = self.base.cx.execute(
             "SELECT * FROM postulaciones WHERE usuario_id = ? AND estado IN (?, ?) "
-            "ORDER BY CASE tipo WHEN 'completar_perfil' THEN 0 ELSE 1 END, creada, id",
+            "ORDER BY CASE tipo WHEN 'completar_perfil' THEN 0 WHEN 'postular' THEN 1 ELSE 2 END, "
+            "creada, id",
             (usuario_id, *ESPERANDO),
         ).fetchall()
         candidata = next(
@@ -369,6 +408,11 @@ class Cola:
 
     # --- respuestas del usuario y reanudaciones -----------------------------------------------
 
+    def retener(self, pid: int, ahora: datetime) -> bool:
+        """La postulación recién encolada espera mientras el servidor resuelve el formulario que
+        ya conoce (esquema anticipado): la extensión no la toma hasta `reanudar`."""
+        return self._cambiar(pid, (E.EN_COLA,), E.ESPERANDO_USUARIO, ahora)
+
     def reanudar(self, pid: int, ahora: datetime, desde: tuple[str, ...]) -> bool:
         return self._cambiar(pid, desde, E.EN_COLA, ahora, navegador_id=None, tomada_en=None)
 
@@ -394,6 +438,13 @@ class Cola:
             if self.reanudar(f["id"], ahora, (E.ESPERANDO_NAVEGADOR,)):
                 reanudadas.append(f["id"])
         return reanudadas
+
+    def enviar_de_verdad(self, pid: int, ahora: datetime) -> bool:
+        """«Enviar de verdad» tras un ensayo: vuelve a la cola desde la vacante y esta vez no se
+        ensaya, aunque el usuario o la plataforma sigan en ensayo."""
+        return self._cambiar(pid, (E.ENSAYADA,), E.EN_COLA, ahora, "enviar_de_verdad",
+                             navegador_id=None, tomada_en=None, terminada_en=None,
+                             envio_pulsado=0, forzar_real=1)  # fmt: skip
 
     def reintentar(self, pid: int, ahora: datetime) -> bool:
         """Vuelve a la cola una postulación terminada sin enviarse (nuevo toque ⚡)."""

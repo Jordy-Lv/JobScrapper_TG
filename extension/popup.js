@@ -210,12 +210,14 @@ async function pintar() {
     const habilitada = conVersiones ? p in selectores_version : p === "computrabajo" || p === "magneto";
     tarjetas.push(await tarjeta(p, {
       habilitada, vinculado, info: portales[p], cuentaOk: (estado.cuentas || {})[p],
-      vigilando: Boolean(vigilando[p]),
+      // La bandera guarda cuándo empezó; pasada la espera máxima (10 min) se considera vencida
+      vigilando: Date.now() - Number(vigilando[p] || 0) < 10 * 60 * 1000,
     }));
   }
   $("portales").replaceChildren(...tarjetas);
 
   $("sin-vincular").hidden = vinculado;
+  if (!vinculado) $("nivel-ia-bloque").hidden = true;
   $("pausar").hidden = !vinculado;
   $("conexion").hidden = !vinculado;
   if (vinculado) pintarConexion(medida, Boolean(pausado));
@@ -243,6 +245,7 @@ $("form-codigo").addEventListener("submit", async (evento) => {
     : r.estado === 400 ? "Código vencido o ya usado. Pide otro con /vincular."
     : "No pude contactar al servidor.";
   pintar();
+  if (r.ok) cargarNivelIA();
 });
 
 $("recargar").addEventListener("click", recargar);
@@ -362,6 +365,40 @@ async function guardarPreferenciasVista() {
   $("vp-pausar").classList.toggle("pausado", !automatico);
 }
 
+// --- nivel de uso de IA: es del usuario, no de un portal ---------------------------------------
+
+function pintarNivelIA(d) {
+  const selector = $("nivel-ia");
+  selector.replaceChildren(...d.niveles.map((n) => {
+    const opcion = el("option", null, `${n.nombre} · ~${n.llamadas_estimadas} llamadas`);
+    opcion.value = n.clave;
+    return opcion;
+  }));
+  selector.value = d.nivel;
+  selector.disabled = false;
+  $("nivel-ia-consumo").textContent = "Llamadas de IA aproximadas por postulación";
+  $("nivel-ia-hoy").textContent =
+    `Hoy llevas ${d.hoy.llamadas} llamadas y ${d.hoy.tokens} tokens. ` +
+    "El cambio vale para las postulaciones siguientes.";
+}
+
+async function cargarNivelIA() {
+  const r = await chrome.runtime.sendMessage({ tipo: "nivelIaLeer" });
+  $("nivel-ia-bloque").hidden = !r.ok;
+  if (r.ok) pintarNivelIA(r.datos);
+}
+
+$("nivel-ia").addEventListener("change", async () => {
+  const selector = $("nivel-ia");
+  selector.disabled = true;
+  const r = await chrome.runtime.sendMessage({ tipo: "nivelIaGuardar", nivel: selector.value });
+  if (!r.ok) $("nivel-ia-hoy").textContent = "No se pudo guardar el nivel; inténtalo de nuevo.";
+  // Se vuelve a leer: el selector queda con lo que guardó el servidor
+  const lectura = await chrome.runtime.sendMessage({ tipo: "nivelIaLeer" });
+  if (lectura.ok) pintarNivelIA(lectura.datos);
+  else selector.disabled = false;
+});
+
 $("vp-volver").addEventListener("click", cerrarVistaPortal);
 $("vp-automatico").addEventListener("change", guardarPreferenciasVista);
 $("vp-umbral").addEventListener("change", guardarPreferenciasVista);
@@ -397,4 +434,8 @@ $("vp-olvidar").addEventListener("click", async () => {
 
 chrome.storage.onChanged.addListener(pintar);
 pintar();
-ajustes().then(({ token }) => token && medirAlAbrir());
+ajustes().then(({ token }) => {
+  if (!token) return;
+  medirAlAbrir();
+  cargarNivelIA();
+});

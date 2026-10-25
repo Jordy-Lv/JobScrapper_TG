@@ -771,7 +771,8 @@ def test_descartes_registran_cada_etapa(config, estado):
     )
 
     mock_ofertas([
-        {"id": "1", "titulo": "Aprendiz SENA Contable", "empresa": "Éxito", "descripcion": "Causación y archivo contable"},
+        {"id": "1", "titulo": "Aprendiz SENA Contable", "empresa": "Éxito",
+         "descripcion": "Causación y archivo contable"},
         {"id": "2", "titulo": "Analista Junior", "empresa": "Bancolombia"},
         {"id": "3", "titulo": "Ingeniero de Procesos", "empresa": "Planta"},
     ])  # fmt: skip
@@ -800,7 +801,8 @@ def test_descartes_registran_cada_etapa(config, estado):
 def test_misma_vacante_en_dos_corridas_sube_veces_sin_duplicar(config, estado):
     estado.marcar_inicializada()
     mock_ofertas([
-        {"id": "1", "titulo": "Aprendiz SENA Contable", "empresa": "Éxito", "descripcion": "Causación y archivo contable"},
+        {"id": "1", "titulo": "Aprendiz SENA Contable", "empresa": "Éxito",
+         "descripcion": "Causación y archivo contable"},
         {"id": "2", "titulo": "Analista Junior", "empresa": "Bancolombia"},
     ])  # fmt: skip
     ia = IAFalsa(RespuestaIA(True, {"vacantes": [

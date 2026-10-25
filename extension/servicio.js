@@ -11,13 +11,20 @@ const PREDETERMINADOS = {
   sondeo_captcha_ms: 10000, verificacion_max_ms: 2 * 60 * 60 * 1000,
   sondeo_sesion_ms: 2000, espera_sesion_max_ms: 10 * 60 * 1000, // 10 min para iniciar sesión
   llenado_max_ms: 30000, // tope del llenado de un formulario dentro de la pestaña
+  resultado_ms: 25000, // espera del resultado tras avanzar o enviar en el bucle genérico
 };
+// Topes del bucle genérico si el trabajo no los trae (servidor sin motor_generico)
+const TOPES_GENERICO = { max_pantallas: 12, max_pantallas_una_pregunta: 40, max_minutos: 10 };
+const REPETICIONES_MAX = 3; // la misma pantalla sin cambios
 
 let ocupado = false;
 let enCurso = null; // latido en curso: quien llama mientras tanto recibe el mismo
 
 // --- arranque y alarma ----------------------------------------------------------------------
 
+// Si el service worker se reinició, ninguna vigilancia sigue viva: sin esto la bandera quedaba
+// puesta para siempre y la tarjeta se quedaba en "Iniciando sesión…"
+chrome.storage.local.set({ vigilando: {} }).catch(() => {});
 chrome.runtime.onInstalled.addListener(() => programar());
 chrome.runtime.onStartup.addListener(() => programar());
 chrome.alarms.onAlarm.addListener((alarma) => {
@@ -55,6 +62,7 @@ async function latidoUnico({ forzarRevision = false } = {}) {
   if (!token) return null;
   ocupado = true;
   try {
+    if (!pausado) await retomarBucle();
     let portales = await estadoPortales(forzarRevision);
     let respuesta = await enviarLatido(portales);
     if (!respuesta) return null;
@@ -95,7 +103,10 @@ async function enviarLatido(portales) {
   }
   try {
     const r = await llamar("POST", "/latido", cuerpo);
-    await chrome.storage.local.set({ selectores_version: r.selectores || {}, enlaces: r.enlaces || {} });
+    await chrome.storage.local.set({
+      selectores_version: r.selectores || {}, enlaces: r.enlaces || {},
+      motor_generico_version: r.motor_generico || null,
+    });
     await guardarEstado({
       en_linea: true, ultimo_latido: Date.now(), actualizar: r.actualizar,
       version_minima: r.version_minima, cuentas: r.cuentas, error: null,
@@ -119,6 +130,18 @@ async function selectores(plataforma) {
   selectores_cache[plataforma] = r;
   await chrome.storage.local.set({ selectores_cache });
   return r.selectores;
+}
+
+// Reglas del motor genérico (datos versionados): se piden cuando cambia la versión del latido
+async function reglasMotor() {
+  const { motor_generico_version = null, motor_generico_cache = null } =
+    await chrome.storage.local.get(["motor_generico_version", "motor_generico_cache"]);
+  if (motor_generico_cache && motor_generico_cache.version === motor_generico_version) {
+    return motor_generico_cache.reglas;
+  }
+  const r = await llamar("GET", "/motor_generico");
+  await chrome.storage.local.set({ motor_generico_cache: r });
+  return r.reglas;
 }
 
 // --- estado de los portales ----------------------------------------------------------------
@@ -305,6 +328,21 @@ async function enPestana(tabId, func, ...args) {
 
 // --- ejecución de un trabajo ----------------------------------------------------------------
 
+// Modo ensayo: el trabajo llena y avanza como siempre y se detiene justo antes de registrar el
+// envío. `pantalla` es la última que se leyó (o el paso declarado), para decir dónde se trabaría.
+let ensayoEnCurso = null;
+const SIN_TRABA = ["enviada", "ensayada", "ya_postulada", "vacante_cerrada", "esperando_sesion",
+  "cuenta_distinta", "completado"];
+
+// `tipo`: "boton" (el bucle genérico, un botón que envía) o "paso" (un flujo declarado, cuyo
+// paso ya envía la postulación al pulsarse)
+async function ensayada(contexto, nombre, tipo) {
+  const { id } = contexto.trabajo;
+  await reportar(id, "ensayo_boton", nombre);
+  await terminar(id, "ensayada", { motivo: `${tipo}:${String(nombre).slice(0, 100)}` });
+  return { fin: true };
+}
+
 async function ejecutar(trabajo) {
   const { id, plataforma, tipo } = trabajo;
   const sel = await selectores(plataforma);
@@ -316,7 +354,9 @@ async function ejecutar(trabajo) {
     return; // otro navegador la tomó o ya no está disponible
   }
   await guardarEstado({ trabajo_actual: { id, titulo: trabajo.titulo, plataforma, inicio: Date.now() } });
-  if (!pasos.length || !url) {
+  // Una plataforma sin pasos de postular (un ATS sin declarar) va directo al bucle genérico
+  const generico = tipo === "postular" && !pasos.length && Boolean(trabajo.motor_generico);
+  if ((!pasos.length && !generico) || !url) {
     await terminar(id, "formulario_desconocido", { motivo: `sin flujo de ${tipo} para ${plataforma}` });
     return;
   }
@@ -328,9 +368,14 @@ async function ejecutar(trabajo) {
     return;
   }
   let cerrar = true;
-  const contexto = { trabajo, sel, cv: null, cv_nombre: null };
+  const contexto = { trabajo, sel, cv: null, cv_nombre: null, inicio: Date.now(), envio: false };
+  ensayoEnCurso = trabajo.ensayo ? { id, pantalla: 0 } : null;
   try {
     await reportar(id, "abrir", trabajo.titulo || url);
+    if (generico) {
+      cerrar = (await bucleGenerico(pestana.id, contexto)).cerrar !== false;
+      return;
+    }
     for (let i = 0; i < pasos.length; i++) {
       const paso = pasos[i];
       const tab = await chrome.tabs.get(pestana.id);
@@ -340,6 +385,7 @@ async function ejecutar(trabajo) {
         return;
       }
       await inyectar(pestana.id, plataforma);
+      if (ensayoEnCurso) ensayoEnCurso.pantalla = i + 1;
       const r = await ejecutarPaso(pestana.id, paso, contexto);
       if (r.fin) {
         cerrar = r.cerrar !== false;
@@ -350,6 +396,7 @@ async function ejecutar(trabajo) {
   } catch (error) {
     await terminar(id, "fallida", { motivo: String(error.message || error).slice(0, 400) });
   } finally {
+    ensayoEnCurso = null;
     await guardarEstado({ trabajo_actual: null });
     if (cerrar) await cerrarPestana(pestana);
   }
@@ -387,10 +434,25 @@ async function ejecutarPaso(tabId, paso, contexto) {
       await inyectar(tabId, plataforma);
     }
   }
+  if (trabajo.ensayo && (paso.accion === "enviar" || paso.envia)) {
+    // Ensayo: se comprueba que el botón de enviar existe (y la sesión) y no se pulsa
+    const r = await correrSeguro(
+      tabId, { ...paso, accion: "esperar", opcional: false, navega: false }, plataforma, correr);
+    if (r && r.sin_sesion) {
+      await terminar(id, "esperando_sesion", { motivo: "no hay sesión iniciada en el portal" });
+      return { fin: true };
+    }
+    if (!r || r.error) {
+      return fallarPaso(tabId, contexto, (r && r.error) || "formulario_desconocido",
+        { motivo: (r && r.motivo) || "no apareció el botón de enviar", html: r && r.html });
+    }
+    return ensayada(contexto, paso.nombre || paso.accion, "paso");
+  }
   if (paso.accion === "enviar" || paso.envia) {
     // El servidor registra envio_pulsado antes del clic: si el navegador se cierra justo
     // después, la postulación queda "incierta" y nunca se envía dos veces.
     await llamar("POST", `/postulaciones/${id}/envio`);
+    contexto.envio = true;
   }
   await reportar(id, paso.nombre || paso.accion);
 
@@ -407,10 +469,7 @@ async function ejecutarPaso(tabId, paso, contexto) {
     await terminar(id, "esperando_sesion", { motivo: "no hay sesión iniciada en el portal" });
     return { fin: true };
   }
-  if (r.error) {
-    await terminar(id, r.error, { motivo: r.motivo, html: r.html });
-    return { fin: true };
-  }
+  if (r.error) return fallarPaso(tabId, contexto, r.error, { motivo: r.motivo, html: r.html });
   if (r.terminar) {
     await terminar(id, r.terminar, { motivo: r.motivo });
     return { fin: true };
@@ -521,8 +580,7 @@ async function formulario(tabId, contexto, campos) {
   }
   if (lleno && lleno.error) {
     // Una respuesta no quedó marcada: no se envía nada a ciegas
-    await terminar(trabajo.id, lleno.error, { motivo: lleno.motivo, html: lleno.html });
-    return { fin: true };
+    return fallarPaso(tabId, contexto, lleno.error, { motivo: lleno.motivo, html: lleno.html });
   }
   await reportar(trabajo.id, "llenado", `${r.respuestas.length} respuestas`);
   // El servidor arma el resumen final con esto: qué hoja de vida recibió el portal
@@ -535,14 +593,410 @@ async function obtenerCv(contexto, campos) {
   if (r.cv_url) await descargarCv(contexto, r);
 }
 
-async function descargarCv(contexto, r) {
-  const bytes = new Uint8Array(await llamar("GET", r.cv_url, undefined, { binario: true }));
+async function descargarArchivo(url, nombre) {
+  const bytes = new Uint8Array(await llamar("GET", url, undefined, { binario: true }));
   let binario = "";
   for (let i = 0; i < bytes.length; i += 0x8000) {
     binario += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
-  contexto.cv = { base64: btoa(binario), nombre: r.cv_nombre || "CV.pdf" };
+  return { base64: btoa(binario), nombre };
+}
+
+async function descargarCv(contexto, r) {
+  contexto.cv = await descargarArchivo(r.cv_url, r.cv_nombre || "CV.pdf");
   contexto.cv_nombre = contexto.cv.nombre;
+}
+
+// --- bucle genérico --------------------------------------------------------------------------
+// Por cada pantalla: leer (en el marco con más campos) → POST /pantalla (decisión del servidor)
+// → llenar → pulsar → resultado. Sirve a las plataformas sin pasos declarados y, con
+// `respaldo_declarado`, a los flujos declarados que fallan antes del envío. Después de registrar
+// el envío nunca reintenta: sin señal clara la postulación queda `incierta`.
+
+let bucleVivo = false;
+
+// Un paso declarado que falla antes del envío sigue con el bucle genérico si el servidor lo
+// permite; después del envío o sin la bandera, termina como siempre
+async function fallarPaso(tabId, contexto, estado, datos) {
+  const { trabajo } = contexto;
+  const motor = trabajo.motor_generico || {};
+  if (estado === "formulario_desconocido" && motor.respaldo_declarado && !contexto.envio
+      && trabajo.tipo === "postular") {
+    await reportar(trabajo.id, "respaldo_generico", datos.motivo || null);
+    return bucleGenerico(tabId, contexto);
+  }
+  await terminar(trabajo.id, estado, datos);
+  return { fin: true };
+}
+
+async function guardarBucle(tabId, contexto) {
+  await chrome.storage.local.set({
+    bucle_generico: { tabId, trabajo: contexto.trabajo, inicio: contexto.inicio,
+      envio: contexto.envio, bucle: contexto.bucle },
+  });
+}
+
+// Marcos de la pestaña donde el motor puede operar (la página y los iframes de dominios del
+// portal); un iframe de otro dominio se trata como si no existiera
+async function marcosPermitidos(tabId, plataforma) {
+  let marcos;
+  try {
+    marcos = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true }, func: () => location.href,
+    });
+  } catch (error) {
+    return [];
+  }
+  return marcos.filter((m) => m.result && paginaPermitida(m.result, plataforma)).map((m) => m.frameId);
+}
+
+// Lee todos los marcos permitidos y elige el que tiene más campos (a igual número, el que
+// tiene un botón sugerido y luego el más alto en la página)
+async function leerMarcos(tabId, plataforma, reglas) {
+  for (let intento = 0; intento < 3; intento++) {
+    const frameIds = await marcosPermitidos(tabId, plataforma);
+    if (!frameIds.length) return { prohibida: true };
+    try {
+      const target = { tabId, frameIds };
+      await chrome.scripting.executeScript({ target, files: ["motor.js"] });
+      const leidos = await chrome.scripting.executeScript({
+        target, func: (r) => globalThis.__asistente.generico.leerPantalla(r), args: [reglas],
+      });
+      const lecturas = leidos.filter((l) => l.result).map((l) => ({ frameId: l.frameId, pantalla: l.result }));
+      if (lecturas.length) {
+        lecturas.sort((a, b) => b.pantalla.campos.length - a.pantalla.campos.length
+          || Number(Boolean(b.pantalla.sugerido)) - Number(Boolean(a.pantalla.sugerido))
+          || a.frameId - b.frameId);
+        return lecturas[0];
+      }
+    } catch (error) {
+      // la página cambió mientras se leía
+    }
+    await esperarCargaCompleta(tabId);
+  }
+  return { fallo: true };
+}
+
+// Corre `func` en el marco elegido, con su URL revisada antes. null: el marco cambió y el
+// script murió (se espera la carga y se reintenta si `reintentos` lo permite).
+async function enMarco(marco, func, args = [], { reintentos = 3 } = {}) {
+  const target = { tabId: marco.tabId, frameIds: [marco.frameId] };
+  for (let intento = 0; intento < reintentos; intento++) {
+    try {
+      const [donde] = await chrome.scripting.executeScript({ target, func: () => location.href });
+      if (!donde || !donde.result) throw new Error("el marco ya no está");
+      if (!paginaPermitida(donde.result, marco.plataforma)) return { prohibida: donde.result };
+      await chrome.scripting.executeScript({ target, files: ["motor.js"] });
+      const [r] = await chrome.scripting.executeScript({ target, func, args });
+      if (r && r.result != null) return r.result;
+    } catch (error) {
+      // el marco navegó o se cerró
+    }
+    if (intento + 1 < reintentos) await esperarCargaCompleta(marco.tabId);
+  }
+  return null;
+}
+
+async function evidencia(marco) {
+  return Promise.race([
+    enMarco(marco, () => globalThis.__asistente.generico.html(), [], { reintentos: 1 }),
+    new Promise((resolver) => setTimeout(() => resolver(null), 3000)),
+  ]).then((h) => (typeof h === "string" ? h : null)).catch(() => null);
+}
+
+// Espera el resultado de avanzar o enviar, también a través de una navegación: el script de la
+// página muere al navegar, así que se lee en tramos cortos hasta que algo cambie
+async function esperarResultado(marco, reglas, previo, ms) {
+  const limite = Date.now() + ms;
+  for (;;) {
+    const tramo = Math.max(0, Math.min(limite - Date.now(), 1500));
+    const r = await enMarco(
+      marco, (rg, pv, t) => globalThis.__asistente.generico.resultado(rg, pv, t),
+      [reglas, previo, tramo], { reintentos: 1 },
+    );
+    if (r && r.prohibida) return { resultado: "prohibida", url: r.prohibida };
+    if (r && r.resultado !== "sin_cambios") return r;
+    if (Date.now() >= limite) return r || { resultado: "pantalla_nueva" };
+    if (!r) await esperarCargaCompleta(marco.tabId);
+  }
+}
+
+async function bucleGenerico(tabId, contexto) {
+  bucleVivo = true;
+  try {
+    return await recorrerPantallas(tabId, contexto);
+  } finally {
+    bucleVivo = false;
+    await chrome.storage.local.remove("bucle_generico").catch(() => {});
+  }
+}
+
+// --- esquema anticipado --------------------------------------------------------------------
+// Si el trabajo trae las respuestas del formulario (el servidor las resolvió al tocar ⚡), una
+// pantalla cuyos campos están todos ahí se llena sin consultar al servidor, con el botón que
+// sugieren las reglas. Cualquier campo que no esté, un archivo o la falta de botón sugerido
+// mandan la pantalla al servidor, como siempre.
+
+function normalizarClave(texto) {
+  return String(texto || "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// La misma clave que arma el servidor (recetas.clave_campo): el name o la etiqueta sin signos
+function claveCampo(campo) {
+  const nombre = normalizarClave(campo.nombre);
+  const clave = nombre || normalizarClave(campo.texto).replace(/[^a-z0-9]+/g, " ");
+  return clave.trim().slice(0, 120);
+}
+
+function decisionAnticipada(trabajo, p) {
+  const resueltas = ((trabajo.esquema || {}).respuestas) || {};
+  const campos = p.campos || [];
+  if (p.clase !== "formulario" || !p.sugerido || !campos.length) return null;
+  if (!["avanzar", "enviar"].includes(p.sugerido.accion)) return null;
+  const respuestas = [];
+  for (const [indice, campo] of campos.entries()) {
+    const texto = campo.tipo === "archivo" ? null : resueltas[claveCampo(campo)];
+    if (!texto) return null;
+    const opciones = campo.opciones || [];
+    if (!opciones.length) {
+      respuestas.push({ indice, valor: texto });
+      continue;
+    }
+    const opcion = opciones.findIndex((o) => normalizarClave(o) === normalizarClave(texto));
+    if (opcion < 0) return null;
+    respuestas.push({ indice, opcion });
+  }
+  return {
+    esperar_usuario: false, anticipada: true, respuestas, cv_url: null, cv_nombre: null,
+    documentos: {}, accion: { tipo: p.sugerido.accion, indice: p.sugerido.indice },
+  };
+}
+
+async function recorrerPantallas(tabId, contexto) {
+  const { trabajo } = contexto;
+  const { id, plataforma } = trabajo;
+  const topes = { ...TOPES_GENERICO, ...(trabajo.motor_generico || {}) };
+  const { resultado_ms: resultadoMs, llenado_max_ms: llenadoMs } = await opciones();
+  const e = (contexto.bucle ||= { pantallas: 0, max_campos: 0, clave: null, iguales: 0, corrigiendo: false });
+  let marco = { tabId, frameId: 0, plataforma };
+  // Tras registrar el envío, un final sin señal clara es incierta (no se reintenta nunca)
+  const detener = async (motivo, html = null) => {
+    await terminar(id, contexto.envio ? "incierta" : "formulario_desconocido", { motivo, html });
+    return { fin: true };
+  };
+  let reglas;
+  try {
+    reglas = await reglasMotor();
+  } catch (error) {
+    return detener("el motor genérico no está disponible en el servidor");
+  }
+
+  for (;;) {
+    await guardarBucle(tabId, contexto);
+
+    const lectura = await leerMarcos(tabId, plataforma, reglas);
+    if (lectura.prohibida) return detener("página no permitida");
+    if (lectura.fallo) return detener("no se pudo leer la pantalla");
+    marco = { tabId, frameId: lectura.frameId, plataforma };
+    const p = lectura.pantalla;
+    e.pantallas += 1;
+    if (ensayoEnCurso) ensayoEnCurso.pantalla = e.pantallas;
+    e.max_campos = Math.max(e.max_campos, p.campos.length);
+    const clave = `${p.clase}|${p.url}|${p.firma.join(",")}`;
+    e.iguales = clave === e.clave ? e.iguales + 1 : 1;
+    e.clave = clave;
+    await guardarBucle(tabId, contexto);
+    const registrar = (accion) => reportar(id, `pantalla_${e.pantallas}`,
+      `${p.clase}; ${p.campos.length} campos; ${accion || "sin botón"}`);
+
+    if (p.clase === "exito") {
+      await registrar("éxito");
+      if (!contexto.envio) return detener("la página mostraba una confirmación antes de enviar");
+      await terminar(id, "enviada", { confirmacion: p.exito && p.exito.texto });
+      return { fin: true };
+    }
+    if (p.clase === "barrera") {
+      await registrar(`barrera ${p.motivo}`);
+      return detener(p.motivo || "barrera", await evidencia(marco));
+    }
+    // Los topes cuentan las pantallas que piden una acción: la página de gracias siempre se lee
+    if (Date.now() - contexto.inicio > topes.max_minutos * 60000) {
+      await registrar("tope de tiempo");
+      return detener(`pasaron más de ${topes.max_minutos} minutos`, await evidencia(marco));
+    }
+    const tope = e.max_campos <= 1 ? topes.max_pantallas_una_pregunta : topes.max_pantallas;
+    if (e.pantallas > tope) {
+      await registrar("tope de pantallas");
+      return detener(`más de ${tope} pantallas`, await evidencia(marco));
+    }
+    if (e.iguales >= REPETICIONES_MAX) {
+      await registrar("repetida");
+      return detener(`la misma pantalla se repitió ${REPETICIONES_MAX} veces`, await evidencia(marco));
+    }
+
+    let decision = e.corrigiendo ? null : decisionAnticipada(trabajo, p);
+    if (!decision) {
+      try {
+        decision = await llamar("POST", `/postulaciones/${id}/pantalla`, {
+          numero: e.pantallas, clase: p.clase, motivo: p.motivo, idioma: p.idioma, url: p.url,
+          campos: p.campos, botones: p.botones, sugerido: p.sugerido, firma: p.firma,
+          resumen: p.resumen, exito: p.exito, correccion: e.corrigiendo,
+        });
+      } catch (error) {
+        await registrar("sin decisión");
+        return detener("el servidor no resolvió la pantalla", await evidencia(marco));
+      }
+    }
+    if (decision.esperar_usuario) {
+      await registrar("pregunta al usuario");
+      await reportar(id, "esperando_usuario", "faltan datos que solo tú sabes");
+      return { fin: true };
+    }
+    const accion = decision.accion || {};
+    const boton = (p.botones || []).find((b) => b.indice === accion.indice);
+    const origen = decision.anticipada ? " (esquema anticipado)" : "";
+    await registrar(accion.tipo ? `${accion.tipo}${boton ? ` «${boton.texto}»` : ""}${origen}` : null);
+
+    if (accion.tipo === "respaldo") {
+      return detener(accion.motivo || "respaldo", await evidencia(marco));
+    }
+    if (accion.tipo === "terminar") {
+      await terminar(id, accion.estado, { motivo: accion.motivo || null });
+      return { fin: true };
+    }
+    if (accion.tipo === "exito") {
+      // Lo decide el árbitro: solo vale si el envío ya se registró
+      if (!contexto.envio) return detener("el árbitro vio una confirmación sin envío");
+      await terminar(id, "enviada", { confirmacion: accion.texto || null });
+      return { fin: true };
+    }
+
+    const respuestas = decision.respuestas || [];
+    if (respuestas.length || p.campos.some((c) => c.tipo === "archivo")) {
+      if (decision.cv_url && !contexto.cv && p.campos.some((c) => c.tipo === "archivo")) {
+        await descargarCv(contexto, decision);
+      }
+      // Otros documentos del usuario (certificado de notas, carta…): se bajan una vez por tipo
+      const documentos = (contexto.documentos ||= {});
+      for (const [tipo, d] of Object.entries(decision.documentos || {})) {
+        if (!documentos[tipo]) documentos[tipo] = await descargarArchivo(d.url, d.nombre || `${tipo}.pdf`);
+      }
+      const archivos = { ...documentos, ...(contexto.cv ? { cv: contexto.cv } : {}) };
+      let reloj;
+      const lleno = await Promise.race([
+        enMarco(marco, (rs, ar) => globalThis.__asistente.generico.llenar(rs, ar),
+          [respuestas, archivos], { reintentos: 1 }),
+        new Promise((resolver) => (reloj = setTimeout(() => resolver({ vencido: true }), llenadoMs))),
+      ]).finally(() => clearTimeout(reloj));
+      if (!lleno || lleno.vencido) {
+        return detener("llenado_sin_respuesta", await evidencia(marco));
+      }
+      if (lleno.prohibida) return detener("página no permitida");
+      for (const n of lleno.escritas || []) await reportar(id, `llenado_${n}`);
+      if (lleno.error) {
+        await terminar(id, lleno.error, { motivo: lleno.motivo, html: lleno.html });
+        return { fin: true };
+      }
+      if ((lleno.adjuntos || []).length) await reportar(id, "cv_adjunto", contexto.cv && contexto.cv.nombre);
+    }
+
+    if (accion.tipo === "esperar") {
+      await new Promise((r) => setTimeout(r, Math.min(Number(accion.ms) || 1000, 10000)));
+      continue;
+    }
+    if (accion.tipo !== "avanzar" && accion.tipo !== "enviar") {
+      return detener(`acción no soportada: ${String(accion.tipo).slice(0, 30)}`, await evidencia(marco));
+    }
+    if (!boton || boton.clase === "nunca") {
+      return detener("la decisión no apunta a un botón", await evidencia(marco));
+    }
+    if (accion.tipo === "enviar" && !contexto.envio && trabajo.ensayo) {
+      return ensayada(contexto, boton.texto, "boton");
+    }
+    if (accion.tipo === "enviar" && !contexto.envio) {
+      // Como en los flujos declarados: el servidor registra el envío antes del clic. La vuelta
+      // de corrección tras un error de validación no registra uno nuevo.
+      await llamar("POST", `/postulaciones/${id}/envio`);
+      contexto.envio = true;
+      await guardarBucle(tabId, contexto);
+    }
+    const pulso = await enMarco(marco, (i) => globalThis.__asistente.generico.pulsar(i),
+      [accion.indice], { reintentos: 1 });
+    if (!pulso || pulso.prohibida) return detener("no se pudo pulsar el botón", await evidencia(marco));
+    if (pulso.error) {
+      await terminar(id, contexto.envio ? "incierta" : pulso.error, { motivo: pulso.motivo, html: await evidencia(marco) });
+      return { fin: true };
+    }
+
+    const previo = { firma: p.firma, url: p.url, encabezados: p.resumen.encabezados, accion: accion.tipo };
+    // El clic llega unos ms después de responder: sin esta pausa se leerían los errores de antes
+    await new Promise((resolver) => setTimeout(resolver, 300));
+    const r = await esperarResultado(marco, reglas, previo, resultadoMs);
+    if (r.resultado === "exito") {
+      if (!contexto.envio) return detener("hubo una confirmación sin que se registrara el envío");
+      await terminar(id, "enviada", { confirmacion: r.texto });
+      return { fin: true };
+    }
+    if (r.resultado === "prohibida") return detener("página no permitida");
+    if (r.resultado === "barrera") return detener(r.motivo || "barrera", await evidencia(marco));
+    if (r.resultado === "error") {
+      // Una sola vuelta de corrección por pantalla; si persiste, el portal no la aceptó
+      if (e.corrigiendo) {
+        await terminar(id, "formulario_desconocido", { motivo: "el portal sigue marcando errores", html: await evidencia(marco) });
+        return { fin: true };
+      }
+      e.corrigiendo = true;
+      continue;
+    }
+    e.corrigiendo = false;
+    if (r.resultado === "sin_cambios" && accion.tipo === "enviar") {
+      return detener("sin señal de que el portal recibiera el envío", await evidencia(marco));
+    }
+    // campos_nuevos y pantalla_nueva: otra vuelta. sin_cambios tras avanzar vuelve a leer la
+    // misma pantalla y el tope de repeticiones la corta (la reparación con IA es de /reparar)
+  }
+}
+
+// El worker de MV3 puede dormirse a mitad del bucle: la pantalla en curso queda en
+// chrome.storage y, si no se había registrado el envío, el siguiente latido sigue desde ahí.
+// Con el envío registrado no se retoma nada: la postulación queda como incierta.
+async function retomarBucle() {
+  if (bucleVivo) return;
+  const { bucle_generico: b } = await chrome.storage.local.get("bucle_generico");
+  if (!b) return;
+  await chrome.storage.local.remove("bucle_generico");
+  let pestana;
+  try {
+    pestana = await chrome.tabs.get(b.tabId);
+  } catch (error) {
+    return;
+  }
+  const { trabajo } = b;
+  const minutos = { ...TOPES_GENERICO, ...(trabajo.motor_generico || {}) }.max_minutos;
+  if (b.envio || Date.now() - b.inicio > minutos * 60000) {
+    await cerrarPestana(pestana);
+    return;
+  }
+  let cerrar = true;
+  try {
+    const sel = await selectores(trabajo.plataforma);
+    await guardarEstado({ trabajo_actual: { id: trabajo.id, titulo: trabajo.titulo, plataforma: trabajo.plataforma, inicio: b.inicio } });
+    await reportar(trabajo.id, "retomar", "el navegador se reinició a mitad del formulario");
+    const contexto = { trabajo, sel, cv: null, cv_nombre: null, inicio: b.inicio, envio: false, bucle: b.bucle };
+    ensayoEnCurso = trabajo.ensayo ? { id: trabajo.id, pantalla: 0 } : null;
+    cerrar = (await bucleGenerico(pestana.id, contexto)).cerrar !== false;
+  } catch (error) {
+    await terminar(trabajo.id, "fallida", { motivo: String(error.message || error).slice(0, 400) }).catch(() => {});
+  } finally {
+    ensayoEnCurso = null;
+    await guardarEstado({ trabajo_actual: null });
+    if (cerrar) await cerrarPestana(pestana);
+  }
 }
 
 // Captcha o verificación: se muestra la pestaña y se espera a que el usuario la resuelva
@@ -579,6 +1033,11 @@ async function reportar(id, paso, detalle = null) {
 }
 
 async function terminar(id, estado, { motivo = null, html = null, confirmacion = null } = {}) {
+  if (ensayoEnCurso && ensayoEnCurso.id === id && !SIN_TRABA.includes(estado)) {
+    // Ensayo que no llegó al botón: queda dicho en qué pantalla se trabaría
+    const donde = ensayoEnCurso.pantalla ? `pantalla ${ensayoEnCurso.pantalla}` : "antes de la primera pantalla";
+    await reportar(id, "ensayo_trabado", `${donde}: ${motivo || estado}`);
+  }
   try {
     await llamar("POST", `/postulaciones/${id}/resultado`, { estado, motivo, html, confirmacion });
   } finally {
@@ -650,7 +1109,7 @@ async function vincularDesdePagina(tabId) {
 
 async function marcarVigilando(plataforma, activo) {
   const { vigilando = {} } = await chrome.storage.local.get("vigilando");
-  if (activo) vigilando[plataforma] = true;
+  if (activo) vigilando[plataforma] = Date.now();
   else delete vigilando[plataforma];
   await chrome.storage.local.set({ vigilando });
 }
@@ -761,6 +1220,19 @@ chrome.runtime.onMessage.addListener((mensaje, _remitente, responder) => {
         } catch (error) {
           return { ok: false };
         }
+      case "nivelIaLeer":
+        try {
+          return { ok: true, datos: await llamar("GET", "/nivel_ia") };
+        } catch (error) {
+          return { ok: false };
+        }
+      case "nivelIaGuardar":
+        try {
+          await llamar("POST", "/nivel_ia", { nivel: mensaje.nivel });
+          return { ok: true };
+        } catch (error) {
+          return { ok: false };
+        }
       case "olvidarCuenta":
         try {
           await llamar("POST", `/cuenta/${mensaje.plataforma}/olvidar`);
@@ -779,4 +1251,5 @@ chrome.runtime.onMessage.addListener((mensaje, _remitente, responder) => {
 });
 
 // Acceso para las pruebas automáticas (Playwright evalúa en el service worker)
-globalThis.asistente = { latido, ejecutar, revisarPortal, estadoPortales, vigilarInicioSesion };
+globalThis.asistente = { latido, ejecutar, revisarPortal, estadoPortales, vigilarInicioSesion,
+  retomarBucle };

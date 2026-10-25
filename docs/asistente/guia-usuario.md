@@ -140,6 +140,7 @@ ver la versión más reciente.
 | `/vincular` · `/navegadores` | Vincular un navegador, o ver y revocar los vinculados |
 | `/automatico [umbral]` | Activar o desactivar la postulación automática por afinidad |
 | `/pausa` | Pausar temporalmente tus postulaciones |
+| `/ia nivel` | Elegir cuánta IA usan tus postulaciones (Ahorro, Normal o Máximo), con su consumo aproximado y tu uso de hoy. También está en el popup de la extensión; el cambio vale desde la siguiente postulación |
 | `/borrarme` | Borrar todos tus datos de forma definitiva |
 
 En cada postulación hay botones para marcar entrevista, rechazo u oferta y llevar tu seguimiento.

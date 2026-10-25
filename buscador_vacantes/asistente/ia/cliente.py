@@ -29,6 +29,7 @@ from buscador_vacantes.asistente.ia.errores import (
 )
 from buscador_vacantes.asistente.ia.gemini import AdaptadorGemini
 from buscador_vacantes.asistente.ia.openai import AdaptadorOpenAI
+from buscador_vacantes.asistente.preferencias import NIVEL_IA_DEFECTO, NIVELES_IA, Preferencias
 from buscador_vacantes.comun import config as cfg
 from buscador_vacantes.comun.estado import a_texto, ahora_utc
 from buscador_vacantes.comun.fechas import ZONA
@@ -55,6 +56,7 @@ class ClienteIA:
         base: BaseAsistente,
         tope_usuario_dia: int,
         *,
+        niveles: cfg.AsistenteNivelesIA | None = None,
         cliente: httpx.AsyncClient | None = None,
         reloj: Callable[[], datetime] = ahora_utc,
         dormir: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -62,6 +64,8 @@ class ClienteIA:
         self.config = config
         self.base = base
         self.tope = tope_usuario_dia
+        self.niveles = niveles or cfg.AsistenteNivelesIA()
+        self.preferencias = Preferencias(base)
         self.reloj = reloj
         self.dormir = dormir
         self.cliente = cliente or httpx.AsyncClient(
@@ -113,21 +117,68 @@ class ClienteIA:
         instruccion: str,
         partes: list[Parte],
         esquema: type[M],
+        *,
+        nivel: str = NIVEL_IA_DEFECTO,
     ) -> M:
-        """Una respuesta validada con ``esquema``. Reintenta una vez si el JSON es inválido."""
+        """Una respuesta validada con ``esquema``, con el modelo del nivel efectivo.
+
+        Reintenta una vez si el JSON es inválido. Si la cuota del nivel se agota (o llega al
+        tope diario), baja de Máximo a Normal y de Normal a Ahorro en vez de fallar, y deja
+        anotado que el usuario no pasa de ese nivel hoy (``Preferencias.bajar_nivel``)."""
+        if nivel not in NIVELES_IA:
+            nivel = NIVEL_IA_DEFECTO
+        completa = f"{instruccion}\n\n{INSTRUCCION_DATOS}"
+        bajando = list(reversed(NIVELES_IA[: NIVELES_IA.index(nivel) + 1]))  # nivel, …, ahorro
+        intentados: set[tuple] = set()
+        ultimo: ErrorIA | None = None
+        for i, actual in enumerate(bajando):
+            modelos, ajustes = self._modelos_del_nivel(tarea, actual)
+            plan = (tuple(modelos), ajustes.pensamiento)
+            if plan in intentados:
+                continue  # el mismo modelo y razonamiento que ya agotó su cuota: no se repite
+            intentados.add(plan)
+            try:
+                salida = await self._generar_en_nivel(
+                    tarea, clave, usuario_id, completa, partes, esquema, modelos, ajustes
+                )
+            except (CuotaAgotada, TopeAlcanzado) as exc:
+                ultimo = exc
+                continue
+            if i and usuario_id is not None:
+                self.preferencias.bajar_nivel(usuario_id, actual, self.reloj())
+            return salida
+        raise ultimo or ErrorIA("La IA no respondió")
+
+    def _modelos_del_nivel(
+        self, tarea: cfg.NombreTarea, nivel: str
+    ) -> tuple[list[str], cfg.TareaIA]:
+        """La cadena de modelos y los ajustes de la tarea según el preset del nivel: ``ligero``
+        usa el modelo de ``clasificar_pregunta``, ``maximo`` el ``modelo_maximo`` de la tarea
+        (con su razonamiento) si el proveedor lo define, y ``configurado`` el de siempre."""
+        ajustes = self.config.tareas[tarea]
+        modo = getattr(self.niveles, nivel).modelo
+        if modo == "ligero":
+            ligero = self.config.tareas["clasificar_pregunta"]
+            return [ligero.modelo, *ligero.respaldo], ajustes
+        if modo == "maximo" and ajustes.modelo_maximo:
+            pensamiento = ajustes.razonamiento_maximo or ajustes.pensamiento
+            return [ajustes.modelo_maximo], ajustes.model_copy(update={"pensamiento": pensamiento})
+        return [ajustes.modelo, *ajustes.respaldo], ajustes
+
+    async def _generar_en_nivel(
+        self, tarea, clave, usuario_id, instruccion, partes, esquema, modelos, ajustes
+    ):
         if self.llamadas_hoy(usuario_id) >= self.tope:
             raise TopeAlcanzado(
                 "Llegaste al tope diario de uso de la IA del asistente; se renueva mañana."
             )
-        ajustes = self.config.tareas[tarea]
-        completa = f"{instruccion}\n\n{INSTRUCCION_DATOS}"
         # Cadena de modelos: si uno está saturado, sin cuota o retirado, se usa el siguiente
         # (la cuota suele ser por modelo)
         ultimo: ErrorIA = ErrorIA("La IA no respondió")
-        for modelo in [ajustes.modelo, *ajustes.respaldo]:
+        for modelo in modelos:
             try:
                 return await self._generar_con(
-                    tarea, clave, usuario_id, modelo, completa, partes, esquema, ajustes
+                    tarea, clave, usuario_id, modelo, instruccion, partes, esquema, ajustes
                 )
             except (Saturado, CuotaAgotada, ModeloNoDisponible) as exc:
                 log.info("%s %s (%s) no disponible: %s", self.nombre, modelo, tarea,

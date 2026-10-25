@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Solicitar</title>
+<!-- Copia recortada del paso 1 de 6 de Workday (wd12/wd501), al que lleva «Solicitar manualmente»
+     (reconocimiento del 2026-10-21 en el navegador integrado, docs/asistente/portales.md, sección
+     «LinkedIn»). Todo va con data-automation-id: correo, contraseña y verificación
+     (autocomplete=new-password), la casilla de aceptar y el campo trampa «beecatcher», fuera de
+     pantalla. El banner de cookies tapa la página con «Declinar» y «Aceptar cookies»; el script del
+     final lo quita al pulsar cualquiera de los dos y anota cuál. «Create Account» y «Sign In» solo anotan
+     que se pulsaron: la prueba comprueba que no se pulsan. -->
+<style>
+  .banner-cookies { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); z-index: 10; display: flex; align-items: flex-end; }
+  .banner-cookies > div { background: #fff; width: 100%; padding: 24px; }
+  .trampa { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+</style></head>
+<body>
+<header data-automation-id="header"><a data-automation-id="logo" href="/es/prueba">Empresa de prueba</a></header>
+<main data-automation-id="applyFlowPage">
+  <div data-automation-id="progressBar"><span>Paso 1 de 6</span>
+    <ol><li data-automation-id="progressBarActiveStep">Create Account/Sign In</li><li>Mis datos</li><li>Mi experiencia</li><li>Preguntas de la solicitud</li><li>Divulgaciones voluntarias</li><li>Revisar</li></ol>
+  </div>
+  <h2 data-automation-id="createAccountHeading">Create Account</h2>
+  <div data-automation-id="createAccountForm">
+    <div data-automation-id="formField-email">
+      <label for="input-4">Dirección de correo electrónico<abbr title="obligatorio">*</abbr></label>
+      <input type="text" id="input-4" data-automation-id="email" aria-required="true" autocomplete="email">
+    </div>
+    <div data-automation-id="formField-password">
+      <label for="input-5">Contraseña<abbr title="obligatorio">*</abbr></label>
+      <input type="password" id="input-5" data-automation-id="password" aria-required="true" autocomplete="new-password">
+    </div>
+    <div data-automation-id="formField-verifyPassword">
+      <label for="input-6">Verificar contraseña nueva<abbr title="obligatorio">*</abbr></label>
+      <input type="password" id="input-6" data-automation-id="verifyPassword" aria-required="true" autocomplete="new-password">
+    </div>
+    <div class="trampa">
+      <label for="input-7">Deja este campo vacío</label>
+      <input type="text" id="input-7" name="beecatcher" data-automation-id="beecatcher" tabindex="-1" autocomplete="off">
+    </div>
+    <div data-automation-id="formField-createAccountCheckbox">
+      <input type="checkbox" id="input-8" data-automation-id="createAccountCheckbox" aria-required="true">
+      <label for="input-8">Sí, he leído y acepto la declaración de privacidad del candidato.<abbr title="obligatorio">*</abbr></label>
+    </div>
+    <button type="submit" data-automation-id="createAccountSubmitButton">Create Account</button>
+    <p>¿Ya tienes una cuenta? <button type="button" data-automation-id="signInLink">Sign In</button></p>
+  </div>
+</main>
+<div class="banner-cookies" data-automation-id="legalNoticeContainer" id="banner">
+  <div>
+    <p>Utilizamos cookies para mejorar tu experiencia. Puedes aceptarlas todas o declinar las que no son esenciales.</p>
+    <button type="button" data-automation-id="legalNoticeDeclineButton">Declinar</button>
+    <button type="button" data-automation-id="legalNoticeAcceptButton">Aceptar cookies</button>
+  </div>
+</div>
+<script>
+(function () {
+  var banner = document.getElementById("banner");
+  banner.querySelectorAll("button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.body.dataset.cookies = b.dataset.automationId === "legalNoticeDeclineButton" ? "declinadas" : "aceptadas";
+      banner.remove();
+    });
+  });
+  document.querySelectorAll("[data-automation-id=createAccountSubmitButton], [data-automation-id=signInLink]")
+    .forEach(function (b) { b.addEventListener("click", function () { document.body.dataset.pulsado = b.dataset.automationId; }); });
+})();
+</script>
+</body></html>

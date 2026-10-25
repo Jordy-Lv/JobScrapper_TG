@@ -7,6 +7,7 @@ recupera: cada usuario debe registrar de nuevo su clave de Gemini. Hay que respa
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
@@ -59,6 +60,19 @@ class Cifrador:
                 "clave con la que se cifró"
             ) from exc
 
+    def cifrar_bytes(self, contenido: bytes) -> bytes:
+        """Cifra un archivo (los documentos del usuario); lo guardado nunca es el PDF en claro."""
+        return self._f.encrypt(contenido)
+
+    def descifrar_bytes(self, token: bytes) -> bytes:
+        try:
+            return self._f.decrypt(token)
+        except InvalidToken as exc:
+            raise ClaveInvalida(
+                "No se pudo descifrar un documento guardado: ASISTENTE_CLAVE_CIFRADO no es la "
+                "clave con la que se cifró"
+            ) from exc
+
     def comprobar(self, base: BaseAsistente) -> None:
         """Descifra un dato guardado (si hay) para detectar una clave equivocada al arrancar."""
         for tabla, columna, _ in COLUMNAS_CIFRADAS:
@@ -67,6 +81,9 @@ class Cifrador:
             ).fetchone()
             if fila:
                 self.descifrar(fila["valor"])
+        documento = base.cx.execute("SELECT ruta FROM documentos_usuario LIMIT 1").fetchone()
+        if documento and Path(documento["ruta"]).is_file():
+            self.descifrar_bytes(Path(documento["ruta"]).read_bytes())
 
 
 def huella(texto: str) -> str:
@@ -83,24 +100,48 @@ def rotar(base: BaseAsistente, clave_actual: str | None, clave_nueva: str) -> in
     nueva = _fernet(clave_nueva)
     rotador = MultiFernet([nueva, actual])
     total = 0
-    with base.transaccion() as cx:
-        for tabla, columna, pk in COLUMNAS_CIFRADAS:
-            columnas_pk = ", ".join(pk)
-            filas = cx.execute(
-                f"SELECT {columnas_pk}, {columna} AS valor FROM {tabla} WHERE {columna} IS NOT NULL"
-            ).fetchall()
-            for fila in filas:
+    nuevos: list[tuple[Path, Path]] = []  # (archivo con la clave nueva, el que reemplaza)
+    try:
+        with base.transaccion() as cx:
+            for tabla, columna, pk in COLUMNAS_CIFRADAS:
+                columnas_pk = ", ".join(pk)
+                filas = cx.execute(
+                    f"SELECT {columnas_pk}, {columna} AS valor FROM {tabla} "
+                    f"WHERE {columna} IS NOT NULL"
+                ).fetchall()
+                for fila in filas:
+                    try:
+                        rotado = rotador.rotate(fila["valor"].encode()).decode()
+                    except InvalidToken as exc:
+                        raise ClaveInvalida(
+                            f"Un valor de {tabla}.{columna} no se descifra con la clave actual; "
+                            "no se rotó nada"
+                        ) from exc
+                    condicion = " AND ".join(f"{c} = ?" for c in pk)
+                    cx.execute(
+                        f"UPDATE {tabla} SET {columna} = ? WHERE {condicion}",
+                        (rotado, *(fila[c] for c in pk)),
+                    )
+                    total += 1
+            for fila in cx.execute("SELECT ruta FROM documentos_usuario").fetchall():
+                ruta = Path(fila["ruta"])
+                if not ruta.is_file():
+                    continue
                 try:
-                    rotado = rotador.rotate(fila["valor"].encode()).decode()
+                    rotado = rotador.rotate(ruta.read_bytes())
                 except InvalidToken as exc:
                     raise ClaveInvalida(
-                        f"Un valor de {tabla}.{columna} no se descifra con la clave actual; "
+                        f"El documento {ruta.name} no se descifra con la clave actual; "
                         "no se rotó nada"
                     ) from exc
-                condicion = " AND ".join(f"{c} = ?" for c in pk)
-                cx.execute(
-                    f"UPDATE {tabla} SET {columna} = ? WHERE {condicion}",
-                    (rotado, *(fila[c] for c in pk)),
-                )
+                nuevo = ruta.with_name(ruta.name + ".nuevo")
+                nuevo.write_bytes(rotado)
+                nuevos.append((nuevo, ruta))
                 total += 1
+    except BaseException:
+        for nuevo, _ in nuevos:
+            nuevo.unlink(missing_ok=True)
+        raise
+    for nuevo, ruta in nuevos:  # la base ya está confirmada: los archivos pasan a la clave nueva
+        nuevo.replace(ruta)
     return total

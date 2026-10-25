@@ -281,6 +281,20 @@ def pendiente_dato(opciones=("SENA", "ITM")):
             "tipo": "dato"}  # fmt: skip
 
 
+def test_documento_obligatorio_que_falta_ofrece_enviarlo_o_dejar_en_respaldo():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 6, "n": 1, "total": 1})
+    d = datos(pendiente={"id": 6, "tipo": "documento", "opciones": [],
+                         "pregunta": "Please upload your <transcripts>"})  # fmt: skip
+    texto = tp.texto(card, d)
+    assert "Documento necesario" in texto and "Pregunta rápida" not in texto
+    assert "<b>Please upload your &lt;transcripts&gt;</b>" in texto
+    assert "Envíame el PDF" in texto and "déjala en respaldo" in texto
+    assert tp.botones(card, d, cb) == [
+        [(tp.BOTON_ENVIAR_DOCUMENTO, cb("docp", 6))],
+        [(tp.BOTON_DOCUMENTO_RESPALDO, cb("docr", 6))],
+    ]
+
+
 def test_pregunta_de_dato_con_sugerencias_escribir_y_reservado():
     card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 4, "n": 1, "total": 1})
     d = datos(pendiente=pendiente_dato())
@@ -521,3 +535,82 @@ def test_cabecera_con_plataforma_sola_y_sin_plataforma():
     assert sin_portal[:2] == ["<b>Aprendiz &lt;SENA&gt;</b>", "Euro"]
     nada = tp.texto(tp.Card(), datos(empresa=None, plataforma=None)).split("\n")
     assert nada[:2] == ["<b>Aprendiz &lt;SENA&gt;</b>", ""]
+
+
+@pytest.mark.parametrize(
+    ("motivo", "frase"),
+    [
+        ("ats_con_cuenta", "pide crear una cuenta"),
+        ("captcha", "pidió resolver un captcha"),
+        ("oauth", "cuenta de Google, LinkedIn u otro servicio"),
+        ("codigo_verificacion", "código de verificación"),
+        ("sin_ia", "necesito tu clave de IA"),
+        ("documento_faltante", "documento obligatorio"),
+        ("nivel_ahorro", "tu nivel de IA es Ahorro"),
+    ],
+)
+def test_respaldo_explica_los_motivos_del_motor_generico(motivo, frase):
+    card = tp.Card(fase=tp.RESPALDO, motivo=motivo)
+    texto = tp.texto(card, datos())
+    assert frase in texto
+    assert "_" not in motivo or motivo not in texto  # nunca el código interno
+    assert "No puedo postularla sola" in texto
+
+
+def test_respaldo_nivel_ahorro_sugiere_subir_de_nivel_sin_pedir_clave():
+    card = tp.Card(fase=tp.RESPALDO, motivo="nivel_ahorro")
+    d = datos()
+    assert "/ia nivel" in tp.texto(card, d)
+    assert "Configurar IA" not in [b[0] for fila in tp.botones(card, d, cb) for b in fila]
+
+
+def test_respaldo_sin_ia_ofrece_configurar_la_clave_y_conserva_las_demas_acciones():
+    card = tp.Card(fase=tp.RESPALDO, motivo="sin_ia")
+    d = datos()
+    assert "Con tu clave de IA puedo seguir sola" in tp.texto(card, d)
+    botones = tp.botones(card, d, cb)
+    assert botones[0][0] == ("Configurar IA", cb("clave", "nueva"))
+    assert ("Ver vacante", f"url:{URL}") in [b for fila in botones for b in fila]
+    otro = tp.botones(tp.Card(fase=tp.RESPALDO, motivo="captcha"), d, cb)
+    assert "Configurar IA" not in [b[0] for fila in otro for b in fila]
+
+
+def test_ensayada_muestra_donde_habria_pulsado_enviar_y_lo_que_habria_enviado():
+    card = tp.Card(fase=tp.ENSAYADA, motivo="boton:Submit application")
+    d = datos(
+        revision=[{"id": 1, "pregunta": "¿Por qué nosotros?", "respuesta": "Me gusta",
+                   "origen": "ia"}],
+        ensayo={"trabado": None, "en_plataforma": False},
+    )  # fmt: skip
+    texto = tp.texto(card, d)
+    assert "🧪 Ensayo: no envié nada." in texto
+    assert "Habría pulsado «Submit application» para enviar." in texto
+    assert "¿Por qué nosotros?" in texto and "<b>Me gusta</b>" in texto
+    assert "está en prueba" not in texto
+    assert etiquetas(tp.botones(card, d, cb)) == [
+        [tp.BOTON_ENVIAR_DE_VERDAD, tp.BOTON_PAQUETE_RESPALDO], ["Ver vacante"],
+    ]  # fmt: skip
+    assert tp.botones(card, d, cb)[0][0][1] == cb("ens", 7, "real")
+    assert tp.botones(card, d, cb)[0][1][1] == cb("ens", 7, "resp")
+
+
+def test_ensayada_en_un_portal_declarado_aclara_que_llega_hasta_el_boton_de_postular():
+    card = tp.Card(fase=tp.ENSAYADA, motivo="paso:enviar")
+    texto = tp.texto(card, datos(ensayo={"trabado": None, "en_plataforma": True}))
+    assert "En Computrabajo el ensayo llega hasta el botón de postular" in texto
+    assert "Computrabajo está en prueba" in texto
+
+
+@pytest.mark.parametrize(
+    ("trabado", "frase"),
+    [
+        ("pantalla 3: no apareció el botón", "Se trabaría en la pantalla 3: no apareció el botón."),
+        ("antes de la primera pantalla: sin formulario",
+         "Se trabaría antes de la primera pantalla"),
+    ],
+)  # fmt: skip
+def test_ensayada_trabada_dice_la_pantalla_y_el_motivo_y_no_ofrece_enviar(trabado, frase):
+    card = tp.Card(fase=tp.ENSAYADA, motivo="x")
+    d = datos(ensayo={"trabado": trabado, "en_plataforma": False})
+    assert frase in tp.texto(card, d)
+    assert etiquetas(tp.botones(card, d, cb)) == [[tp.BOTON_PAQUETE_RESPALDO], ["Ver vacante"]]

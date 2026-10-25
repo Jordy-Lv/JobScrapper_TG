@@ -1052,7 +1052,7 @@ asistente:
     comprobar_cada_h: 24
     cache_min: 10
   politica:
-    version: 2
+    version: 3
     # Borrador de la tarea 2.2: el administrador debe revisarlo y aprobarlo antes del piloto.
     # Cambiar el texto exige subir la versión: todos los usuarios lo aceptan de nuevo.
     texto: |-
@@ -1066,7 +1066,10 @@ asistente:
       se arma con ella (formación, experiencia, proyectos, habilidades, idiomas); tus datos
       de contacto (correo, teléfono y, si lo das, tu documento); tus respuestas al
       cuestionario; el correo de tus cuentas de Computrabajo, Magneto y elempleo; tu clave
-      de Gemini (cifrada); y el historial de tus postulaciones con las respuestas enviadas.
+      de Gemini (cifrada); los documentos PDF que decidas guardar además de tu hoja de vida
+      (certificado de notas, carta de presentación, portafolio u otros; cifrados, y los
+      puedes ver y borrar con /documentos); y el historial de tus postulaciones con las
+      respuestas enviadas.
 
       2. Para qué: solo para preparar y enviar las postulaciones que tú pidas tocando
       "Postularme" (o las de tu modo automático, si lo activas), adaptar levemente tu hoja
@@ -1132,6 +1135,68 @@ asistente:
     lectura_max_s: 120
     caracteres_por_s: 14
     max_por_min: 6
+  # Bucle genérico de la extensión (change motor-generico-autorreparable). Con
+  # respaldo_declarado, un paso declarado de Computrabajo, Magneto o elempleo que falla antes
+  # del envío sigue con el bucle genérico; se enciende tras los ensayos del piloto (tarea 9.3).
+  # Apagar activo y respaldo_declarado deja los flujos declarados como antes.
+  motor_generico:
+    activo: true
+    respaldo_declarado: false
+    max_pantallas: 12
+    max_pantallas_una_pregunta: 40   # formularios de una pregunta por pantalla (Typeform)
+    max_minutos: 10
+    max_arbitro: 6                   # llamadas a entender_pagina por postulación
+    max_reparaciones: 2              # llamadas a reparar_flujo por postulación, solo antes del envío
+  # Niveles de uso de IA que cada usuario elige (/ia nivel). Los topes de motor_generico son el
+  # máximo absoluto: un nivel que supere max_arbitro o max_reparaciones se rechaza al cargar.
+  #   modelo               ligero (clasificar_pregunta) | configurado (el de cada tarea) |
+  #                        maximo (modelo_maximo y razonamiento_maximo de la tarea, si los define)
+  #   clasificar_preguntas apagado: las preguntas nuevas van a la card
+  #   llamadas_estimadas   solo para mostrar el consumo aproximado por postulación
+  # Ningún nivel cambia las reglas de seguridad (sin envío sin señal de éxito, sin captchas).
+  niveles_ia:
+    ahorro:
+      max_arbitro: 0
+      max_reparaciones: 0
+      clasificar_preguntas: false
+      modelo: ligero
+      requisitos_en_redactor: false
+      ejemplos_estilo: false
+      doble_redaccion: false
+      revisor_final: false
+      carta_opcional: false
+      llamadas_estimadas: 2
+    normal:
+      max_arbitro: 3
+      max_reparaciones: 1
+      clasificar_preguntas: true
+      modelo: configurado
+      requisitos_en_redactor: false
+      ejemplos_estilo: false
+      doble_redaccion: false
+      revisor_final: false
+      carta_opcional: false
+      llamadas_estimadas: 6
+    maximo:
+      max_arbitro: 6
+      max_reparaciones: 2
+      clasificar_preguntas: true
+      modelo: maximo
+      requisitos_en_redactor: true
+      ejemplos_estilo: true
+      doble_redaccion: true
+      revisor_final: true
+      carta_opcional: true
+      llamadas_estimadas: 14
+  autorreparacion:
+    clave_duenio: false              # la clave del dueño paga reparaciones de usuarios sin IA
+  ensayo:
+    plataformas: []                  # plataformas en ensayo (llenan todo sin enviar) para todos
+  vigia:
+    activo: false                    # ensayo diario de cada plataforma en el navegador del dueño
+    hora: "05:30"
+    dias_recientes: 3                # el vigía ensaya una vacante publicada en los últimos días
+    ventana_h: 3                     # si el servicio estaba apagado a la hora, sale hasta N h después
   # Preguntas típicas por fuente para el paquete de respaldo (se completan en la tarea 3.1)
   preguntas_tipicas:
     otras:
@@ -1187,6 +1252,15 @@ asistente:
           clasificar_pregunta:
             {modelo: gemini-flash-lite-latest, temperatura: 0, max_tokens: 600,
              respaldo: [gemini-3.1-flash-lite, gemini-3.5-flash-lite]}
+          entender_pagina:
+            {modelo: gemini-flash-lite-latest, temperatura: 0, max_tokens: 800,
+             respaldo: [gemini-3.1-flash-lite, gemini-3.5-flash-lite]}
+          reparar_flujo:
+            {modelo: gemini-flash-lite-latest, temperatura: 0, max_tokens: 800,
+             respaldo: [gemini-3.1-flash-lite, gemini-3.5-flash-lite]}
+          revisar_respuestas:
+            {modelo: gemini-flash-lite-latest, temperatura: 0, max_tokens: 2000,
+             respaldo: [gemini-3.1-flash-lite, gemini-3.5-flash-lite]}
       # SIN VERIFICAR: modelos provisionales hasta la prueba de humo con clave real (tarea 7.2).
       groq:
         protocolo: openai
@@ -1218,6 +1292,15 @@ asistente:
              respaldo: [llama-3.1-8b-instant]}
           clasificar_pregunta:
             {modelo: llama-3.1-8b-instant, temperatura: 0, max_tokens: 600,
+             respaldo: [llama-3.3-70b-versatile]}
+          entender_pagina:
+            {modelo: llama-3.1-8b-instant, temperatura: 0, max_tokens: 800,
+             respaldo: [llama-3.3-70b-versatile]}
+          reparar_flujo:
+            {modelo: llama-3.1-8b-instant, temperatura: 0, max_tokens: 800,
+             respaldo: [llama-3.3-70b-versatile]}
+          revisar_respuestas:
+            {modelo: llama-3.1-8b-instant, temperatura: 0, max_tokens: 2000,
              respaldo: [llama-3.3-70b-versatile]}
       # SIN VERIFICAR: modelos provisionales hasta la prueba de humo con clave real (tarea 7.2).
       openrouter:
@@ -1252,6 +1335,15 @@ asistente:
           clasificar_pregunta:
             {modelo: meta-llama/llama-3.3-70b-instruct:free, temperatura: 0, max_tokens: 600,
              respaldo: []}
+          entender_pagina:
+            {modelo: meta-llama/llama-3.3-70b-instruct:free, temperatura: 0, max_tokens: 800,
+             respaldo: []}
+          reparar_flujo:
+            {modelo: meta-llama/llama-3.3-70b-instruct:free, temperatura: 0, max_tokens: 800,
+             respaldo: []}
+          revisar_respuestas:
+            {modelo: meta-llama/llama-3.3-70b-instruct:free, temperatura: 0, max_tokens: 2000,
+             respaldo: []}
       # SIN VERIFICAR: modelos provisionales hasta la prueba de humo con clave real (tarea 7.2).
       openai:
         protocolo: openai
@@ -1284,6 +1376,15 @@ asistente:
              respaldo: [gpt-4o-mini]}
           clasificar_pregunta:
             {modelo: gpt-4.1-mini, temperatura: 0, max_tokens: 600,
+             respaldo: [gpt-4o-mini]}
+          entender_pagina:
+            {modelo: gpt-4.1-mini, temperatura: 0, max_tokens: 800,
+             respaldo: [gpt-4o-mini]}
+          reparar_flujo:
+            {modelo: gpt-4.1-mini, temperatura: 0, max_tokens: 800,
+             respaldo: [gpt-4o-mini]}
+          revisar_respuestas:
+            {modelo: gpt-4.1-mini, temperatura: 0, max_tokens: 2000,
              respaldo: [gpt-4o-mini]}
       # SIN VERIFICAR: modelos provisionales hasta la prueba de humo con clave real (tarea 7.2).
       anthropic:
@@ -1318,6 +1419,15 @@ asistente:
           clasificar_pregunta:
             {modelo: claude-haiku-4-5-20251001, temperatura: 0, max_tokens: 600,
              respaldo: []}
+          entender_pagina:
+            {modelo: claude-haiku-4-5-20251001, temperatura: 0, max_tokens: 800,
+             respaldo: []}
+          reparar_flujo:
+            {modelo: claude-haiku-4-5-20251001, temperatura: 0, max_tokens: 800,
+             respaldo: []}
+          revisar_respuestas:
+            {modelo: claude-haiku-4-5-20251001, temperatura: 0, max_tokens: 2000,
+             respaldo: []}
       # SIN VERIFICAR: modelos provisionales hasta la prueba de humo con clave real (tarea 7.2).
       deepseek:
         protocolo: openai
@@ -1350,4 +1460,13 @@ asistente:
              respaldo: []}
           clasificar_pregunta:
             {modelo: deepseek-chat, temperatura: 0, max_tokens: 600,
+             respaldo: []}
+          entender_pagina:
+            {modelo: deepseek-chat, temperatura: 0, max_tokens: 800,
+             respaldo: []}
+          reparar_flujo:
+            {modelo: deepseek-chat, temperatura: 0, max_tokens: 800,
+             respaldo: []}
+          revisar_respuestas:
+            {modelo: deepseek-chat, temperatura: 0, max_tokens: 2000,
              respaldo: []}

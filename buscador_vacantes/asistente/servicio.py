@@ -54,7 +54,9 @@ def construir_nucleo(configuracion: cfg.Configuracion, secretos: cfg.Secretos) -
     ro = abrir_vacantes_ro(ruta(asistente.vacantes_db or configuracion.rutas.base_datos))
     indice = Indice(base, ro, asistente.retencion_dias)
     detalles = Detalles(base, ro, asistente.detalle, configuracion.red)
-    ia = crear_clientes(asistente.ia, base, asistente.topes.ia_usuario_dia)
+    ia = crear_clientes(
+        asistente.ia, base, asistente.topes.ia_usuario_dia, niveles=asistente.niveles_ia
+    )
     nucleo = Nucleo(configuracion, base, indice, detalles, ia, cifrador, archivos)
     nucleo.enlace_grupo = enlace_grupo(asistente, secretos)
     sembrar_banco(base, ahora_utc())
@@ -118,6 +120,7 @@ class Servicio:
                             await conversacion.procesar_toque(usuario, p.id_corto,
                                                               origen="automatico")  # fmt: skip
                     ultimo_indice = asyncio.get_running_loop().time()
+                self.nucleo.programar_vigia(ahora)
                 for evento in self.nucleo.cola.vigilar(ahora):
                     await conversacion.notificar(evento)
                 await conversacion.revisar_esperas()
