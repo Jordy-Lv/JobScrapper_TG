@@ -20,6 +20,7 @@ AYUDA = (
     "/pausa · pausar o reanudar tus postulaciones\n"
     "/ia nivel · cuánta IA usan tus postulaciones (Ahorro, Normal o Máximo)\n"
     "/documentos · tu certificado de notas, carta y otros PDF para los formularios\n"
+    "/linkedin · tu aceptación del riesgo y qué postulo en LinkedIn\n"
     "/borrarme · borrar todos tus datos"
 )
 
@@ -137,12 +138,64 @@ MOTIVOS_RESPALDO = {
     "documento_faltante": "el formulario pide un documento obligatorio que no tengo guardado",
     "nivel_ahorro": "tu nivel de IA es Ahorro y para entender este formulario hacía falta usarla",
     "plataforma_en_ensayo": "esta postulación estaba en modo ensayo y no se envió nada",
+    # Postulación en LinkedIn (postular-linkedin)
+    "linkedin_sin_aceptar": "no aceptaste el aviso de riesgo de postular en LinkedIn",
+    "linkedin_apagado": "apagaste este tipo de postulación de LinkedIn en /linkedin",
+    "destino_mensajeria": "esta vacante se postula por WhatsApp, Telegram o correo y yo no "
+    "envío mensajes por ti",
+    "sin_permiso_externo": "falta el permiso de la extensión para abrir las páginas de las "
+    "empresas",
+    "salto_de_dominio": "la postulación llevó a un sitio que no es el de la empresa y me "
+    "detuve por seguridad",
+    "pagina_prohibida": "la postulación llevó a una página de ingreso, registro o pago y me "
+    "detuve por seguridad",
+    "linkedin_sin_cv": "no tienes ningún CV guardado en LinkedIn y no autorizaste subir el tuyo",
+    "aviso_seguridad": "LinkedIn mostró un aviso de seguridad; pausé tus postulaciones allí "
+    "por 24 horas",
 }
 # Motivos que no son un fallo del asistente: el dueño no necesita revisar su evidencia
 MOTIVOS_SIN_ALERTA = (
     "ats_con_cuenta", "captcha", "oauth", "codigo_verificacion", "sin_ia", "documento_faltante",
-    "nivel_ahorro",
+    "nivel_ahorro", "linkedin_sin_aceptar", "linkedin_apagado", "destino_mensajeria",
+    "sin_permiso_externo", "linkedin_sin_cv",
 )  # fmt: skip
+
+# Postulación en LinkedIn: aviso de riesgo (con «Acepto y postular» y «Solo paquete»), /linkedin
+# y la pausa por un aviso de seguridad de LinkedIn
+LINKEDIN_RIESGO = (
+    "⚠️ <b>Postular en LinkedIn tiene un riesgo</b>\n"
+    "Las condiciones de uso de LinkedIn prohíben automatizar acciones, y pueden restringir tu "
+    "cuenta si detectan una herramienta como esta. Para reducirlo postulo de a una, con pausas y "
+    "un tope diario, y me detengo ante cualquier aviso de seguridad; aun así, no puedo garantizar "
+    "que LinkedIn no tome medidas.\n\n"
+    "Si aceptas, uso tu sesión de LinkedIn en tu navegador: en la «Solicitud sencilla» envío tu "
+    "solicitud y, en las que llevan a la página de la empresa, abro esa página y lleno su "
+    "formulario. Nunca escribo mensajes ni sigo empresas por ti.\n\n"
+    "¿Postulo a <b>{titulo}</b>?"
+)
+LINKEDIN_SIN_ACEPTAR = (
+    "Aún no aceptaste el riesgo de postular en LinkedIn. La próxima vez que toques ⚡ en una "
+    "vacante de LinkedIn te lo explico y eliges."
+)
+LINKEDIN_ESTADO = (
+    "<b>LinkedIn</b>\nAceptaste el riesgo el {fecha}.\n\n"
+    "Elige qué puedo postular por ti (con un toque cambias cada opción):"
+)
+LINKEDIN_PAUSA_ACTIVA = "⏸ LinkedIn está en pausa hasta las {hora} por un aviso de seguridad."
+LINKEDIN_PAUSADO = (
+    "⚠️ LinkedIn mostró un aviso de seguridad en tu cuenta, así que pausé tus postulaciones de "
+    "LinkedIn hasta las {hora}. Entra a LinkedIn desde tu navegador y revisa tu cuenta; no "
+    "intento nada más hasta entonces."
+)
+LINKEDIN_PAUSADO_DUENIO = (
+    "🚨 LinkedIn pidió verificar la cuenta del usuario {usuario}. Sus postulaciones de LinkedIn "
+    "quedan en pausa hasta las {hora}."
+)
+LINKEDIN_PERMISO_EXTERNO = (
+    "Abre la ventana de la extensión y activa el permiso de las páginas de las empresas "
+    "(es opcional); después vuelve a tocar ⚡."
+)
+LINKEDIN_APAGADO_COMO = "Enciéndelo con /linkedin."
 
 # Avisos al dueño del vigía diario (ensayo de cada plataforma en su navegador)
 VIGIA_REPARADO = (
@@ -241,14 +294,18 @@ ESTADOS = {
 # Efecto de mensaje de Telegram (🎉 confeti, a pantalla completa); solo funciona en chats privados
 EFECTO_CONFETI = "5046509860389126442"
 
-NOMBRES_PLATAFORMA = {"computrabajo": "Computrabajo", "magneto": "Magneto", "elempleo": "elempleo"}
+NOMBRES_PLATAFORMA = {
+    "computrabajo": "Computrabajo", "magneto": "Magneto", "elempleo": "elempleo",
+    "linkedin": "LinkedIn",
+}  # fmt: skip
 # Solo para la cabecera de la card y el bloque «Conexión»; botones y prosa usan el nombre plano.
-EMOJI_PLATAFORMA = {"computrabajo": "🔵", "magneto": "🟢", "elempleo": "🩵"}
+EMOJI_PLATAFORMA = {"computrabajo": "🔵", "magneto": "🟢", "elempleo": "🩵", "linkedin": "🔷"}
 # Página de inicio de cada portal (el registro exacto se confirma en el reconocimiento)
 URL_REGISTRO = {
     "computrabajo": "https://co.computrabajo.com/",
     "magneto": "https://www.magneto365.com/co",
     "elempleo": "https://www.elempleo.com/co/",
+    "linkedin": "https://www.linkedin.com/",
 }
 
 # Página para iniciar sesión en cada portal. La de elempleo se confirma en el reconocimiento;
@@ -257,12 +314,14 @@ URL_INGRESO = {
     "computrabajo": "https://candidato.co.computrabajo.com/acceso/",
     "magneto": "https://web.magneto365.com/sign-in",
     "elempleo": "https://www.elempleo.com/co/",
+    "linkedin": "https://www.linkedin.com/login",
 }
 # Dominio que la extensión pide como permiso para operar en cada portal
 DOMINIOS = {
     "computrabajo": "computrabajo.com",
     "magneto": "magneto365.com",
     "elempleo": "elempleo.com",
+    "linkedin": "linkedin.com",
 }
 
 # Causas de espera que el bloque «Conexión» de la card ya explica con sus botones
@@ -319,6 +378,18 @@ ESPERAS = {
     "otra_en_curso": "Primero termino otra postulación tuya; esta sigue después.",
     "tope_diario": "Llegaste al tope de postulaciones de hoy; esta saldrá mañana.",
     "pausa": "Hago una pausa entre postulaciones; esta saldrá hacia las {hora}.",
+    "tope_linkedin": (
+        "Llegaste al tope de postulaciones de LinkedIn de hoy, que pongo para cuidar tu cuenta; "
+        "esta saldrá mañana."
+    ),
+    "pausa_linkedin": (
+        "Dejo un rato entre una apertura de LinkedIn y la siguiente, para cuidar tu cuenta; esta "
+        "saldrá hacia las {hora}."
+    ),
+    "linkedin_pausado": (
+        "LinkedIn mostró un aviso de seguridad en tu cuenta, así que pausé tus postulaciones de "
+        "LinkedIn hasta las {hora}. Entra a LinkedIn desde tu navegador y revisa tu cuenta."
+    ),
 }
 
 

@@ -87,6 +87,9 @@ class Datos:
     empresa: str | None
     plataforma: str | None
     url: str | None = None
+    # LinkedIn: el destino ya resuelto de la vacante (la página de la empresa, un enlace de
+    # WhatsApp o un correo); el paquete de respaldo lo muestra para que el usuario lo siga
+    destino: str | None = None
     seguimiento: str | None = None
     etapa: int = 0
     cuadro: int = 0
@@ -164,7 +167,7 @@ def revision_cabe(card: Card, d: Datos) -> bool:
     return len(completo) <= MAX_TEXTO
 
 
-def _respaldo(card: Card) -> list[str]:
+def _respaldo(card: Card, d: Datos) -> list[str]:
     motivo = card.motivo or ""
     lineas = []
     if motivo == "sin_navegador":
@@ -176,6 +179,12 @@ def _respaldo(card: Card) -> list[str]:
         lineas.append(
             "Con el nivel Normal o Máximo (/ia nivel) puedo seguir sola en estos formularios."
         )
+    if motivo == "sin_permiso_externo":
+        lineas.append(t.e(t.LINKEDIN_PERMISO_EXTERNO))
+    if motivo == "linkedin_apagado":
+        lineas.append(t.LINKEDIN_APAGADO_COMO)
+    if d.destino:
+        lineas.append(f"Aquí se postula: {t.bloque(d.destino)}")
     return lineas
 
 
@@ -285,7 +294,7 @@ def _cuerpo(card: Card, d: Datos) -> list[str]:
             icono = "⚠️" if card.motivo in t.SIN_PROCESAR else "🔒"
             return [f"{icono} {t.e(causa.format(portal=d.portal))}", "No envié nada todavía."]
         case "respaldo":
-            return _respaldo(card)
+            return _respaldo(card, d)
         case "ensayada":
             return _ensayada(card, d)
         case "cerrada":

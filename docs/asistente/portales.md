@@ -292,6 +292,100 @@ Pendiente de ver con sesión (👤, en el change de postulación): la **Solicitu
 LinkedIn (un modal de varios pasos), el paso siguiente de Pandapé después del correo y la verificación
 por código que Greenhouse puede pedir al enviar (conocida, no vista aquí).
 
+#### Lever (reconocimiento sin sesión, 2026-10-25, tarea 3.3 de `postular-linkedin`)
+
+Ninguna vacante de la medición era de Lever, así que se leyó, solo con GET y con 8 s entre peticiones,
+la página pública `/apply` de una vacante abierta de otra empresa (`jobs.lever.co/spotify/{id}/apply`,
+la primera que devolvió `api.lever.co/v0/postings/spotify`). No se escribió ni se envió nada, y el recorte
+de `tests/fixtures/ats/lever_apply.html` no tiene datos personales (el nombre de la empresa se cambió).
+
+- **Esquema en el HTML**: `form#application-form` con una `li.application-question` por pregunta. La
+  etiqueta es `.application-label` y la marca de obligatorio un `<span class="required">✱</span>`.
+  Las preguntas de la empresa son `li.custom-question` con `name="cards[{uuid}][field{n}]"`.
+- **Campos fijos**: `resume` (archivo, tras «ATTACH RESUME/CV»), `name`, `email`, `phone`, `location`
+  (con lista de sugerencias; el valor elegido va en `selectedLocation`, oculto), `org` y
+  `urls[LinkedIn|GitHub|Portfolio|Other]`.
+- **Listas**: radios o casillas con `.application-answer-alternative` (las opciones sí están en el DOM)
+  y `<select>`. Las **encuestas voluntarias** (`surveysResponses[…]`: género, raza, veterano) y los
+  `pronouns` no se responden, y el lector los ignora.
+- **Captcha**: el formulario trae **hCaptcha** (`.h-captcha`, `hcaptcha.com/1/secure-api.js`). «Submit
+  application» (`#btn-submit`) lanza `hcaptcha.execute` y recién entonces envía. El motor no resuelve
+  captchas: si aparece el desafío, la postulación se detiene como barrera (`captcha`) y va al respaldo.
+  Hay que ver en el ensayo qué fracción de los envíos de Lever lo muestra.
+- **Sin cuenta**: no pide contraseña ni correo de verificación en esta página.
+- **Sin ver todavía**: la página de gracias de Lever (se supone `…/thanks`) y el tipo de campo de las
+  preguntas de salario o fecha, porque la muestra no los tenía. `assets/asistente/familias_ats.json`
+  los declara como datos para corregirlos sin publicar otra extensión.
+
+#### Vacante y Solicitud sencilla de LinkedIn (reconocimiento con sesión, 2026-10-25, tarea 5.1)
+
+Con la sesión del dueño en Claude in Chrome, solo lectura. Se abrieron 6 vacantes de la medición
+(1 sencilla de un paso, 1 sencilla de varios pasos, 1 externa, 1 cerrada, 1 pausada) y los dos modales
+se cerraron con **«Descartar»**, sin guardar nada ni pulsar «Enviar solicitud». Recortes sin datos
+personales en `tests/fixtures/linkedin/`.
+
+- **Las clases CSS están ofuscadas** (`l4jlhg`, `l4jhc3`…) y cambian: los selectores van por
+  `aria-label`, `role`, `type` y texto, nunca por clase ni por `id` generado (`_r_1c_`).
+- **Vacante sencilla**: `button[aria-label="Solicitud sencilla"]` (texto «Solicitud sencilla») junto a
+  `button[aria-label="Guardar empleo"]`.
+- **Vacante externa**: `a[aria-label="Solicitar en el sitio web de la empresa"]` (texto «Solicitar ↗»,
+  `target=_blank`), con href `linkedin.com/safety/go/?url=…&urlhash&mt&isSdui` y el destino en `url`.
+  Hay **otros** enlaces `/safety/go` en la página (por ejemplo, el aviso de privacidad de la empresa,
+  con aria-label «Abrir https://…»): el destino solo se toma del enlace con ese aria-label. Texto de la
+  página: «Respuestas gestionadas fuera de LinkedIn».
+- **Cerrada** («Ya no se aceptan solicitudes») y **pausada** («No se aceptan solicitudes en estos
+  momentos»): sin botón de solicitar; se distinguen solo por el texto.
+- **El modal es un `<dialog open aria-labelledby="dialog-header">`**, con la X `button[aria-label="Descartar"]`.
+  Hay **dos formas**:
+  - *Un paso* (visto en Holcim ADC): contacto (correo y código de país en `<select required>`,
+    teléfono `input[type=tel]`), CV y casilla «Sigue a {empresa}…» **marcada por defecto**
+    (`input[type=checkbox][aria-label^="Sigue a "]`), y directo «Enviar solicitud». No hay «Siguiente»
+    ni «Revisar».
+  - *Varios pasos* (visto en 4 páginas): barra de progreso («25 porcentaje completado», «1/4 páginas»)
+    y botones «Siguiente» / «Volver». La página 1 es el contacto, ya rellenado; la 2 pide el CV.
+- **CV**: el modal pide «Resume*» y lista los guardados en `fieldset[role=radiogroup]`. La cuenta del
+  reconocimiento **no tenía ninguno guardado**, así que solo salió «Cargar currículum» y el
+  `<input type=file>` **no existe hasta pulsar ese botón**. Por eso el reconocimiento se detuvo en la
+  página 2/4: subir un archivo habría entregado datos del usuario. El texto del modal dice que las
+  respuestas y el CV se guardan para la próxima vez.
+- **Cerrar con la X** abre un segundo `<dialog open>` encima, «¿Quieres guardar esta solicitud?», con
+  «Descartar» y «Guardar» (guardar deja un borrador en la cuenta; el motor debe usar «Descartar»).
+- **Sin ver todavía**: la pantalla de revisión de un modal de varios pasos (y si ahí está «Seguir a la
+  empresa»), las preguntas adicionales, el mensaje de «Se envió tu solicitud» y el aviso de seguridad
+  de LinkedIn (no se provocó). La 5.2 deja esos selectores como supuestos hasta verlos en el ensayo.
+
+#### Cómo lo recorre la extensión 1.3.0 (tarea 5.3, 2026-10-27)
+
+- **Vacante**: abre `linkedin.com/jobs/view/{id}` y la clasifica con `linkedin.json`, en este orden:
+  sin sesión (URL de ingreso o `/authwall`), aviso de seguridad (`/checkpoint/` o sus textos),
+  externa, sencilla, pausada y cerrada. El orden importa: **`/authwall` también muestra un diálogo
+  «Verificación de seguridad»** (visto el 2026-10-27 al abrir la ventana de contacto sin sesión), y
+  confundirlo con el aviso de seguridad pausaría LinkedIn 24 h sin motivo.
+- **Externa**: nunca pulsa «Solicitar». Lee el parámetro `url` del enlace con aria-label «Solicitar en
+  el sitio web de la empresa» (no el de otros `/safety/go`), lo manda a `POST /destino` y, con
+  `abrir`, navega **la misma pestaña** al destino y sigue con el bucle genérico como plataforma
+  `externa`. Un destino ya guardado se abre directo, sin pasar por LinkedIn.
+- **Plataforma `externa`**: el motor solo opera si la URL es https, no es de ingreso, registro, OAuth
+  ni pago, no está en `hosts_prohibidos` y su host es el del destino, comparte su dominio
+  registrable o es de una familia de ATS conocida (`medicion_linkedin.familias`, que el servidor
+  entrega como `familias_hosts`). Si no, se detiene con `salto_de_dominio`, `oauth` o
+  `pagina_prohibida`. Los datos de `familias_ats.json` (CV, botón de enviar y éxito) van antes que
+  las reglas genéricas.
+- **Sencilla**: avisa con `POST /destino {"tipo": "sencilla"}`, pulsa «Solicitud sencilla» y el bucle
+  lee solo dentro del `<dialog>` del modal (también su `<footer>`, donde están los botones). Antes de
+  cada pantalla desmarca «Sigue a …» y resuelve el CV: con la autorización de actualizar el CV pulsa
+  «Cargar currículum» y adjunta el adaptado; si no, elige el primer CV guardado; sin ninguno, va al
+  respaldo con `linkedin_sin_cv`. La casilla y el grupo de CV nunca se mandan al servidor. Sin envío
+  (ensayo, respaldo o error) cierra con la X y «Descartar».
+- **Cuenta (supuesto)**: las páginas de empleo no muestran el correo. `linkedin.json` lo lee del
+  enlace `mailto:` de la ventana «Información de contacto» del propio perfil
+  (`/in/me/overlay/contact-info/`). **No se pudo verificar**: el 2026-10-27 la sesión de LinkedIn del
+  Chrome del dueño había caducado. Se verifica en el ensayo (6.2); sin correo, la cuenta no se
+  confirma y la cola no asigna trabajos de LinkedIn.
+- **Permiso `https://*/*`**: el popup lo pide con un toque y su explicación (bloque «Páginas de las
+  empresas», visible cuando el servidor habilita LinkedIn). La extensión lo reporta en el latido
+  como `portales.externa` y el servidor lo borra en cuanto deja de llegar.
+
 ### Qué se reutiliza del asistente
 
 | Pieza | Hoy | Para LinkedIn |

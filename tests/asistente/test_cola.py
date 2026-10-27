@@ -4,6 +4,7 @@ import pytest
 
 from buscador_vacantes.asistente.cola import Cola, E
 from buscador_vacantes.asistente.datos import BaseAsistente
+from buscador_vacantes.asistente.destinos_linkedin import Destino, guardar
 from buscador_vacantes.comun.config import cargar_configuracion
 from buscador_vacantes.comun.estado import a_texto
 
@@ -309,3 +310,88 @@ def test_el_vigia_va_despues_de_lo_real_no_cuenta_para_el_tope_y_respeta_la_paus
     assert cola.de_usuario(1, "vig") is None and cola.en_espera() == [real]
     # Pero la pausa entre portales sí cuenta lo que ensayó el vigía
     assert cola.restriccion(real, T0).codigo == "pausa"
+
+
+# --- ritmo de LinkedIn (postular-linkedin): apertura, pausa mínima, tope y pausa de 24 h ----------
+
+LI = "linkedin"
+DESTINO = Destino("https://acme.com/empleo/7", "propio")
+
+
+def ejecutar_linkedin(cola, id_corto, momento):
+    p, _ = cola.encolar(1, id_corto, LI, momento)
+    ejecutar(cola, p.id, momento)
+    return p
+
+
+def test_tomar_una_de_linkedin_registra_la_apertura_y_una_de_otra_plataforma_no(cola):
+    ejecutar(cola, cola.encolar(1, "a", CT, T0)[0].id, T0)
+    assert cola.linkedin.aperturas_hoy(1, T0) == 0
+    ejecutar_linkedin(cola, "b", T0 + timedelta(minutes=5))
+    assert cola.linkedin.aperturas_hoy(1, T0 + timedelta(minutes=5)) == 1
+
+
+def test_un_destino_guardado_no_abre_linkedin_ni_cuenta(cola):
+    guardar(cola.base, "g", DESTINO, T0)
+    ejecutar_linkedin(cola, "g", T0)
+    assert cola.linkedin.aperturas_hoy(1, T0) == 0
+    # Un destino viejo (más de `destino_dias`) vuelve a obligar a abrir LinkedIn
+    guardar(cola.base, "v", DESTINO, T0 - timedelta(days=8))
+    ejecutar_linkedin(cola, "v", T0 + timedelta(minutes=5))
+    assert cola.linkedin.aperturas_hoy(1, T0 + timedelta(minutes=5)) == 1
+
+
+def test_pausa_minima_entre_aperturas_de_linkedin_con_variacion(cola):
+    ejecutar_linkedin(cola, "a", T0)
+    siguiente, _ = cola.encolar(1, "b", LI, T0)
+    restriccion = cola.restriccion(siguiente, T0 + timedelta(seconds=130))
+    assert restriccion.codigo == "pausa_linkedin"  # la pausa común (45-120 s) ya pasó
+    assert T0 + timedelta(seconds=180) <= restriccion.cuando <= T0 + timedelta(seconds=300)
+    assert cola.restriccion(siguiente, restriccion.cuando) is None
+    assert cola.siguiente(1, {LI}, restriccion.cuando).id == siguiente.id
+
+
+def test_la_pausa_minima_no_aplica_a_un_destino_guardado(cola):
+    ejecutar_linkedin(cola, "a", T0)
+    guardar(cola.base, "g", DESTINO, T0)
+    con_destino, _ = cola.encolar(1, "g", LI, T0)
+    assert cola.restriccion(con_destino, T0 + timedelta(seconds=130)) is None
+
+
+def test_tope_diario_de_linkedin_espera_al_dia_siguiente(cola):
+    cola.config.linkedin.tope_diario = 2
+    cola.config.linkedin.pausa_min_s = 0
+    momento = T0
+    for i in range(2):
+        ejecutar_linkedin(cola, f"v{i}", momento)
+        momento += timedelta(minutes=5)
+    pendiente, _ = cola.encolar(1, "v9", LI, momento)
+    restriccion = cola.restriccion(pendiente, momento)
+    assert restriccion.codigo == "tope_linkedin"
+    assert restriccion.cuando == datetime(2026, 10, 5, 5, 0, tzinfo=UTC)
+    assert cola.siguiente(1, {LI}, momento) is None
+    assert cola.siguiente(1, {LI}, restriccion.cuando).id == pendiente.id
+    # Las demás plataformas no se frenan por el tope de LinkedIn
+    otra, _ = cola.encolar(1, "c", CT, momento)
+    assert cola.restriccion(otra, momento + timedelta(minutes=5)) is None
+
+
+def test_el_tope_de_linkedin_no_frena_un_destino_guardado(cola):
+    cola.config.linkedin.tope_diario = 1
+    ejecutar_linkedin(cola, "a", T0)
+    guardar(cola.base, "g", DESTINO, T0)
+    con_destino, _ = cola.encolar(1, "g", LI, T0)
+    assert cola.restriccion(con_destino, T0 + timedelta(minutes=10)) is None
+
+
+def test_un_aviso_de_seguridad_detiene_linkedin_incluso_con_destino_guardado(cola):
+    cola.linkedin.aceptar(1, 1, T0)
+    cola.linkedin.pausar(1, T0 + timedelta(hours=24))
+    guardar(cola.base, "g", DESTINO, T0)
+    con_destino, _ = cola.encolar(1, "g", LI, T0)
+    restriccion = cola.restriccion(con_destino, T0 + timedelta(hours=1))
+    assert restriccion.codigo == "linkedin_pausado"
+    assert restriccion.cuando == T0 + timedelta(hours=24)
+    assert cola.restriccion(con_destino, T0 + timedelta(hours=25)) is None
+    otra, _ = cola.encolar(1, "c", CT, T0)  # solo LinkedIn se detiene
+    assert cola.restriccion(otra, T0 + timedelta(hours=1)) is None

@@ -76,7 +76,7 @@ Los casos que lo activan son: plataforma no soportada, sin navegador vinculado, 
 El paquete también MUST indicar por qué no fue automático y cómo lograrlo la próxima vez. Con "Responder preguntas del formulario", el usuario pega las preguntas del portal y recibe cada respuesta resuelta con la cascada.
 
 #### Scenario: LinkedIn
-- **WHEN** el usuario toca ⚡ en una vacante de LinkedIn
+- **WHEN** el usuario toca ⚡ en una vacante de LinkedIn con LinkedIn apagado (ver `postular-linkedin`)
 - **THEN** recibe el paquete con "LinkedIn no admite postulación automática"
 
 #### Scenario: Preguntas pegadas

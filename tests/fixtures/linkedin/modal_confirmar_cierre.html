@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- Recorte del reconocimiento con sesión (2026-10-25, tarea 5.1). Al cerrar el modal con la X,
+     LinkedIn abre un SEGUNDO <dialog> encima del primero (los dos quedan en el DOM con open):
+     «¿Quieres guardar esta solicitud?». «Guardar» deja un borrador en la cuenta; «Descartar» la
+     borra. El motor debe pulsar «Descartar» si necesita salir sin enviar. Ojo: la X de este
+     segundo diálogo también tiene aria-label «Descartar» (cierra solo el aviso). -->
+<html lang="es"><body>
+<dialog open data-testid="dialog">
+  <button type="button" aria-label="Descartar"></button>
+  <header><h2>¿Quieres guardar esta solicitud?</h2></header>
+  <p>Guárdala para volver a ella más adelante. No se guardarán los archivos importados. Si no guardas la solicitud, se descartará.</p>
+  <footer>
+    <button type="button"><span><span>Descartar</span></span></button>
+    <button type="button"><span><span>Guardar</span></span></button>
+  </footer>
+</dialog>
+</body></html>

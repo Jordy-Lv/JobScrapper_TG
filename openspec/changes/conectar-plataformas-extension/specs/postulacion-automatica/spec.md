@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Plataformas con postulación automática ampliables por habilitación
-Una plataforma SHALL postular sola únicamente cuando cumple las cuatro condiciones: su reconocimiento con sesión real está documentado, sus términos de uso permiten la postulación desde el navegador del propio usuario, sus selectores están cargados en el servidor y su ajuste de automática está en verdadero. Mientras falte alguna, sus vacantes MUST seguir el camino del paquete de respaldo con el motivo `plataforma_no_automatica` (o `plataforma_no_soportada` si el dominio no se reconoce). Las plataformas elempleo, GetOnBoard y Servicio Público de Empleo SHALL seguir este mismo proceso; LinkedIn MUST NOT habilitarse.
+Una plataforma SHALL postular sola únicamente cuando cumple las cuatro condiciones: su reconocimiento con sesión real está documentado, sus términos de uso permiten la postulación desde el navegador del propio usuario, sus selectores están cargados en el servidor y su ajuste de automática está en verdadero. Mientras falte alguna, sus vacantes MUST seguir el camino del paquete de respaldo con el motivo `plataforma_no_automatica` (o `plataforma_no_soportada` si el dominio no se reconoce). Las plataformas elempleo, GetOnBoard y Servicio Público de Empleo SHALL seguir este mismo proceso; LinkedIn SHALL habilitarse solo por el change `postular-linkedin` (aceptación del riesgo por usuario, interruptores y pilotos), y mientras su ajuste de automática esté en falso MUST seguir en el paquete de respaldo.
 
 #### Scenario: Plataforma reconocida pero sin habilitar
 - **WHEN** el usuario toca ⚡ en una vacante de elempleo y elempleo tiene selectores cargados pero no está marcada como automática
@@ -18,8 +18,8 @@ Una plataforma SHALL postular sola únicamente cuando cumple las cuatro condicio
 - **THEN** la plataforma queda en paquete de respaldo, el motivo se documenta y sus selectores no se habilitan
 
 #### Scenario: LinkedIn
-- **WHEN** el usuario toca ⚡ en una vacante de LinkedIn
-- **THEN** recibe el paquete de respaldo, sin importar la configuración de las demás plataformas
+- **WHEN** el usuario toca ⚡ en una vacante de LinkedIn y `plataformas.linkedin.automatica` está en falso
+- **THEN** recibe el paquete de respaldo, sin importar la configuración de las demás plataformas (con LinkedIn encendido rige `postular-linkedin`)
 
 ### Requirement: Dominio de la vacante determina la plataforma
 La plataforma de una vacante SHALL decidirse por el dominio de su enlace final, no por la fuente que la encontró. Una vacante hallada por el Servicio Público de Empleo cuyo enlace apunta a Computrabajo, Magneto, elempleo o GetOnBoard MUST tratarse como de ese portal. Una vacante cuyo enlace apunta a un dominio sin selectores (otras bolsas o sistemas externos de reclutamiento) MUST ir al paquete de respaldo.

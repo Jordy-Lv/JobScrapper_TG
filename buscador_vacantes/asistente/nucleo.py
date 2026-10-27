@@ -15,6 +15,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+import httpx
 from pydantic import ValidationError
 
 from buscador_vacantes.asistente.afinidad import Afinidad, calcular_afinidad, obtener_requisitos
@@ -32,9 +33,16 @@ from buscador_vacantes.asistente.cv_pdf import (
     nombre_archivo,
 )
 from buscador_vacantes.asistente.datos import BaseAsistente
+from buscador_vacantes.asistente.destinos_linkedin import (
+    clasificar,
+    seguir_acortadores,
+    usar,
+    vigente,
+)
 from buscador_vacantes.asistente.detalle import Detalles, EstadoPagina
 from buscador_vacantes.asistente.documentos import Documentos
 from buscador_vacantes.asistente.espera import Causa, Entrada, NavegadorLatido, causa
+from buscador_vacantes.asistente.esquemas_ats import LectorEsquemas, a_campos, familia_con_lector
 from buscador_vacantes.asistente.ia import ClaveInvalida as ClaveIAInvalida
 from buscador_vacantes.asistente.ia import (
     ClienteIA,
@@ -99,6 +107,7 @@ class Camino(StrEnum):
     NO_DISPONIBLE = "no_disponible"
     YA_EXISTE = "ya_existe"
     EN_CUENTA = "en_cuenta"  # la cuenta regresiva corre: aún no se encoló nada
+    ACEPTAR_RIESGO = "aceptar_riesgo"  # LinkedIn: falta que el usuario acepte el riesgo
 
 
 # Nombre de archivo (prefijo) con que se entrega cada tipo de documento a la extensión
@@ -140,6 +149,7 @@ class Nucleo:
         self.enlace_grupo: str | None = None  # lo fija servicio.construir_nucleo
         self.reloj = reloj
         self.cola = Cola(base, self.config)
+        self.linkedin = self.cola.linkedin  # aceptación, interruptores, pausa y aperturas
         self.cuentas = CuentasPortal(base, cifrador)
         self.preferencias = Preferencias(base)
         self.usuarios = Usuarios(base, archivos)
@@ -245,6 +255,20 @@ class Nucleo:
                     abiertos.add(plataforma)
         return abiertos
 
+    def permiso_externo(self, usuario_id: int) -> bool:
+        """Si algún navegador del usuario tiene concedido el permiso para las páginas externas
+        (la plataforma `externa` de la extensión), según su último latido."""
+        filas = self.base.cx.execute(
+            "SELECT portales_json FROM navegadores WHERE usuario_id = ? AND revocado = 0",
+            (usuario_id,),
+        ).fetchall()
+        for fila in filas:
+            portales = json.loads(fila["portales_json"]) if fila["portales_json"] else {}
+            externa = portales.get("externa")
+            if isinstance(externa, dict) and externa.get("estado") not in (None, "sin_permiso"):
+                return True
+        return False
+
     # --- vacantes y selectores -----------------------------------------------------------
 
     def vacante(self, id_corto: str) -> dict[str, Any] | None:
@@ -323,7 +347,64 @@ class Nucleo:
             return "plataforma_no_automatica"
         if not self.tiene_navegador(usuario_id):
             return "sin_navegador"
+        if vacante.plataforma == "linkedin":
+            return self._camino_linkedin(usuario_id, vacante)
         return None
+
+    def _camino_linkedin(self, usuario_id: int, vacante: VacanteIndexada) -> str | None:
+        """Lo que se sabe de una vacante de LinkedIn al tocar ⚡: la aceptación del riesgo, los
+        interruptores y, si otro usuario ya resolvió el destino, su clasificación. Lo demás
+        (sencilla o externa, cerrada) se descubre al abrir la página con la sesión del usuario."""
+        ajustes = self.config.linkedin
+        if not self.linkedin.acepto(usuario_id, ajustes.riesgo_version):
+            return "linkedin_sin_aceptar"
+        estado = self.linkedin.estado(usuario_id)
+        if not (estado.sencilla or estado.externas):
+            return "linkedin_apagado"
+        guardado = vigente(self.base, vacante.id_corto, self.ahora(), ajustes.destino_dias)
+        if guardado is None:
+            return None
+        clasificado = clasificar(
+            guardado["destino"], ajustes, self.config.medicion_linkedin, self.base
+        )
+        if clasificado.motivo:
+            return clasificado.motivo
+        if not estado.externas:
+            return "linkedin_apagado"
+        if not self.permiso_externo(usuario_id):
+            return "sin_permiso_externo"
+        return None
+
+    def aceptar_riesgo_linkedin(
+        self, usuario: Usuario, id_corto: str, *, origen: str = "boton"
+    ) -> Toque:
+        """«Acepto y postular»: guarda la aceptación (versión y fecha) y sigue con el toque."""
+        self.linkedin.aceptar(usuario.id, self.config.linkedin.riesgo_version, self.ahora())
+        return self.tocar(usuario, id_corto, origen=origen)
+
+    def solo_paquete_linkedin(
+        self, usuario: Usuario, id_corto: str, *, origen: str = "boton"
+    ) -> Toque:
+        """«Solo paquete»: la vacante va al respaldo sin abrir nada; la próxima vez se vuelve a
+        ofrecer la aceptación."""
+        ahora = self.ahora()
+        vacante = self.indice.resolver(id_corto, ahora)
+        if vacante is None:
+            return Toque(Camino.NO_DISPONIBLE)
+        if existente := self.cola.de_usuario(usuario.id, id_corto):
+            return Toque(Camino.YA_EXISTE, vacante, existente)
+        postulacion, _ = self.cola.encolar(
+            usuario.id, id_corto, vacante.plataforma, ahora, origen=origen
+        )
+        motivo = "linkedin_sin_aceptar"
+        self.cola.a_respaldo(postulacion.id, ahora, motivo, (E.EN_COLA,))
+        return Toque(Camino.RESPALDO, vacante, self.cola.obtener(postulacion.id), motivo)
+
+    def pausar_linkedin(self, usuario_id: int) -> datetime:
+        """Un aviso de seguridad de LinkedIn detiene sus postulaciones `pausa_seguridad_h` horas."""
+        hasta = self.ahora() + timedelta(hours=self.config.linkedin.pausa_seguridad_h)
+        self.linkedin.pausar(usuario_id, hasta)
+        return hasta
 
     def tocar(self, usuario: Usuario, id_corto: str, *, origen: str = "boton") -> Toque:
         ahora = self.ahora()
@@ -336,7 +417,12 @@ class Nucleo:
             # verificar el correo que el portal pedía); lo demás muestra su estado
             if motivo is None and self.cola.reintentar(existente.id, ahora):
                 return Toque(Camino.AUTOMATICA, vacante, self.cola.obtener(existente.id))
+            if (motivo == existente.motivo == "linkedin_sin_aceptar"
+                    and existente.estado == E.RESPALDO):  # «Solo paquete»: se vuelve a ofrecer
+                return Toque(Camino.ACEPTAR_RIESGO, vacante, existente, motivo)
             return Toque(Camino.YA_EXISTE, vacante, existente)
+        if motivo == "linkedin_sin_aceptar":  # nada se abre ni se encola hasta que elija
+            return Toque(Camino.ACEPTAR_RIESGO, vacante, motivo=motivo)
         if motivo is None:
             postulacion, _ = self.cola.encolar(
                 usuario.id, id_corto, vacante.plataforma, ahora, origen=origen
@@ -446,6 +532,71 @@ class Nucleo:
             return True
         resultado = await self.resolver_formulario(postulacion, preguntas)
         return not (resultado.faltan or resultado.revisar)
+
+    def destino_guardado(self, postulacion: Postulacion) -> dict[str, str] | None:
+        """El destino ya resuelto de la vacante de LinkedIn de esta postulación (con menos de
+        `destino_dias`), o None si hay que abrir LinkedIn para descubrirlo."""
+        if postulacion.plataforma != "linkedin" or not postulacion.id_corto:
+            return None
+        return vigente(
+            self.base, postulacion.id_corto, self.ahora(), self.config.linkedin.destino_dias
+        )
+
+    def requiere_anticipo(self, postulacion: Postulacion, vacante: VacanteIndexada | None) -> bool:
+        """Si conviene retener la postulación mientras se resuelve el formulario de antemano:
+        la vacante trae su esquema o es de LinkedIn con un destino guardado."""
+        return bool(self.esquema_de(vacante)) or self.destino_guardado(postulacion) is not None
+
+    async def anticipar_destino(self, postulacion: Postulacion, vacante: VacanteIndexada) -> str:
+        """Resuelve de antemano lo que se sabe de la vacante: `resuelto` (puede salir a la cola),
+        `faltan` (queda una pregunta en la card) o `cerrada` (pasó al respaldo). Con un destino
+        guardado de LinkedIn confirma antes que la vacante siga abierta (sin saltarse el
+        cooldown de la fuente) y lee el formulario del destino si su familia tiene lector."""
+        guardado = self.destino_guardado(postulacion)
+        if guardado is None:
+            return "resuelto" if await self.anticipar_esquema(postulacion, vacante) else "faltan"
+        ahora = self.ahora()
+        detalle = await self.detalles.obtener(vacante, ahora)
+        if detalle.estado == EstadoPagina.CERRADA:
+            self.cola.cerrar_vacante(postulacion.id, ahora, (E.ESPERANDO_USUARIO,))
+            return "cerrada"
+        usar(self.base, postulacion.id_corto, ahora)
+        if familia_con_lector(guardado["familia"]) and not await self.preparar_esquema(
+            postulacion, guardado["familia"], guardado["destino"]
+        ):
+            return "faltan"
+        return "resuelto"
+
+    async def resolver_redireccion(self, url: str) -> str:
+        """La URL final tras seguir los acortadores conocidos (`asistente.linkedin.acortadores`).
+        Solo se pide la página de un acortador de la lista, con la pausa por dominio de siempre."""
+
+        async def ubicacion(actual: str) -> str | None:
+            await self.detalles.ritmo.esperar_turno(host_de(actual))
+            try:
+                respuesta = await self.detalles.cliente.get(actual, follow_redirects=False)
+            except httpx.HTTPError as exc:
+                log.info("Acortador %s no responde: %s", host_de(actual), type(exc).__name__)
+                return None
+            return respuesta.headers.get("location") if respuesta.is_redirect else None
+
+        return await seguir_acortadores(url, self.config.linkedin, ubicacion)
+
+    async def preparar_esquema(self, postulacion: Postulacion, familia: str, url: str) -> bool:
+        """Lee el formulario del destino de una familia con lector, lo guarda como esquema de la
+        vacante y lo resuelve de una vez. False si falta un dato del usuario (su pregunta queda
+        en la card). Sin esquema (familia sin lector o lectura fallida) devuelve True: el motor
+        lee la página."""
+        if not postulacion.id_corto:
+            return True
+        lector = LectorEsquemas(self.detalles.cliente, self.detalles.ritmo)
+        preguntas = await lector.leer(familia, url)
+        self.indice.guardar_esquema(
+            postulacion.id_corto, a_campos(preguntas) if preguntas else None
+        )
+        if not preguntas:
+            return True
+        return await self.anticipar_esquema(postulacion, self.indice.obtener(postulacion.id_corto))
 
     def esquema_resuelto(self, postulacion: Postulacion) -> dict[str, str]:
         """Lo ya respondido del formulario anticipado, por la clave del campo (la misma de la

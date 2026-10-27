@@ -23,6 +23,7 @@ PLATAFORMAS = {
     "computrabajo.com": "computrabajo",
     "magneto365.com": "magneto",
     "elempleo.com": "elempleo",
+    "linkedin.com": "linkedin",
 }
 
 

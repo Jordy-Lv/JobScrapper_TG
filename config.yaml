@@ -1052,7 +1052,7 @@ asistente:
     comprobar_cada_h: 24
     cache_min: 10
   politica:
-    version: 3
+    version: 4
     # Borrador de la tarea 2.2: el administrador debe revisarlo y aprobarlo antes del piloto.
     # Cambiar el texto exige subir la versión: todos los usuarios lo aceptan de nuevo.
     texto: |-
@@ -1091,7 +1091,16 @@ asistente:
       cuentas. Para reducirlo postulamos con pausas, con un tope diario y nos detenemos ante
       cualquier verificación, pero no podemos garantizar que el portal no tome medidas.
 
-      6. Tus derechos: conocer, actualizar, rectificar y suprimir tus datos y revocar esta
+      6. LinkedIn (opcional): si aceptas el aviso de riesgo, la extensión abre las vacantes
+      de LinkedIn con tu sesión y, cuando llevan a la página de la empresa, abre esa página
+      y llena su formulario con tus datos, como en los demás portales; para eso te pide un
+      permiso opcional sobre las páginas https, que puedes revocar cuando quieras. De
+      LinkedIn guardamos solo la fecha y la versión de tu aceptación, tus dos interruptores
+      (Solicitud sencilla y páginas externas) y la dirección pública de la página de cada
+      vacante (se comparte entre usuarios); nunca tu sesión ni tu contraseña. Las condiciones
+      de uso de LinkedIn prohíben automatizar acciones y pueden restringir tu cuenta.
+
+      7. Tus derechos: conocer, actualizar, rectificar y suprimir tus datos y revocar esta
       autorización. Puedes ver y editar tu perfil con /perfil y borrar todo con /borrarme.
       Si dejas el grupo, tu acceso se suspende; si no usas el asistente en 12 meses, te
       avisaremos y luego borraremos tus datos.
@@ -1115,6 +1124,8 @@ asistente:
     magneto: {automatica: true}
     # Activada el 2026-10-18 (tarea 7.1) tras su primera postulación real enviada
     elempleo: {automatica: true}
+    # Apagada hasta el piloto del change postular-linkedin (en respaldo; luego en ensayo)
+    linkedin: {automatica: false}
   automatico_usuario:
     umbral_defecto: 70
   cuenta_regresiva_segundos: 10  # pausa para cancelar tras tocar «Postular»; 0 la desactiva
@@ -1197,6 +1208,57 @@ asistente:
     hora: "05:30"
     dias_recientes: 3                # el vigía ensaya una vacante publicada en los últimos días
     ventana_h: 3                     # si el servicio estaba apagado a la hora, sale hasta N h después
+  # Medición de los destinos de LinkedIn (change medir-destinos-linkedin). `familias`: familia de
+  # ATS → patrones de host; el host es el patrón o termina en «.patrón», y gana el más largo
+  medicion_linkedin:
+    muestra: 100
+    pausa_s: 8
+    salida: data/asistente/medicion_linkedin.json
+    familias:
+      workday: [myworkdayjobs.com, myworkdaysite.com]
+      greenhouse: [greenhouse.io, grnh.se]
+      ashby: [ashbyhq.com]
+      lever: [lever.co]
+      typeform: [typeform.com]
+      pandape: [pandape.computrabajo.com, pandape.com]
+      successfactors: [successfactors.com, successfactors.eu, jobs.sap.com]
+      taleo: [taleo.net]
+      icims: [icims.com]
+      gupy: [gupy.io]
+      teamtailor: [teamtailor.com]
+      smartrecruiters: [smartrecruiters.com]
+      bamboohr: [bamboohr.com]
+      computrabajo: [computrabajo.com]
+      magneto: [magneto365.com]
+      elempleo: [elempleo.com]
+    senales_cuenta:
+      - crear cuenta
+      - crea tu cuenta
+      - create account
+      - create an account
+      - sign in to apply
+      - inicia sesión para postular
+      - regístrate para postular
+  # Postulación en LinkedIn (change postular-linkedin): ritmo por usuario y clasificador de destino
+  linkedin:
+    tope_diario: 15                  # aperturas de LinkedIn por usuario y día
+    pausa_min_s: 240                 # entre dos aperturas de LinkedIn del mismo usuario (con variación)
+    familias_con_cuenta: [workday, successfactors, taleo, icims, gupy]  # al respaldo sin abrir
+    mensajeria: [wa.me, api.whatsapp.com, t.me, "mailto:"]
+    hosts_prohibidos:
+      - accounts.google.com
+      - login.microsoftonline.com
+      - login.live.com
+      - appleid.apple.com
+      - www.linkedin.com/oauth
+      - paypal.com
+      - pse.com.co
+    # Acortadores que se siguen (solo estos hosts) para clasificar el destino que esconden
+    acortadores: [grnh.se, ai-job.link, bit.ly, lnkd.in, tinyurl.com, t.co, cutt.ly, rb.gy]
+    destino_dias: 7                  # vigencia del destino guardado de una vacante
+    riesgo_version: 1                # versión del texto del riesgo; al subirla se vuelve a pedir
+    pausa_seguridad_h: 24            # pausa de LinkedIn ante un aviso de seguridad o verificación
+    pausa_variacion: 0.25            # la pausa mínima entre aperturas varía ±25 %
   # Preguntas típicas por fuente para el paquete de respaldo (se completan en la tarea 3.1)
   preguntas_tipicas:
     otras:

@@ -1,0 +1,165 @@
+{
+  "version": "2026.10.27-1",
+  "notas": "Reconocimiento con la sesión del dueño el 2026-10-25 (docs/asistente/portales.md, sección «Vacante y Solicitud sencilla de LinkedIn»), solo lectura: 6 vacantes y los dos modales, cerrados con «Descartar». Las clases CSS de LinkedIn están ofuscadas y cambian: todo va por aria-label, role, type y texto. VISTO: botón de la sencilla, enlace /safety/go de la externa (y el decoy de otros enlaces /safety/go), textos de cerrada y pausada, el modal como <dialog> de uno o de varios pasos, «Siguiente», «Volver», «Enviar solicitud», la casilla «Sigue a …» marcada por defecto, el grupo de CV y «Cargar currículum», y el segundo diálogo «¿Quieres guardar esta solicitud?». SUPUESTO (sin ver; se corrige en el ensayo): la sesión y su ausencia (se deducen de la URL), el aviso de seguridad, el botón «Revisar», la confirmación «Se envió tu solicitud», las preguntas adicionales y la pantalla de revisión de los modales de varios pasos. Este archivo solo describe la página: los flujos de la sencilla y de la externa los conduce el motor genérico de la extensión (tarea 5.3), nunca pulsa «Solicitar» en una externa ni «Guardar» al cerrar. CUENTA (tarea 5.3, SUPUESTO): LinkedIn no muestra el correo en las páginas de empleo; se lee del enlace mailto: de «Información de contacto» del propio perfil (/in/me/overlay/contact-info/), que solo ve el dueño de la sesión. Sin sesión esa URL redirige a /authwall, que además muestra un diálogo «Verificación de seguridad» (visto el 2026-10-27): por eso la URL sin sesión se revisa antes que los textos del aviso de seguridad.",
+  "verificado": {
+    "vacante": true,
+    "postulacion": false,
+    "cuenta": false,
+    "perfil": false
+  },
+  "url_registro": "https://www.linkedin.com/signup",
+  "sesion": {
+    "url_sin_sesion": [
+      "linkedin.com/login",
+      "linkedin.com/uas/login",
+      "linkedin.com/checkpoint/lg/login",
+      "linkedin.com/authwall"
+    ],
+    "iniciada_si_url": [
+      "linkedin.com/jobs/view/"
+    ],
+    "url": "https://www.linkedin.com/in/me/overlay/contact-info/"
+  },
+  "cuenta": {
+    "url": "https://www.linkedin.com/in/me/overlay/contact-info/",
+    "correo": [
+      "a[href^='mailto:']"
+    ],
+    "solo_selectores": true,
+    "nota": "supuesto: el correo de la cuenta sale del enlace mailto: de la ventana de información de contacto del propio perfil; sin texto libre, para no tomar correos de vacantes o de empresas"
+  },
+  "seguridad": {
+    "url": [
+      "linkedin.com/checkpoint/"
+    ],
+    "nota": "supuesto: un aviso de seguridad o de verificación detiene LinkedIn 24 h para el usuario (linkedin_pausado)"
+  },
+  "tipo": {
+    "sencilla": [
+      "button[aria-label='Solicitud sencilla']"
+    ],
+    "externa": [
+      "a[aria-label='Solicitar en el sitio web de la empresa']"
+    ],
+    "externa_destino": {
+      "param": "url",
+      "ruta": "/safety/go",
+      "nota": "el enlace trae el destino en el parámetro url; nunca se pulsa «Solicitar», el servidor limpia el destino y la extensión abre esa URL. Otros enlaces /safety/go de la página (por ejemplo el aviso de privacidad de la empresa) no son el destino."
+    }
+  },
+  "modal": {
+    "contenedor": [
+      "dialog[open][aria-labelledby='dialog-header']"
+    ],
+    "titulo": [
+      "dialog[open][aria-labelledby='dialog-header'] header#dialog-header h2"
+    ],
+    "cerrar": [
+      "dialog[open][aria-labelledby='dialog-header'] button[aria-label='Descartar']"
+    ],
+    "confirmar_cierre": {
+      "contenedor": [
+        "dialog[open]:not([aria-labelledby])"
+      ],
+      "descartar": "descartar",
+      "nota": "al cerrar con la X sale un segundo diálogo «¿Quieres guardar esta solicitud?»: se pulsa «Descartar» y nunca «Guardar», que deja un borrador en la cuenta"
+    },
+    "progreso": {
+      "texto": "(\\d+)/(\\d+) paginas"
+    },
+    "botones": {
+      "siguiente": [
+        "siguiente",
+        "next"
+      ],
+      "volver": [
+        "volver",
+        "back"
+      ],
+      "revisar": [
+        "revisar",
+        "review"
+      ],
+      "enviar": [
+        "enviar solicitud",
+        "submit application"
+      ]
+    },
+    "seguir_empresa": {
+      "selector": [
+        "dialog[open] input[type='checkbox'][aria-label^='Sigue a ']"
+      ],
+      "accion": "desmarcar",
+      "nota": "viene marcada por defecto; se desmarca antes de enviar"
+    },
+    "cv": {
+      "grupo": [
+        "dialog[open] fieldset[role='radiogroup']"
+      ],
+      "subir": "cargar curriculum",
+      "obligatorio": "resume*",
+      "nota": "el <input type=file> no existe hasta pulsar «Cargar currículum»; la cuenta del reconocimiento no tenía ningún CV guardado"
+    }
+  },
+  "cv": {
+    "modo": "perfil_multiple",
+    "nota": "con la autorización de actualizar el CV del portal se sube el adaptado; si no, se elige el primero de la lista de LinkedIn. Sin ninguno guardado y sin autorización, va al respaldo"
+  },
+  "hosts_prohibidos": [
+    "accounts.google.com",
+    "login.microsoftonline.com",
+    "login.live.com",
+    "appleid.apple.com",
+    "www.linkedin.com/oauth",
+    "paypal.com",
+    "pse.com.co"
+  ],
+  "captcha": [
+    "iframe[src*='recaptcha/api2/bframe']",
+    "iframe[src*='hcaptcha.com'][title*='challenge' i]",
+    "iframe[src*='challenges.cloudflare.com']"
+  ],
+  "postular": [
+    {
+      "nombre": "revisar_vacante",
+      "accion": "detectar",
+      "ms": 2000,
+      "casos": [
+        {
+          "texto": "cerrada",
+          "resultado": "vacante_cerrada"
+        },
+        {
+          "texto": "pausada",
+          "resultado": "vacante_cerrada"
+        }
+      ]
+    }
+  ],
+  "textos": {
+    "cerrada": [
+      "ya no se aceptan solicitudes",
+      "no longer accepting applications"
+    ],
+    "pausada": [
+      "no se aceptan solicitudes en estos momentos"
+    ],
+    "confirmacion": [
+      "se envio tu solicitud",
+      "your application was sent"
+    ],
+    "externa": [
+      "respuestas gestionadas fuera de linkedin"
+    ],
+    "seguridad": [
+      "verificacion de seguridad",
+      "comprobacion de seguridad",
+      "security verification",
+      "quick security check"
+    ],
+    "verificacion": [
+      "verifica que eres humano",
+      "no soy un robot"
+    ]
+  }
+}

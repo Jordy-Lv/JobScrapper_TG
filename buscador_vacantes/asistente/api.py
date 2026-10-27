@@ -22,15 +22,25 @@ from typing import Any, Literal, Protocol
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from buscador_vacantes.asistente import pantalla, recetas, reglas_motor, vinculos
+from buscador_vacantes.asistente import (
+    destinos_linkedin,
+    familias_ats,
+    pantalla,
+    recetas,
+    reglas_motor,
+    vinculos,
+)
 from buscador_vacantes.asistente.cola import Cola, E, Evento, Postulacion, Tipo
 from buscador_vacantes.asistente.cuentas_portal import CuentasPortal, EstadoCuenta
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.espera import version_tupla
+from buscador_vacantes.asistente.esquemas_ats import familia_con_lector
+from buscador_vacantes.asistente.medicion_linkedin import limpiar_destino
 from buscador_vacantes.asistente.preferencias import Preferencias
 from buscador_vacantes.asistente.respuestas import Pregunta, Respuesta
+from buscador_vacantes.asistente.usuarios_linkedin import UsuariosLinkedin
 from buscador_vacantes.comun import config as cfg
 from buscador_vacantes.comun.estado import a_texto
 
@@ -73,6 +83,7 @@ class Nucleo(Protocol):
     preferencias: Preferencias
     config: cfg.Asistente
     archivos: Path
+    linkedin: UsuariosLinkedin
 
     def ahora(self) -> datetime: ...
 
@@ -109,6 +120,27 @@ class Nucleo(Protocol):
 
     def esquema_resuelto(self, postulacion: Postulacion) -> dict[str, str]:
         """Respuestas del formulario anticipado por clave de campo; vacío si no hay esquema."""
+        ...
+
+    async def resolver_redireccion(self, url: str) -> str:
+        """La URL final tras seguir los acortadores conocidos; la misma si no es de uno."""
+        ...
+
+    def permiso_externo(self, usuario_id: int) -> bool:
+        """Si el usuario concedió el permiso de la extensión para las páginas externas."""
+        ...
+
+    def destino_guardado(self, postulacion: Postulacion) -> dict[str, str] | None:
+        """El destino ya resuelto de la vacante de LinkedIn de la postulación, o None."""
+        ...
+
+    def pausar_linkedin(self, usuario_id: int) -> datetime:
+        """Pausa las postulaciones de LinkedIn del usuario tras un aviso de seguridad."""
+        ...
+
+    async def preparar_esquema(self, postulacion: Postulacion, familia: str, url: str) -> bool:
+        """Lee el formulario del destino (si su familia tiene lector) y resuelve todo de una vez.
+        False si falta un dato del usuario; True si quedó resuelto o no hay esquema."""
         ...
 
     async def notificar(self, evento: Evento | dict) -> None: ...
@@ -193,6 +225,20 @@ class Reparar(Pantalla):
 class Paso(BaseModel):
     paso: str = Field(max_length=60)
     detalle: str | None = Field(None, max_length=2000)
+
+
+class DestinoHallado(BaseModel):
+    """Lo que la extensión leyó en la vacante de LinkedIn: el destino de una `externa` (el enlace
+    `/safety/go` o la URL ya limpia) o que es una `sencilla`, que no tiene destino."""
+
+    tipo: Literal["externa", "sencilla"] = "externa"
+    url: str | None = Field(None, max_length=2000, pattern=r"^(?i:https?://|mailto:)")
+
+    @model_validator(mode="after")
+    def _externa_con_url(self) -> DestinoHallado:
+        if self.tipo == "externa" and not self.url:
+            raise ValueError("una vacante externa trae la URL del destino")
+        return self
 
 
 class Verificacion(BaseModel):
@@ -602,6 +648,12 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         cuentas_ok: dict[str, bool] = {}
         disponibles: set[str] = set()  # cuenta verificada y sesión iniciada
         visto = a_texto(ahora)
+        # Páginas de las empresas: la extensión solo dice si tiene el permiso (sin sesión ni
+        # cuenta). Si dejó de reportarla, el permiso se quitó.
+        if externa := cuerpo.portales.get("externa"):
+            anteriores["externa"] = {"estado": externa.estado, "visto": visto}
+        else:
+            anteriores.pop("externa", None)
         for plataforma, portal in cuerpo.portales.items():
             if plataforma not in nucleo.config.plataformas:
                 continue
@@ -698,6 +750,10 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             "motor_generico": reglas_motor.reglas().version
             if nucleo.config.motor_generico.activo
             else None,
+            # Versión de los datos de las familias de ATS (None: motor apagado)
+            "familias_ats": familias_ats.familias().version
+            if nucleo.config.motor_generico.activo
+            else None,
             "cuentas": cuentas_ok,
             "latido_s": nucleo.config.extension.latido_s,
             # Accesos del botón de chat del popup
@@ -723,6 +779,13 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             raise HTTPException(404, "motor genérico apagado")
         actuales = reglas_motor.reglas()
         return {"version": actuales.version, "reglas": actuales.model_dump(exclude={"nota"})}
+
+    @app.get(PREFIJO + "/familias_ats")
+    async def datos_familias_ats(nav: vinculos.Navegador = Depends(navegador_actual)):
+        if not nucleo.config.motor_generico.activo:
+            raise HTTPException(404, "motor genérico apagado")
+        actuales = familias_ats.familias()
+        return {"version": actuales.version, "familias": actuales.model_dump()["familias"]}
 
     # --- engranaje de cada portal (preferencias y cuenta) ---
 
@@ -912,6 +975,63 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         return {"acciones": [a.model_dump() for a in acciones],
                 "diagnostico": veredicto.diagnostico, "accion": None}  # fmt: skip
 
+    @app.post(PREFIJO + "/postulaciones/{pid}/destino")
+    async def destino_externo(
+        pid: int, cuerpo: DestinoHallado, nav: vinculos.Navegador = Depends(navegador_actual)
+    ):
+        """El destino de una vacante externa de LinkedIn: se limpia, se sigue un acortador conocido,
+        se guarda para todos y se clasifica. Responde `respaldo` (con el motivo y la URL para el
+        paquete), `esperar_usuario` (falta un dato del formulario que ya se leyó) o `abrir` (URL,
+        familia, respuestas del esquema, receta y datos de la familia)."""
+        if not nucleo.config.motor_generico.activo:
+            raise HTTPException(404, "el motor genérico está apagado")
+        p = postulacion_en_curso(pid, nav)
+        if p.plataforma != "linkedin":
+            raise HTTPException(409, "la postulación no es de LinkedIn")
+        ahora = nucleo.ahora()
+        estado = nucleo.linkedin.estado(p.usuario_id)
+        if cuerpo.tipo == "sencilla":  # no hay destino: solo se confirma que el usuario la permite
+            if not (estado and estado.sencilla):
+                return {"accion": "respaldo", "motivo": "linkedin_apagado"}
+            return {"accion": "sencilla"}
+        url = await nucleo.resolver_redireccion(limpiar_destino(cuerpo.url))
+        clasificado = destinos_linkedin.clasificar(
+            url, nucleo.config.linkedin, nucleo.config.medicion_linkedin, nucleo.base
+        )
+        if p.id_corto:
+            destinos_linkedin.guardar(nucleo.base, p.id_corto, clasificado, ahora)
+        nucleo.cola.registrar_paso(
+            pid, nav.id, "destino", f"{clasificado.familia}: {clasificado.motivo or 'abrir'}", ahora
+        )
+        if clasificado.motivo:
+            return {"accion": "respaldo", "motivo": clasificado.motivo, "url": clasificado.url}
+        if not (estado and estado.externas):
+            return {"accion": "respaldo", "motivo": "linkedin_apagado", "url": clasificado.url}
+        if not nucleo.permiso_externo(p.usuario_id):
+            return {"accion": "respaldo", "motivo": "sin_permiso_externo", "url": clasificado.url}
+        if familia_con_lector(clasificado.familia) and not await nucleo.preparar_esquema(
+            p, clasificado.familia, clasificado.url
+        ):
+            nucleo.cola.esperar_usuario(pid, nav.id, ahora)
+            return {"esperar_usuario": True}
+        host = recetas.host_de(clasificado.url)
+        receta = recetas.receta_para(
+            nucleo.base, host, recetas.familia_de_host(host), recetas.ruta_patron(clasificado.url)
+        )
+        with nucleo.base.transaccion() as cx:  # el trabajo sigue ahora con la receta del destino
+            cx.execute("UPDATE postulaciones SET receta_id = ? WHERE id = ?",
+                       (receta["id"] if receta else None, pid))  # fmt: skip
+        respuesta: dict[str, Any] = {
+            "accion": "abrir", "url": clasificado.url, "familia": clasificado.familia,
+            "receta": receta, "familia_datos": None,
+            "familias_hosts": _familias_hosts(nucleo),
+        }  # fmt: skip
+        if familia := familias_ats.familias().familias.get(clasificado.familia):
+            respuesta["familia_datos"] = familia.model_dump()
+        if resuelto := nucleo.esquema_resuelto(p):
+            respuesta["esquema"] = {"respuestas": resuelto}
+        return respuesta
+
     @app.get(PREFIJO + "/cv/{token}")
     async def descargar_cv(token: str, nav: vinculos.Navegador = Depends(navegador_actual)):
         contenido, nombre, vence = descargas_cv.pop(token, (None, "", None))
@@ -955,7 +1075,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
     async def resultado(
         pid: int, cuerpo: Resultado, nav: vinculos.Navegador = Depends(navegador_actual)
     ):
-        postulacion_de(pid, nav)
+        postulacion = postulacion_de(pid, nav)
         try:
             estado = E(cuerpo.estado)
         except ValueError as exc:
@@ -973,6 +1093,14 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             nucleo.cola.registrar_paso(pid, nav.id, "confirmacion", cuerpo.confirmacion, ahora)
         await _aprender(nucleo, trazas, pid, estado, cuerpo, ahora)
         await nucleo.notificar(evento)
+        if postulacion.plataforma == "linkedin" and cuerpo.motivo == "aviso_seguridad":
+            # LinkedIn pidió verificar la cuenta: se detienen sus postulaciones y se avisa al
+            # usuario y al dueño
+            hasta = nucleo.pausar_linkedin(postulacion.usuario_id)
+            await nucleo.notificar(
+                {"tipo": "linkedin_pausado", "usuario_id": postulacion.usuario_id,
+                 "postulacion_id": pid, "hasta": a_texto(hasta)}
+            )  # fmt: skip
         return {"ok": True}
 
     @app.exception_handler(404)
@@ -1080,6 +1208,13 @@ def _con_aprendizaje(nucleo: Nucleo, p: Postulacion, trabajo: dict[str, Any]) ->
         )  # fmt: skip
 
 
+def _familias_hosts(nucleo: Nucleo) -> list[str]:
+    """Hosts de las familias de ATS conocidas: la regla de salto de la extensión deja pasar de la
+    página de la empresa a ellos (por ejemplo, el sitio propio que incrusta Greenhouse)."""
+    familias = nucleo.config.medicion_linkedin.familias
+    return sorted({host for hosts in familias.values() for host in hosts})
+
+
 def _trabajo(nucleo: Nucleo, p: Postulacion) -> dict[str, Any]:
     # Para la extensión el ensayo del vigía es una postulación en ensayo
     tipo = "postular" if p.tipo == Tipo.VIGIA else p.tipo
@@ -1103,6 +1238,12 @@ def _trabajo(nucleo: Nucleo, p: Postulacion) -> dict[str, Any]:
         vacante = nucleo.vacante(p.id_corto) or {}
         trabajo["url"] = vacante.get("url")
         trabajo["titulo"] = vacante.get("titulo")
+    if guardado := nucleo.destino_guardado(p):
+        # Otro usuario ya resolvió el destino: la extensión lo abre sin pasar por LinkedIn
+        trabajo["destino"] = {
+            "url": guardado["destino"], "familia": guardado["familia"],
+            "familias_hosts": _familias_hosts(nucleo),
+        }  # fmt: skip
     if nucleo.en_ensayo(p):
         # La extensión llena y avanza como siempre y se detiene justo antes de registrar el envío
         # (la 1.1.x ignora esta clave: por eso `version_minima` sube con el ensayo)
