@@ -34,7 +34,8 @@
 
 ## 6. Configuración de producción y documentación (🟢)
 
-- [ ] 6.1 Actualizar `config.yaml` (`fuentes.linkedin`): `presupuesto: 2`, `reservado_nucleo: 1`, `paginas_nucleo: 2`, `pausa_min_s: 20`, `pausa_max_s: 45`, `ritmo: {intervalos_min: [30, 60, 120], limpias_para_bajar: 12, tolerancia_min: 5}` y `opciones.consulta` con los valores fijados en la tarea 1.2; `red.retry_after_max_h: 24`. Verificar con `test_config.py` y con `uv run buscador.py --dry-run --fuente linkedin` desde el servidor tras el cooldown (una petición).
+- [x] 6.1 Actualizar `config.yaml` (`fuentes.linkedin`): `presupuesto: 2`, `reservado_nucleo: 1`, `paginas_nucleo: 2`, `pausa_min_s: 20`, `pausa_max_s: 45`, `ritmo: {intervalos_min: [30, 60, 120], limpias_para_bajar: 12, tolerancia_min: 5}` y `opciones.consulta` con los valores fijados en la tarea 1.2; `red.retry_after_max_h: 24`. Verificar con `test_config.py` y con `uv run buscador.py --dry-run --fuente linkedin` desde el servidor tras el cooldown (una petición).
+  Verificado el 2026-10-27 en `main`: `config.yaml` tiene presupuesto 2, reservado_nucleo 1, paginas_nucleo 2, pausas 20–45 s y `red.retry_after_max_h: 24`; el ritmo se ajustó después a `[120, 180, 240]` (commit «LinkedIn: una corrida cada 2 horas sin perder cobertura»).
 - [x] 6.2 Documentar en `README.md` y `deploy/INSTALAR.md` el nuevo ritmo de LinkedIn (peticiones por día, ritmo adaptativo, modos `or` y `simple`) y cómo volver atrás. Verificar releyendo que no queden referencias al presupuesto de 3 ni a la rotación de 2 palabras por corrida.
 - [x] 6.3 Correr `ruff check .` y toda la suite (`.venv/Scripts/python -m pytest`), y verificar que solo fallan las 3 pruebas conocidas de Windows.
 
