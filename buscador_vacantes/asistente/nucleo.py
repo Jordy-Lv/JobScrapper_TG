@@ -70,6 +70,7 @@ from buscador_vacantes.asistente.respuestas import (
     aprendida,
     detectar_idioma,
     elegir_opcion,
+    elegir_opciones,
     normalizar_pregunta,
     recordar,
     recortar_a_limite,
@@ -853,7 +854,8 @@ class Nucleo:
         ).fetchall()
         p = self.cola.obtener(pid)
         en_plataforma = bool(
-            p and p.plataforma
+            p
+            and p.plataforma
             in self.preferencias.plataformas_en_ensayo(self.config.ensayo.plataformas)
         )
         return {
@@ -874,7 +876,8 @@ class Nucleo:
         p = self.cola.obtener(pid)
         desde = (E.ENSAYADA, E.FORMULARIO_DESCONOCIDO, E.BLOQUEADA, E.FALLIDA)
         return bool(
-            p and p.usuario_id == usuario_id
+            p
+            and p.usuario_id == usuario_id
             and self.cola.a_respaldo(pid, self.ahora(), "plataforma_en_ensayo", desde)
         )
 
@@ -915,6 +918,10 @@ class Nucleo:
                 resultado.append(Respuesta(pregunta, falta=True, datos=nuevos))
             elif nuevos:
                 resultado.append(Respuesta(pregunta, falta=True))
+            elif r.opciones:
+                resultado.append(
+                    Respuesta(pregunta, opcion=r.opciones[0], opciones=r.opciones, origen=Origen.IA)
+                )
             elif r.opcion is not None:  # pregunta con opciones: la IA eligió una válida
                 resultado.append(Respuesta(pregunta, opcion=r.opcion, origen=Origen.IA))
             elif r.valor and not pregunta.opciones:
@@ -946,6 +953,11 @@ class Nucleo:
         opción elegida ya no está entre las del portal)."""
         origen = Origen(previa["origen"])
         if pregunta.opciones:
+            if pregunta.multiple:
+                elegidas = elegir_opciones(previa["respuesta"], pregunta.opciones)
+                if not elegidas:
+                    return None
+                return Respuesta(pregunta, opcion=elegidas[0], opciones=elegidas, origen=origen)
             indice = elegir_opcion(previa["respuesta"], pregunta.opciones)
             return None if indice is None else Respuesta(pregunta, opcion=indice, origen=origen)
         valor = recortar_a_limite(previa["respuesta"], pregunta.maximo)

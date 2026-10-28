@@ -1105,3 +1105,48 @@ def test_avanzar_sin_cambios_se_reporta():
             await cerrar(pagina)
 
     correr(flujo())
+
+
+MODAL_CAJON = """<!doctype html><html lang="es"><body>
+<header><nav><a href="/buscar">Buscar empleos</a></nav></header>
+<main>
+  <input type="text" name="busqueda_fondo" aria-label="Buscar cargo">
+  <button type="button">Aplicar</button>
+</main>
+<div role="dialog" aria-modal="true">
+  <header><h2>Responde el cuestionario</h2></header>
+  <div class="pregunta-turno">
+    <p>¿Tienes disponibilidad inmediata?</p>
+    <div class="opciones-turno">
+      <label><input type="radio" id="r-si"><span>Sí</span></label>
+      <label><input type="radio" id="r-no"><span>No</span></label>
+    </div>
+  </div>
+  <footer>
+    <button type="button">Cancelar</button>
+    <button type="button">Enviar respuestas</button>
+  </footer>
+</div>
+<footer>Pie global del portal</footer>
+</body></html>"""
+
+
+def test_modal_activo_acota_controles_y_botones_incluyendo_footer_y_agrupa_radios_sin_nombre():
+    async def flujo():
+        sitio = Sitio()
+        sitio.paginas[ASHBY] = MODAL_CAJON
+        pagina = await abrir(sitio)
+        try:
+            await pagina.goto(ASHBY)
+            p = await leer(pagina)
+            assert len(p["campos"]) == 1, p["campos"]
+            assert p["campos"][0]["tipo"] == "opciones"
+            assert p["campos"][0]["opciones"] == ["Sí", "No"]
+            textos_botones = [b["texto"] for b in p["botones"]]
+            assert "Enviar respuestas" in textos_botones
+            assert "Aplicar" not in textos_botones
+            assert p["sugerido"]["accion"] == "enviar"
+        finally:
+            await cerrar(pagina)
+
+    correr(flujo())

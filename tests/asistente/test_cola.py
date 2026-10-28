@@ -309,3 +309,18 @@ def test_el_vigia_va_despues_de_lo_real_no_cuenta_para_el_tope_y_respeta_la_paus
     assert cola.de_usuario(1, "vig") is None and cola.en_espera() == [real]
     # Pero la pausa entre portales sí cuenta lo que ensayó el vigía
     assert cola.restriccion(real, T0).codigo == "pausa"
+
+
+def test_esperar_usuario_y_desmarcar_envio_limpian_envio_pulsado(cola):
+    p, _ = cola.encolar(1, "mg1", "magneto", T0)
+    assert cola.tomar(p.id, 10, T0) and cola.iniciar(p.id, 10, T0)
+    assert cola.marcar_envio_pulsado(p.id, 10, T0)
+    assert cola.obtener(p.id).envio_pulsado is True
+    # Si tras «Aplicar» se abre la encuesta sin enviar todavía, se limpia envio_pulsado
+    assert cola.desmarcar_envio_pulsado(p.id, 10, T0)
+    assert cola.obtener(p.id).envio_pulsado is False
+    # Y si vuelve a marcarse y falta un dato del usuario, esperar_usuario también lo limpia
+    assert cola.marcar_envio_pulsado(p.id, 10, T0)
+    assert cola.esperar_usuario(p.id, 10, T0)
+    actual = cola.obtener(p.id)
+    assert actual.estado == E.ESPERANDO_USUARIO and actual.envio_pulsado is False

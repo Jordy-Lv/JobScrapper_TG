@@ -225,8 +225,12 @@ def respuestas_de(preguntas: list[Pregunta], resultado: Any) -> list[dict[str, A
         r = next((x for x in resultado.respuestas if x.pregunta is pregunta), None)
         if r is None or r.falta:
             continue
-        respuestas.append({"indice": indice, "valor": r.valor, "opcion": r.opcion,
-                           "origen": r.origen})  # fmt: skip
+        item: dict[str, Any] = {
+            "indice": indice, "valor": r.valor, "opcion": r.opcion, "origen": r.origen,
+        }  # fmt: skip
+        if getattr(r, "opciones", None):
+            item["opciones"] = list(r.opciones)
+        respuestas.append(item)
     return respuestas
 
 
