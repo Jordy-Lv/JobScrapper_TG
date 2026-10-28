@@ -32,6 +32,7 @@ from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     detectar_idioma,
     ejemplos_de_estilo,
     elegir_opcion,
+    elegir_opciones,
     es_consentimiento,
     es_larga,
     guardar_en_banco,
@@ -92,8 +93,16 @@ def base(tmp_path):
     base.cerrar()
 
 
-def contexto(base, usuario_id=1, con_ia=True, datos=DATOS, plataforma=None, idioma=None,
-             nivel="normal", **calidad):
+def contexto(
+    base,
+    usuario_id=1,
+    con_ia=True,
+    datos=DATOS,
+    plataforma=None,
+    idioma=None,
+    nivel="normal",
+    **calidad,
+):
     cliente = None
     config = cargar_configuracion().asistente
     config_niveles = config.niveles_ia
@@ -510,6 +519,7 @@ def test_redactor_elige_opciones_en_la_misma_llamada(base):
 
 def texto_enviado(ruta, n=0):
     """Los textos de la llamada n con sus saltos de línea reales (el cuerpo viaja como JSON)."""
+
     def textos(valor):
         if isinstance(valor, str):
             yield valor
@@ -731,8 +741,9 @@ def test_salario_con_la_moneda_en_la_misma_pregunta(base):
 
 
 def test_salario_en_dolares_nunca_manda_la_cifra_en_pesos(base):
-    pregunta = Pregunta("What are your salary expectations in USD?",
-                        ayuda="Please include currency")
+    pregunta = Pregunta(
+        "What are your salary expectations in USD?", ayuda="Please include currency"
+    )
     sin = asyncio.run(resolver(pregunta, contexto(base, con_ia=False, datos=DATOS_AMPLIADOS)))
     assert sin.falta and sin.campo == "salario_usd"
     con = DatosUsuario(PERFIL, {"salario": "2500000", "salario_usd": "1500"})
@@ -859,9 +870,7 @@ def test_ahorro_si_redacta_las_preguntas_abiertas_con_una_llamada_al_modelo_lige
         {"indice": 1, "respuesta": "Me interesa por el equipo y el stack."}
     ]}))  # fmt: skip
     configurado = respx.post(URL_REDACTAR).mock(return_value=gemini({"respuestas": []}))
-    r = asyncio.run(
-        redactar_formulario([Pregunta(COMPUESTA)], contexto(base, nivel="ahorro"))
-    )
+    r = asyncio.run(redactar_formulario([Pregunta(COMPUESTA)], contexto(base, nivel="ahorro")))
     assert r[0].valor == "Me interesa por el equipo y el stack."
     assert (ligero.call_count, configurado.call_count) == (1, 0)
 
@@ -871,9 +880,7 @@ def test_normal_clasifica_con_ia_y_redacta_con_el_modelo_configurado(base):
     clasifica = respx.post(URL_LITE).mock(
         return_value=gemini({"campo": "salario", "formato": "dato"})
     )
-    r = asyncio.run(
-        resolver(Pregunta("¿Cuál es tu pretensión económica mensual?"), contexto(base))
-    )
+    r = asyncio.run(resolver(Pregunta("¿Cuál es tu pretensión económica mensual?"), contexto(base)))
     assert r.origen == Origen.BANCO and clasifica.call_count == 1
     configurado = respx.post(URL_REDACTAR).mock(return_value=gemini({"respuestas": [
         {"indice": 1, "respuesta": "Estudio Ingeniería de Sistemas."}
@@ -1189,3 +1196,41 @@ def test_receta_con_un_campo_que_no_es_del_catalogo_se_ignora(base):
 def test_receta_con_campo_de_parametro_sin_parametro_se_ignora(base):
     pregunta = Pregunta("Python level", campo_receta="nivel_herramienta")
     assert asyncio.run(resolver(pregunta, contexto(base, con_ia=False))).falta is True
+
+
+# --- selección múltiple (cuestionario conversacional de Magneto) --------------------------------
+
+
+def test_elegir_opciones_encuentra_varias_coincidencias_en_orden():
+    opciones = ["Python", "Excel", "SQL", "Java"]
+    assert elegir_opciones("Python, SQL", opciones) == [0, 2]
+    assert elegir_opciones("Manejo Híbrido y remoto", ["Presencial", "Híbrido", "Remoto"]) == [1, 2]
+
+
+def test_pregunta_multiple_aprendida_y_redactor_devuelven_lista_de_opciones(base):
+    from buscador_vacantes.asistente import pantalla
+
+    aprender(base, "¿Qué herramientas manejas?", "Python, SQL")
+    pregunta = Pregunta(
+        "¿Qué herramientas manejas?", "opciones", ["Python", "Excel", "SQL"], multiple=True
+    )
+    r = asyncio.run(resolver(pregunta, contexto(base, con_ia=False)))
+    assert r.opcion == 0 and r.opciones == [0, 2] and r.texto == "Python, SQL"
+
+    otra = Pregunta(
+        "¿Qué áreas te interesan?", "opciones", ["Soporte", "Redes", "Datos"], multiple=True
+    )
+    with respx.mock:
+        respx.post(url__startswith=BASE_URL).mock(
+            return_value=gemini({"respuestas": [{"indice": 1, "opciones": [0, 2]}]})
+        )
+        red = asyncio.run(redactar_formulario([otra], contexto(base)))
+    assert red[0].opcion == 0 and red[0].opciones == [0, 2]
+
+    class ResultadoSimulado:
+        respuestas = [r]
+
+    serializadas = pantalla.respuestas_de([pregunta], ResultadoSimulado())
+    assert serializadas == [
+        {"indice": 0, "valor": None, "opcion": 0, "opciones": [0, 2], "origen": Origen.APRENDIDA}
+    ]

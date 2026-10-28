@@ -554,3 +554,49 @@ def test_las_reglas_se_piden_otra_vez_solo_si_cambia_la_version(tmp_path, api):
     correr(flujo())
     assert len(api.de("motor_generico")) == 1
     assert [r["estado"] for r in api.de("resultado")] == ["enviada", "enviada"]
+
+
+def test_magneto_con_encuesta_abierta_rota_pasa_al_bucle_generico(tmp_path, api):
+    """Si «Aplicar» abre una encuesta sin enviar pero cambian sus clases internas, el paso con
+    `abre_sin_enviar` restablece el estado previo al envío y deja actuar a `respaldo_declarado`."""
+    rota = {
+        "mg_chat_questionnaire_question_question_1747a": "otra_clase_pregunta_nueva",
+        "const DEMORA_CARGA = 350;": "const DEMORA_CARGA = 50;",
+    }
+    portales = portales_magneto("mg_chat_cuestionario.html", rota)
+
+    def acortar(plataforma, sel):
+        sel = confirmar_rapido(plataforma, sel)
+        for p in sel["postular"]:
+            if p.get("chat"):
+                p["chat"]["espera_turno_ms"] = 600
+        return sel
+
+    api.ajustar = acortar
+    pedido = {
+        **trabajo_mg(),
+        "motor_generico": {
+            "respaldo_declarado": True,
+            "max_pantallas": 6,
+            "max_pantallas_una_pregunta": 10,
+            "max_minutos": 5,
+        },
+    }
+    api.trabajos = [pedido]
+    preparar(api)
+    api.pantalla = lambda cuerpo: {
+        "esperar_usuario": False,
+        "respuestas": [],
+        "accion": {"tipo": "respaldo", "motivo": "sin_ia"},
+    }
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    assert "respaldo_generico" in pasos(api)
+    assert len(api.de("pantalla")) >= 1

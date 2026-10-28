@@ -158,9 +158,10 @@
   - tope diario;
   - modo automático solo sobre el umbral;
   - respaldo a las 24 h sin navegador.
-- [ ] 6.3 Configurar Tailscale Funnel en el Fedora hacia `127.0.0.1:8787`. Verificar desde fuera de la red que:
+- [x] 6.3 Configurar Tailscale Funnel en el Fedora hacia `127.0.0.1:8787`. Verificar desde fuera de la red que:
   - `https://<equipo>.<tailnet>.ts.net/api/v1/latido` sin token responde 401;
   - una ruta fuera de `/api/v1/` responde 404.
+  Verificado el 2026-10-27 contra https://postulador.tailf6cdf1.ts.net: `POST /api/v1/latido` sin token responde 401 y una ruta fuera de `/api/v1/` responde 404.
 
 ## 7. Extensión
 

@@ -131,6 +131,24 @@ def test_portal_que_no_proceso_aplicar_dice_que_no_cargo_y_ofrece_reintentar(mot
     assert tp.botones(card, d, cb) == [[("Reintentar", cb("rei", 7))]]
 
 
+def test_pagina_que_no_cargo_lo_dice_y_ofrece_reintentar_primero():
+    card = tp.Card(fase=tp.RESPALDO, motivo="pagina_no_cargo")
+    assert "la página de la vacante no cargó (no envié nada)" in tp.texto(card, datos())
+    assert "rechazó" not in tp.texto(card, datos())
+    assert tp.botones(card, datos(), cb)[0][0] == ("Reintentar", cb("rei", 7))
+
+
+def test_envio_rechazado_tambien_ofrece_reintentar_pero_otros_respaldos_no():
+    fallida = tp.Card(fase=tp.RESPALDO, motivo="fallida")
+    assert "Reintentar" in etiquetas(tp.botones(fallida, datos(), cb))[0]
+    cambio = tp.Card(fase=tp.RESPALDO, motivo="formulario_desconocido")
+    assert "Reintentar" not in etiquetas(tp.botones(cambio, datos(), cb))[0]
+
+
+def test_el_motivo_de_la_extension_tiene_codigo_propio():
+    assert t.MOTIVOS_DE_EXTENSION["la página de la vacante no cargó"] in t.MOTIVOS_RESPALDO
+
+
 def test_respaldo_explica_el_motivo_y_ofrece_las_acciones_con_el_seguimiento_marcado():
     card = tp.Card(fase=tp.RESPALDO, motivo="formulario_desconocido")
     assert "el formulario del portal cambió" in tp.texto(card, datos())
@@ -681,3 +699,11 @@ def test_la_espera_por_el_ritmo_de_linkedin_dice_por_que_y_hasta_cuando(codigo, 
     assert frase in texto
     if codigo != "tope_linkedin":
         assert "18:23" in texto  # 23:23 UTC en Bogotá
+
+def test_respaldo_por_proceso_abandonado_explica_el_motivo_y_no_alerta_al_dueno():
+    assert "proceso_abandonado" in t.MOTIVOS_RESPALDO
+    assert "proceso_abandonado" in t.MOTIVOS_SIN_ALERTA
+    card = tp.Card(fase=tp.RESPALDO, motivo="proceso_abandonado")
+    texto = tp.texto(card, datos(plataforma="magneto"))
+    assert "abandonado" in texto
+    assert "el formulario del portal cambió" not in texto

@@ -202,7 +202,12 @@ class ApiPrueba:
                 return api.pantalla(cuerpo)
             if accion == "destino":
                 return api.destino(cuerpo)
-            if accion == "formulario" and api.esperar and cuerpo["campos"]:
+            pedir_usuario = (
+                (api.esperar(cuerpo["campos"]) if callable(api.esperar) else api.esperar)
+                if accion == "formulario" and cuerpo.get("campos")
+                else False
+            )
+            if accion == "formulario" and pedir_usuario and cuerpo["campos"]:
                 return {"esperar_usuario": True}
             if accion == "formulario":
                 return {"esperar_usuario": False, "respuestas": api.respuestas(cuerpo["campos"]),
@@ -1555,8 +1560,9 @@ SIN_EFECTO = {"}, 1500);": "}, 1500000);"}  # «Aplicar» no hace nada: el modal
 # «Aplicar» sí envía (la vacante ya no muestra el botón) pero el modal nunca sale
 ENVIA_SIN_MODAL = {
     **SIN_EFECTO,
-    'addEventListener("click", () => {':
-        'addEventListener("click", (e) => { e.currentTarget.remove();',
+    'addEventListener("click", () => {': (
+        'addEventListener("click", (e) => { e.currentTarget.remove();'
+    ),
 }
 
 
@@ -2520,3 +2526,91 @@ def test_el_popup_explica_y_ofrece_el_permiso_de_las_paginas_externas(tmp_path, 
     assert (vista["permitir"], vista["quitar"]) == (not concedido, concedido)
     assert vista["estado"] == ("Permitido ✓" if concedido else "Sin permiso")
     assert "nunca entra a páginas de ingreso, registro o pago" in vista["explica"]
+
+
+# --- Magneto: cuestionario conversacional por turnos (postulaciones 74, 89, 94 y 96) -----------
+
+
+def respuestas_mg_chat(campos: list[dict]) -> list[dict]:
+    c = campos[0]
+    if c.get("multiple"):
+        return [{"indice": 0, "valor": None, "opcion": 0, "opciones": [0, 2]}]
+    if c["tipo"] == "opciones":
+        return [{"indice": 0, "valor": None, "opcion": 0}]
+    # Incluye caracteres que el filtro de Magneto borra si no se normalizan antes (/, —, «»)
+    return [
+        {"indice": 0, "valor": "Soporte N1/N2 — mesa «ITIL» y atención oportuna.", "opcion": None}
+    ]
+
+
+def test_magneto_chat_conversacional_completo_con_cuatro_tipos_y_limpieza_texto(tmp_path, api):
+    api.respuestas = respuestas_mg_chat
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html"))
+    turnos = [f["campos"][0] for f in api.de("formulario")]
+    assert [(c["texto"], c["tipo"], c.get("multiple", False), c.get("maximo")) for c in turnos] == [
+        ("¿Tienes disponibilidad para trabajar de forma presencial?", "opciones", False, None),
+        ("¿Qué herramientas manejas actualmente?", "opciones", True, None),
+        ("¿Cuál es tu experiencia en soporte técnico?", "texto", False, 140),
+        ("Cuéntanos brevemente por qué te interesa esta vacante", "texto", False, 500),
+    ]
+    # La instrucción genérica va en `ayuda`, nunca pegada al enunciado
+    assert turnos[0]["ayuda"] == "Selecciona una opción"
+    assert "Selecciona" not in turnos[0]["texto"]
+    assert [p["paso"] for p in llenados(api)] == [
+        "llenado_1",
+        "llenado_2",
+        "llenado_3",
+        "llenado_4",
+    ]
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert "llenado" in pasos and pasos.index("llenado") < pasos.index("enviar")
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "enviada", resultado
+    assert "Se ha enviado tu aplicación" in resultado["confirmacion"]
+
+
+def test_magneto_chat_espera_al_usuario_en_turno_intermedio_sin_enviar(tmp_path, api):
+    api.respuestas = respuestas_mg_chat
+    api.esperar = lambda campos: "herramientas" in campos[0]["texto"]
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html"))
+    assert len(api.de("formulario")) == 2
+    assert [p["paso"] for p in llenados(api)] == ["llenado_1"]
+    pasos = [p["paso"] for p in api.de("paso")]
+    assert "esperando_usuario" in pasos and "enviar" not in pasos
+    assert not api.de("resultado")
+
+
+def test_magneto_chat_fallo_conserva_footer_y_header_del_cajon_en_evidencia(tmp_path, api):
+    api.respuestas = respuestas_mg_chat
+    rota = {'tipo: "multiple",': 'tipo: "vacia",'}
+    postular_magneto(
+        tmp_path, api, portales_magneto("mg_chat_cuestionario.html", rota), rapido=True
+    )
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "formulario_desconocido", resultado
+    html = resultado["html"]
+    assert "detailChatQuestionnaireChat_chat__footer" in html
+    assert "mg_chat_questionnaire_header" in html
+    assert "Todos los derechos reservados" not in html
+    assert "logoutBlock_avatar" not in html
+
+
+def test_magneto_proceso_abandonado_termina_bloqueada_sin_pulsar_aplicar(tmp_path, api):
+    postular_magneto(tmp_path, api, portales_magneto("mg_proceso_abandonado.html"))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "bloqueada", resultado
+    assert resultado["motivo"] == "proceso_abandonado"
+    assert not api.de("envio")
+    assert "aplicar" not in [p["paso"] for p in api.de("paso")]
+
+
+def test_magneto_ya_respondiste_termina_ya_postulada(tmp_path, api):
+    ya = {
+        '<button type="button" class="applyButton_apply-btn__x9p2q">Aplicar</button>': (
+            '<div class="alreadyAnsweredQuestionnaire_modal__z1x2c">'
+            "Ya respondiste este cuestionario</div>"
+        ),
+    }
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", ya))
+    assert api.de("resultado")[0]["estado"] == "ya_postulada"
+    assert not api.de("envio")

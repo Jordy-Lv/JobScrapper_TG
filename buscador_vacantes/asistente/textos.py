@@ -125,6 +125,7 @@ MOTIVOS_RESPALDO = {
     "bloqueada": "el portal pidió una verificación que no se completó",
     "formulario_desconocido": "el formulario del portal cambió",
     "fallida": "el portal rechazó el envío",
+    "pagina_no_cargo": "la página de la vacante no cargó (no envié nada)",
     # Lo que el motor genérico no resuelve por ti (motor-generico-autorreparable)
     "ats_con_cuenta": "esta empresa pide crear una cuenta en su portal de empleo y yo no creo "
     "cuentas por ti",
@@ -152,12 +153,18 @@ MOTIVOS_RESPALDO = {
     "linkedin_sin_cv": "no tienes ningún CV guardado en LinkedIn y no autorizaste subir el tuyo",
     "aviso_seguridad": "LinkedIn mostró un aviso de seguridad; pausé tus postulaciones allí "
     "por 24 horas",
+    "proceso_abandonado": "habías abandonado este proceso en el portal y ya no permite volver a "
+    "postular",
 }
+# Motivos que la extensión reporta con texto libre y que tienen código propio
+MOTIVOS_DE_EXTENSION = {"la página de la vacante no cargó": "pagina_no_cargo"}
+# Motivos tras los que la card ofrece «Reintentar»: el portal no recibió nada
+MOTIVOS_REINTENTABLES = ("fallida", "pagina_no_cargo")
 # Motivos que no son un fallo del asistente: el dueño no necesita revisar su evidencia
 MOTIVOS_SIN_ALERTA = (
     "ats_con_cuenta", "captcha", "oauth", "codigo_verificacion", "sin_ia", "documento_faltante",
     "nivel_ahorro", "linkedin_sin_aceptar", "linkedin_apagado", "destino_mensajeria",
-    "sin_permiso_externo", "linkedin_sin_cv",
+    "sin_permiso_externo", "linkedin_sin_cv", "proceso_abandonado",
 )  # fmt: skip
 
 # Postulación en LinkedIn: aviso de riesgo (con «Acepto y postular» y «Solo paquete»), /linkedin

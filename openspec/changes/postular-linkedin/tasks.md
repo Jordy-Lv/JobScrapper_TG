@@ -30,7 +30,7 @@
 
 ## 6. Verificación y pilotos
 
-- [ ] 6.1 🟡 Suite completa en segundo plano (`.venv/Scripts/python -m pytest`) y `.venv/Scripts/ruff check`. Verificar con las dos en verde.
+- [x] 6.1 🟡 Suite completa en segundo plano (`.venv/Scripts/python -m pytest`) y `.venv/Scripts/ruff check`. Verificar con las dos en verde.
 - [ ] 6.2 👤 Desplegar en el Fedora con LinkedIn en ensayo solo para el dueño, aceptar el riesgo, conceder el permiso amplio y dejar dos semanas de ensayo. Verificar con la cobertura por familia en el resumen diario y anotarla en `portales.md`.
 - [ ] 6.3 👤 Reales del dueño: 3 por Solicitud sencilla y 3 por páginas externas que terminen `enviada`, comprobadas en LinkedIn («Mis empleos») o en el correo de confirmación del ATS. Verificar y anotar en `portales.md`.
 - [ ] 6.4 👤 Invitados: avisar del riesgo, `plataformas.linkedin.automatica: true` para todos y 3 días sin errores sin resolver. Verificar con el resumen diario y anotar el cierre del piloto.

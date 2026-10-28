@@ -271,6 +271,19 @@ async function abrirPestana(url) {
   return pestana;
 }
 
+// Una carga lenta o descartada es transitoria: se vuelve a abrir antes de dar la postulación por
+// fallida, para que salga a la primera sin que el usuario tenga que tocar nada
+async function abrirPestanaConReintentos(url, intentos = 3, pausaMs = 3000) {
+  for (let intento = 1; ; intento++) {
+    try {
+      return await abrirPestana(url);
+    } catch (error) {
+      if (intento >= intentos) throw error;
+      await new Promise((resolver) => setTimeout(resolver, pausaMs * intento));
+    }
+  }
+}
+
 // Una pestaña nueva carga about:blank por su cuenta. Si se navega antes de que esa carga
 // termine, Chrome puede descartar la navegación (la pestaña queda en "unloaded" aunque el
 // portal respondió) y la espera agota su plazo: pasa sobre todo con el navegador ocupado.
@@ -388,7 +401,7 @@ async function ejecutar(trabajo) {
   }
   let pestana;
   try {
-    pestana = await abrirPestana(url);
+    pestana = await abrirPestanaConReintentos(url);
   } catch (error) {
     await terminar(id, "fallida", { motivo: "la página de la vacante no cargó" });
     return;
@@ -724,6 +737,10 @@ async function ejecutarPaso(tabId, paso, contexto) {
     await terminar(id, "esperando_sesion", { motivo: "no hay sesión iniciada en el portal" });
     return { fin: true };
   }
+  if (paso.abre_sin_enviar && (r.chat || (r.campos && r.campos.length) || r.contenedor_abierto)) {
+    // El clic anterior (como «Aplicar» en Magneto) abrió una encuesta aún sin enviar
+    contexto.envio = false;
+  }
   if (r.error) return fallarPaso(tabId, contexto, r.error, { motivo: r.motivo, html: r.html });
   if (r.terminar) {
     await terminar(id, r.terminar, { motivo: r.motivo });
@@ -736,6 +753,10 @@ async function ejecutarPaso(tabId, paso, contexto) {
     }
     await navegar(tabId, r.ir);
     return {};
+  }
+  if (r.chat) {
+    const lleno = await formularioChat(tabId, contexto, paso);
+    if (lleno.fin) return lleno;
   }
   if (r.campos && r.campos.length) {
     const lleno = await formulario(tabId, contexto, r.campos);
@@ -840,6 +861,75 @@ async function formulario(tabId, contexto, campos) {
   await reportar(trabajo.id, "llenado", `${r.respuestas.length} respuestas`);
   // El servidor arma el resumen final con esto: qué hoja de vida recibió el portal
   if (lleno && lleno.adjunto) await reportar(trabajo.id, "cv_adjunto", lleno.adjunto);
+  return {};
+}
+
+async function formularioChat(tabId, contexto, paso) {
+  const { trabajo, sel } = contexto;
+  const chat = paso.chat || {};
+  const topePreguntas = chat.max_preguntas || 40;
+  const { llenado_max_ms } = await opciones();
+  const correr = (p, extra = {}) => enPestana(
+    tabId,
+    (pp, s, dd) => globalThis.__asistente.paso(pp, s, dd),
+    p,
+    sel,
+    { plataforma: trabajo.plataforma, ...extra },
+  );
+  let respondidas = 0;
+  for (let n = 1; n <= topePreguntas + 1; n++) {
+    const turno = await correrSeguro(
+      tabId,
+      { accion: "chat_turno", chat, ms: chat.espera_turno_ms || 8000 },
+      trabajo.plataforma,
+      correr,
+    );
+    if (!turno) throw new Error("el turno del chat no devolvió resultado");
+    if (turno.sin_sesion) {
+      await terminar(trabajo.id, "esperando_sesion", { motivo: "no hay sesión iniciada en el portal" });
+      return { fin: true };
+    }
+    if (turno.listo) {
+      await reportar(trabajo.id, "llenado", `${respondidas} respuestas`);
+      return {};
+    }
+    if (turno.error) {
+      return fallarPaso(tabId, contexto, turno.error, { motivo: turno.motivo, html: turno.html });
+    }
+    if (n > topePreguntas) {
+      return fallarPaso(tabId, contexto, "formulario_desconocido", {
+        motivo: "chat: la encuesta superó el máximo de preguntas",
+      });
+    }
+    const r = await llamar("POST", `/postulaciones/${trabajo.id}/formulario`, {
+      campos: [turno.campo],
+    });
+    if (r.esperar_usuario) {
+      await reportar(trabajo.id, "esperando_usuario", "faltan datos que solo tú sabes");
+      return { fin: true };
+    }
+    let reloj;
+    const lleno = await Promise.race([
+      correr({ accion: "chat_llenar" }, { respuestas: r.respuestas }),
+      new Promise((resolver) => (reloj = setTimeout(() => resolver({ vencido: true }), llenado_max_ms))),
+    ]).finally(() => clearTimeout(reloj));
+    if (lleno && lleno.vencido) {
+      const html = await Promise.race([
+        enPestana(tabId, () => globalThis.__asistente.html()).catch(() => null),
+        new Promise((resolver) => setTimeout(() => resolver(null), 3000)),
+      ]);
+      await terminar(trabajo.id, "formulario_desconocido", { motivo: "llenado_sin_respuesta", html });
+      return { fin: true };
+    }
+    if (!lleno || lleno.error) {
+      return fallarPaso(tabId, contexto, (lleno && lleno.error) || "formulario_desconocido", {
+        motivo: (lleno && lleno.motivo) || "chat: fallo al responder el turno",
+        html: lleno && lleno.html,
+      });
+    }
+    respondidas += 1;
+    await reportar(trabajo.id, `llenado_${respondidas}`);
+  }
   return {};
 }
 

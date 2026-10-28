@@ -253,8 +253,12 @@ class Estado:
             ruta.parent.mkdir(parents=True, exist_ok=True)
         cx = sqlite3.connect(ruta, timeout=30)
         cx.row_factory = sqlite3.Row
+        cx.execute("PRAGMA busy_timeout = 30000")
         cx.execute("PRAGMA journal_mode=WAL")
         cx.execute("PRAGMA synchronous=NORMAL")
+        cx.execute("PRAGMA temp_store = MEMORY")
+        cx.execute("PRAGMA mmap_size = 268435456")
+        cx.execute("PRAGMA cache_size = -64000")
         estado = cls(cx)
         estado._migrar_esquema()
         return estado

@@ -118,6 +118,9 @@ def abrir_solo_lectura(ruta: Path | str) -> sqlite3.Connection:
     """Abre la base sin permiso de escritura: el diagnóstico nunca modifica el estado."""
     cx = sqlite3.connect(f"{Path(ruta).resolve().as_uri()}?mode=ro", uri=True, timeout=30)
     cx.row_factory = sqlite3.Row
+    cx.execute("PRAGMA busy_timeout = 30000")
+    cx.execute("PRAGMA query_only = ON")
+    cx.execute("PRAGMA mmap_size = 268435456")
     return cx
 
 

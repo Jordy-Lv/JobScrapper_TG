@@ -395,3 +395,17 @@ def test_un_aviso_de_seguridad_detiene_linkedin_incluso_con_destino_guardado(col
     assert cola.restriccion(con_destino, T0 + timedelta(hours=25)) is None
     otra, _ = cola.encolar(1, "c", CT, T0)  # solo LinkedIn se detiene
     assert cola.restriccion(otra, T0 + timedelta(hours=1)) is None
+
+def test_esperar_usuario_y_desmarcar_envio_limpian_envio_pulsado(cola):
+    p, _ = cola.encolar(1, "mg1", "magneto", T0)
+    assert cola.tomar(p.id, 10, T0) and cola.iniciar(p.id, 10, T0)
+    assert cola.marcar_envio_pulsado(p.id, 10, T0)
+    assert cola.obtener(p.id).envio_pulsado is True
+    # Si tras «Aplicar» se abre la encuesta sin enviar todavía, se limpia envio_pulsado
+    assert cola.desmarcar_envio_pulsado(p.id, 10, T0)
+    assert cola.obtener(p.id).envio_pulsado is False
+    # Y si vuelve a marcarse y falta un dato del usuario, esperar_usuario también lo limpia
+    assert cola.marcar_envio_pulsado(p.id, 10, T0)
+    assert cola.esperar_usuario(p.id, 10, T0)
+    actual = cola.obtener(p.id)
+    assert actual.estado == E.ESPERANDO_USUARIO and actual.envio_pulsado is False

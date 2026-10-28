@@ -114,6 +114,9 @@ def derivar_del_cv(
     return nuevo
 
 
+CLAVE_CARD_IA = "ia"  # clave de mensajes_efimeros de la card de /ia
+
+
 class Salida(Protocol):
     async def enviar(
         self, chat_id: int, texto: str, botones: Botones | None = None, efecto: str | None = None
@@ -2221,6 +2224,8 @@ class Conversacion:
                 plataforma, decision = args
                 if decision == "si":
                     self.n.cuentas.confirmar(usuario.id, plataforma, ahora)
+                    if self.n.marcar_cuenta_ok(usuario.id, plataforma):
+                        await self._revisar_esperas(usuario)  # la card ya no pide confirmar
                     await self._actualizar_tarjeta(
                         usuario,
                         lambda tj: tj.poner_cuenta(plataforma, tarjeta.CONFIRMADA),
@@ -2260,7 +2265,7 @@ class Conversacion:
             case "ia":
                 if args and args[0] in NIVELES_IA:
                     self.n.preferencias.fijar_nivel_ia(usuario.id, args[0])
-                    await self._c_ia(usuario, ["nivel"])
+                    await self._actualizar_card_ia(usuario)
                     return f"Nivel {t.NOMBRES_NIVEL_IA[args[0]]}"
         return None
 
@@ -2683,10 +2688,21 @@ class Conversacion:
                 await self._poner_fase(usuario, pid, tp.EN_COLA)
 
     async def _c_ia(self, usuario: Usuario, args) -> None:
-        """`/ia nivel`: los tres niveles con su consumo, el uso de hoy y el nivel actual."""
+        """`/ia nivel`: los tres niveles con su consumo, el uso de hoy y el nivel actual, en una
+        sola card que reemplaza a la anterior, trae «Cerrar» y se borra sola."""
         if args and args[0].lower() != "nivel":
             await self._enviar(usuario, "Usa /ia nivel para ver y cambiar tu nivel de IA.")
             return
+        await self._borrar_card_ia(usuario)
+        texto, botones = self._texto_card_ia(usuario)
+        mensaje = await self._enviar(usuario, texto, botones)
+        if mensaje is not None:
+            self.n.base.kv_guardar(f"ia_msg:{usuario.id}", str(mensaje))
+            self._programar_borrado(
+                usuario, mensaje, CLAVE_CARD_IA, self._plazo_card_ia(largo=True)
+            )
+
+    def _texto_card_ia(self, usuario: Usuario) -> tuple[str, Botones]:
         resumen = self.n.preferencias.resumen_nivel_ia(
             usuario.id, self.config.niveles_ia, self.n.ahora()
         )
@@ -2704,6 +2720,7 @@ class Conversacion:
             botones.append(
                 [(f"{'✅ ' if actual else ''}{nivel['nombre']}", cb("ia", nivel["clave"]))]
             )
+        botones.append([("Cerrar", cb("cerrar", CLAVE_CARD_IA))])
         hoy = resumen["hoy"]
         lineas += [
             "",
@@ -2711,7 +2728,57 @@ class Conversacion:
             "El cambio vale para las postulaciones siguientes; las que ya están en curso "
             "terminan con el nivel con que empezaron.",
         ]
-        await self._enviar(usuario, "\n".join(lineas), botones)
+        return "\n".join(lineas), botones
+
+    async def _actualizar_card_ia(self, usuario: Usuario) -> None:
+        """Al elegir un nivel, la misma card se edita y su borrado se acorta."""
+        texto, botones = self._texto_card_ia(usuario)
+        guardado = self.n.base.kv_obtener(f"ia_msg:{usuario.id}")
+        if guardado:
+            try:
+                await self.s.editar(usuario.telegram_id, int(guardado), texto, botones)
+            except Exception:  # noqa: BLE001 - el mensaje ya no existe: se envía una card nueva
+                guardado = None
+        if guardado:
+            mensaje = int(guardado)
+            self._quitar_efimeros(usuario, CLAVE_CARD_IA)  # el plazo viejo ya no vale
+        else:
+            mensaje = await self._enviar(usuario, texto, botones)
+            if mensaje is None:
+                return
+            self.n.base.kv_guardar(f"ia_msg:{usuario.id}", str(mensaje))
+        self._programar_borrado(usuario, mensaje, CLAVE_CARD_IA, self._plazo_card_ia(largo=False))
+
+    async def _borrar_card_ia(self, usuario: Usuario) -> None:
+        filas = self.n.base.cx.execute(
+            "SELECT * FROM mensajes_efimeros WHERE usuario_id = ? AND clave = ?",
+            (usuario.id, CLAVE_CARD_IA),
+        ).fetchall()
+        await self._borrar_filas(filas)
+
+    def _plazo_card_ia(self, *, largo: bool) -> int:
+        c = self.config.mensajes_efimeros
+        return c.lectura_max_s if largo else c.lectura_min_s
+
+    def _quitar_efimeros(self, usuario: Usuario, clave: str) -> None:
+        with self.n.base.transaccion() as cx:
+            cx.execute(
+                "DELETE FROM mensajes_efimeros WHERE usuario_id = ? AND clave = ?",
+                (usuario.id, clave),
+            )
+
+    def _programar_borrado(self, usuario: Usuario, mensaje: int, clave: str, espera: float) -> None:
+        """Anota el mensaje como efímero y programa su borrado (sobrevive a un reinicio)."""
+        borrar_en = a_texto(self.n.ahora() + timedelta(seconds=espera))
+        with self.n.base.transaccion() as cx:
+            fila = cx.execute(
+                "INSERT INTO mensajes_efimeros(usuario_id, chat_id, mensaje_id, clave, "
+                "borrar_en) VALUES (?, ?, ?, ?, ?)",
+                (usuario.id, usuario.telegram_id, mensaje, clave, borrar_en),
+            )
+        tarea = asyncio.create_task(self._borrar_luego([fila.lastrowid], espera))
+        self._borrados.add(tarea)
+        tarea.add_done_callback(self._borrados.discard)
 
     async def _c_borrarme(self, usuario: Usuario, args) -> None:
         await self._enviar(
@@ -3238,9 +3305,10 @@ class Conversacion:
         elif ev.estado == E.ENSAYADA:
             await self._cerrar_card(usuario, p.id, tp.ENSAYADA, motivo=ev.detalle)
         elif ev.estado in CON_RESPALDO:
+            detalle = t.MOTIVOS_DE_EXTENSION.get(ev.detalle or "", ev.detalle)
             motivo = (
-                ev.detalle
-                if ev.tipo == "respaldo" or (ev.detalle or "") in t.MOTIVOS_RESPALDO
+                detalle
+                if ev.tipo == "respaldo" or (detalle or "") in t.MOTIVOS_RESPALDO
                 else str(ev.estado)
             )
             trabado = ev.estado != E.RESPALDO and self.n.datos_ensayo(p.id)["trabado"]

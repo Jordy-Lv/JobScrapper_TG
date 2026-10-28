@@ -192,6 +192,7 @@ class Campo(BaseModel):
     accept: str | None = Field(None, max_length=200)
     idioma: str | None = Field(None, max_length=10)
     busqueda: bool = False  # lista demasiado larga para leerla: se escribe el valor y se elige
+    multiple: bool = False  # permite elegir una o varias opciones (casillas de verificación)
 
 
 class Formulario(BaseModel):
@@ -549,7 +550,8 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         return [
             Pregunta(c.texto, c.tipo, c.opciones, c.obligatoria or c.nombre in forzadas,
                      c.nombre, c.maximo, c.ayuda, c.autocomplete, c.accept, c.idioma or idioma,
-                     c.busqueda, mapeo.get(recetas.clave_campo(c.nombre, c.texto)))
+                     c.busqueda, mapeo.get(recetas.clave_campo(c.nombre, c.texto)),
+                     multiple=c.multiple)
             for c in campos
         ]  # fmt: skip
 
@@ -865,6 +867,8 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
         pid: int, cuerpo: Formulario, nav: vinculos.Navegador = Depends(navegador_actual)
     ):
         p = postulacion_en_curso(pid, nav)
+        if cuerpo.campos:
+            nucleo.cola.desmarcar_envio_pulsado(pid, nav.id, nucleo.ahora())
         preguntas = preguntas_de(p, cuerpo.campos, receta=receta_de(p, cuerpo.campos))
         resultado = await resolver_con_latido(p, nav, preguntas)
         if resultado.revisar or any(r.pregunta.obligatoria for r in resultado.faltan):
