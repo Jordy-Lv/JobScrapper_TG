@@ -6,12 +6,12 @@
 ## 2. Funciones puras (pruebas primero)
 
 - [ ] 2.1 🟡 `tests/asistente/test_medicion_linkedin.py` y `buscador_vacantes/asistente/medicion_linkedin.py`: `extraer_solicitud(html)` devuelve el tipo (`sencilla`, `externa`, `cerrada` o `desconocido`), la URL y el motivo para los tres fixtures y para un HTML vacío. Verificar con las pruebas en verde.
-- [ ] 2.2 🟢 `limpiar_destino(url)`: desenvuelve `externalApply…?url=` y quita `trk`, `refId`, `trackingId` y `utm_*`. `familia_de(url, familias)`: host igual al patrón o terminado en `.patrón`, y `propio` si no coincide. Casos: Workday con subdominio `wd3`, Greenhouse `job-boards.`, Computrabajo `co.`, dominio de empresa. Verificar con las pruebas.
+- [x] 2.2 🟢 `limpiar_destino(url)`: desenvuelve `externalApply…?url=` y quita `trk`, `refId`, `trackingId` y `utm_*`. `familia_de(url, familias)`: host igual al patrón o terminado en `.patrón`, y `propio` si no coincide. Casos: Workday con subdominio `wd3`, Greenhouse `job-boards.`, Computrabajo `co.`, dominio de empresa. Verificar con las pruebas.
 - [ ] 2.3 🟢 `pide_cuenta(html, senales)`: `True` con `input[type=password]` o una señal de texto, `False` con un formulario sin contraseña, `None` con una página casi vacía (armada con JS). `resumen(resultados)`: conteos y porcentajes por tipo y por familia, en orden descendente, sin títulos ni empresas. Verificar con las pruebas.
 
 ## 3. Comando de medición
 
-- [ ] 3.1 🟢 `config.yaml` y `buscador_vacantes/comun/config.py`: sección `asistente.medicion_linkedin` (`muestra: 100`, `pausa_s: 8`, `salida`, `familias`, `senales_cuenta`), validada con pydantic. Verificar con `tests/comun/test_config.py`.
+- [x] 3.1 🟢 `config.yaml` y `buscador_vacantes/comun/config.py`: sección `asistente.medicion_linkedin` (`muestra: 100`, `pausa_s: 8`, `salida`, `familias`, `senales_cuenta`), validada con pydantic. Verificar con `tests/comun/test_config.py`. *(2026-10-25, adelantada por `postular-linkedin` 1.2: `limpiar_destino` y `familia_de` en `medicion_linkedin.py`; gana el patrón más largo.)*
 - [ ] 3.2 🟡 Bucle `async` `medir(...)`: toma la muestra de `vacantes.db` (solo lectura, más recientes primero), reanuda desde el JSON existente, consulta el cooldown de `linkedin` en `fuentes_estado`, hace una petición por vacante con pausa aleatoria alrededor de `pausa_s`, se detiene ante 429, 999 o desafío y guarda lo medido, y abre cada destino una vez con `Ritmo`. Pruebas con `respx`: muestra limitada, reanudación, cooldown vigente sin peticiones, 999 en la vacante 3 (guarda 2 y avisa), destino que exige cuenta. Verificar con las pruebas.
 - [ ] 3.3 🟢 Subcomando `buscador.py asistente medir-linkedin [--muestra N] [--salida RUTA]` en `asistente/cli.py`, que imprime el resumen en Markdown. Verificar con una prueba de CLI sobre una base temporal y con `--help`.
 - [ ] 3.4 🟡 Suite completa en segundo plano (`.venv/Scripts/python -m pytest`) y `.venv/Scripts/ruff check`. Verificar con las dos cosas en verde.

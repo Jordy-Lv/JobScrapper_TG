@@ -17,6 +17,7 @@ from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa:
 from buscador_vacantes.asistente.cola import E  # noqa: E402
 from buscador_vacantes.asistente.cv_lectura import Formacion, Idioma, PerfilExtraido  # noqa: E402
 from buscador_vacantes.asistente.datos import BaseAsistente, abrir_vacantes_ro  # noqa: E402
+from buscador_vacantes.asistente.destinos_linkedin import Destino, guardar  # noqa: E402
 from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
@@ -130,7 +131,9 @@ def test_toque_sin_navegador_va_a_respaldo(mundo):
 def test_linkedin_va_a_respaldo(mundo):
     mundo.vincular()
     toque = mundo.nucleo.tocar(mundo.usuario, id_corto("linkedin:1"))
-    assert toque.camino == Camino.RESPALDO and toque.motivo == "plataforma_no_soportada"
+    # Reconocida, pero apagada hasta su piloto (change postular-linkedin)
+    assert toque.vacante.plataforma == "linkedin"
+    assert toque.camino == Camino.RESPALDO and toque.motivo == "plataforma_no_automatica"
 
 
 def test_id_desconocido(mundo):
@@ -1238,6 +1241,246 @@ def test_vacante_sin_esquema_se_da_por_resuelta(mundo):
     vacante = mundo.nucleo.indice.obtener(p.id_corto)
     assert asyncio.run(mundo.nucleo.anticipar_esquema(p, vacante)) is True
     assert mundo.nucleo.esquema_resuelto(p) == {}
+
+
+# --- destino de LinkedIn: acortadores y esquema del destino (postular-linkedin, 4.1) ---------
+
+
+@respx.mock
+def test_resolver_redireccion_sigue_solo_los_acortadores_conocidos(mundo):
+    corto = respx.get("https://grnh.se/abc").mock(
+        return_value=httpx.Response(
+            301, headers={"location": "https://job-boards.greenhouse.io/prueba/jobs/1"}
+        )
+    )
+    final = respx.get("https://job-boards.greenhouse.io/prueba/jobs/1")
+    assert asyncio.run(mundo.nucleo.resolver_redireccion("https://grnh.se/abc")) == (
+        "https://job-boards.greenhouse.io/prueba/jobs/1"
+    )
+    assert corto.called and not final.called  # el destino no se pide: solo se clasifica
+    ajeno = respx.get("https://acme.com/empleo")
+    assert asyncio.run(mundo.nucleo.resolver_redireccion("https://acme.com/empleo")) == (
+        "https://acme.com/empleo"
+    )
+    assert not ajeno.called  # un host que no es acortador nunca se pide
+
+
+@respx.mock
+def test_resolver_redireccion_encadena_saltos_y_tolera_errores(mundo):
+    respx.get("https://bit.ly/x").mock(
+        return_value=httpx.Response(302, headers={"location": "https://ai-job.link/y"})
+    )
+    respx.get("https://ai-job.link/y").mock(
+        return_value=httpx.Response(302, headers={"location": "https://wa.me/573001112233"})
+    )
+    assert asyncio.run(mundo.nucleo.resolver_redireccion("https://bit.ly/x")) == (
+        "https://wa.me/573001112233"
+    )
+    respx.get("https://t.co/z").mock(side_effect=httpx.ConnectTimeout("lenta"))
+    assert asyncio.run(mundo.nucleo.resolver_redireccion("https://t.co/z")) == "https://t.co/z"
+
+
+@respx.mock
+def test_preparar_esquema_lee_el_formulario_lo_guarda_y_lo_resuelve(mundo):
+    datos = json.loads((FIXTURES.parent / "ats" / "greenhouse_trabajo.json").read_text("utf-8"))
+    respx.get("https://boards-api.greenhouse.io/v1/boards/prueba/jobs/4100100").mock(
+        return_value=httpx.Response(200, json=datos)
+    )
+    pid = en_curso(mundo, con_ia=False)
+    p, _ = tomar(mundo, pid)
+    url = "https://job-boards.greenhouse.io/prueba/jobs/4100100"
+    # Faltan datos del usuario (certificado, promedio…): la card los pregunta
+    assert asyncio.run(mundo.nucleo.preparar_esquema(p, "greenhouse", url)) is False
+    esquema = mundo.nucleo.indice.obtener(p.id_corto).esquema
+    assert "question_9001" in {c["nombre"] for c in esquema}
+    assert mundo.nucleo.pendientes(mundo.usuario.id)
+
+
+@respx.mock
+def test_preparar_esquema_sin_lector_o_con_api_caida_deja_el_motor_leer_la_pagina(mundo):
+    respx.get("https://boards-api.greenhouse.io/v1/boards/prueba/jobs/4100100").mock(
+        return_value=httpx.Response(503)
+    )
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    mundo.nucleo.indice.guardar_esquema(p.id_corto, [{"texto": "Vieja", "nombre": "q"}])
+    url = "https://job-boards.greenhouse.io/prueba/jobs/4100100"
+    assert asyncio.run(mundo.nucleo.preparar_esquema(p, "greenhouse", url)) is True
+    assert mundo.nucleo.indice.obtener(p.id_corto).esquema is None  # no deja el de otro destino
+    assert asyncio.run(mundo.nucleo.preparar_esquema(p, "propio", "https://acme.com/e")) is True
+
+
+# --- camino de LinkedIn al tocar ⚡ (postular-linkedin, 4.2) --------------------------------------
+
+ID_LI = id_corto("linkedin:1")
+DESTINO_ACME = Destino("https://acme.com/empleo/7", "propio")
+
+
+def linkedin_listo(mundo, *, aceptar=True):
+    """Navegador vinculado, LinkedIn encendida y, si se pide, el riesgo aceptado."""
+    mundo.vincular()
+    mundo.nucleo.config.plataformas["linkedin"].automatica = True
+    if aceptar:
+        version = mundo.nucleo.config.linkedin.riesgo_version
+        mundo.nucleo.linkedin.aceptar(mundo.usuario.id, version, T0)
+
+
+def permiso_externo(mundo, estado="listo"):
+    mundo.base.cx.execute(
+        "UPDATE navegadores SET portales_json = ?", (json.dumps({"externa": {"estado": estado}}),)
+    )
+    mundo.base.cx.commit()
+
+
+def test_linkedin_sin_aceptar_ofrece_el_riesgo_y_no_encola_nada(mundo):
+    linkedin_listo(mundo, aceptar=False)
+    toque = mundo.nucleo.tocar(mundo.usuario, ID_LI)
+    assert (toque.camino, toque.motivo) == (Camino.ACEPTAR_RIESGO, "linkedin_sin_aceptar")
+    assert toque.postulacion is None
+    assert mundo.nucleo.cola.de_usuario(mundo.usuario.id, ID_LI) is None
+
+
+def test_aceptar_el_riesgo_guarda_version_y_fecha_y_encola(mundo):
+    linkedin_listo(mundo, aceptar=False)
+    toque = mundo.nucleo.aceptar_riesgo_linkedin(mundo.usuario, ID_LI)
+    assert toque.camino == Camino.AUTOMATICA and toque.postulacion.estado == E.EN_COLA
+    estado = mundo.nucleo.linkedin.estado(mundo.usuario.id)
+    assert (estado.version, estado.aceptado_en) == (1, T0)
+    assert estado.sencilla and estado.externas
+
+
+def test_una_version_nueva_del_texto_del_riesgo_se_vuelve_a_pedir(mundo):
+    linkedin_listo(mundo)
+    mundo.nucleo.config.linkedin.riesgo_version = 2
+    assert mundo.nucleo.tocar(mundo.usuario, ID_LI).camino == Camino.ACEPTAR_RIESGO
+
+
+def test_solo_paquete_va_al_respaldo_y_la_misma_vacante_vuelve_a_ofrecer_el_riesgo(mundo):
+    linkedin_listo(mundo, aceptar=False)
+    toque = mundo.nucleo.solo_paquete_linkedin(mundo.usuario, ID_LI)
+    assert (toque.camino, toque.motivo) == (Camino.RESPALDO, "linkedin_sin_aceptar")
+    assert toque.postulacion.estado == E.RESPALDO
+    otra = mundo.nucleo.tocar(mundo.usuario, ID_LI)  # no queda como «ya la tienes»
+    assert (otra.camino, otra.postulacion.id) == (Camino.ACEPTAR_RIESGO, toque.postulacion.id)
+    aceptada = mundo.nucleo.aceptar_riesgo_linkedin(mundo.usuario, ID_LI)
+    assert aceptada.camino == Camino.AUTOMATICA  # el mismo registro vuelve a la cola
+    assert aceptada.postulacion.id == toque.postulacion.id
+    assert aceptada.postulacion.estado == E.EN_COLA
+
+
+def test_con_los_dos_interruptores_apagados_va_al_respaldo(mundo):
+    linkedin_listo(mundo)
+    mundo.nucleo.linkedin.fijar(mundo.usuario.id, sencilla=False, externas=False)
+    toque = mundo.nucleo.tocar(mundo.usuario, ID_LI)
+    assert (toque.camino, toque.motivo) == (Camino.RESPALDO, "linkedin_apagado")
+
+
+def test_con_un_solo_interruptor_apagado_se_encola_y_se_decide_al_conocer_el_tipo(mundo):
+    linkedin_listo(mundo)
+    mundo.nucleo.linkedin.fijar(mundo.usuario.id, externas=False)
+    assert mundo.nucleo.tocar(mundo.usuario, ID_LI).camino == Camino.AUTOMATICA
+
+
+def test_el_destino_guardado_se_clasifica_al_tocar(mundo):
+    linkedin_listo(mundo)
+    permiso_externo(mundo)
+    guardar(mundo.base, ID_LI, Destino("https://acme.wd3.myworkdayjobs.com/x/job/1", "workday",
+                                       "ats_con_cuenta"), T0)
+    toque = mundo.nucleo.tocar(mundo.usuario, ID_LI)
+    assert (toque.camino, toque.motivo) == (Camino.RESPALDO, "ats_con_cuenta")
+
+
+def test_el_destino_guardado_respeta_las_externas_apagadas_y_el_permiso(mundo):
+    linkedin_listo(mundo)
+    guardar(mundo.base, ID_LI, DESTINO_ACME, T0)
+    sin_permiso = mundo.nucleo.tocar(mundo.usuario, ID_LI)
+    assert (sin_permiso.camino, sin_permiso.motivo) == (Camino.RESPALDO, "sin_permiso_externo")
+    mundo.base.cx.execute("DELETE FROM postulaciones")
+    permiso_externo(mundo, "sin_permiso")  # la extensión lo reporta, pero sin concederlo
+    assert mundo.nucleo.tocar(mundo.usuario, ID_LI).motivo == "sin_permiso_externo"
+    mundo.base.cx.execute("DELETE FROM postulaciones")
+    permiso_externo(mundo)
+    mundo.nucleo.linkedin.fijar(mundo.usuario.id, externas=False)
+    assert mundo.nucleo.tocar(mundo.usuario, ID_LI).motivo == "linkedin_apagado"
+    mundo.base.cx.execute("DELETE FROM postulaciones")
+    mundo.nucleo.linkedin.fijar(mundo.usuario.id, externas=True)
+    assert mundo.nucleo.tocar(mundo.usuario, ID_LI).camino == Camino.AUTOMATICA
+
+
+def test_un_destino_viejo_se_ignora_y_se_abre_linkedin_de_nuevo(mundo):
+    linkedin_listo(mundo)
+    guardar(mundo.base, ID_LI, Destino("https://wa.me/573001112233", "propio", "x"),
+            T0 - timedelta(days=8))
+    assert mundo.nucleo.tocar(mundo.usuario, ID_LI).camino == Camino.AUTOMATICA
+
+
+def test_pausar_linkedin_guarda_las_horas_de_la_configuracion(mundo):
+    linkedin_listo(mundo)
+    assert mundo.nucleo.pausar_linkedin(mundo.usuario.id) == T0 + timedelta(hours=24)
+    assert mundo.nucleo.linkedin.pausado_hasta(mundo.usuario.id, T0) is not None
+
+
+def retenida_de_linkedin(mundo):
+    """Postulación de LinkedIn con destino guardado, retenida mientras se resuelve de antemano."""
+    linkedin_listo(mundo)
+    permiso_externo(mundo)
+    return mundo.nucleo.tocar(mundo.usuario, ID_LI).postulacion
+
+
+@respx.mock
+def test_anticipar_destino_confirma_que_sigue_abierta_y_deja_salir_la_postulacion(mundo):
+    guardar(mundo.base, ID_LI, DESTINO_ACME, T0 - timedelta(days=1))
+    respx.get(URL_LI).mock(
+        return_value=httpx.Response(200, text=(FIXTURES / "linkedin.html").read_text("utf-8"))
+    )
+    p = retenida_de_linkedin(mundo)
+    vacante = mundo.nucleo.indice.obtener(ID_LI)
+    assert mundo.nucleo.requiere_anticipo(p, vacante)
+    mundo.nucleo.cola.retener(p.id, T0)
+    assert asyncio.run(mundo.nucleo.anticipar_destino(p, vacante)) == "resuelto"
+    fila = mundo.base.cx.execute("SELECT ultima_vez FROM destinos_linkedin").fetchone()
+    assert fila["ultima_vez"] == a_texto(T0)  # el uso queda anotado
+
+
+@respx.mock
+def test_anticipar_destino_de_una_vacante_cerrada_la_cierra_sin_abrir_nada(mundo):
+    guardar(mundo.base, ID_LI, DESTINO_ACME, T0 - timedelta(days=1))
+    respx.get(URL_LI).mock(
+        return_value=httpx.Response(
+            200, text="<html><body><main><h1>No longer accepting applications</h1></main></body>"
+        )
+    )
+    p = retenida_de_linkedin(mundo)
+    vacante = mundo.nucleo.indice.obtener(ID_LI)
+    mundo.nucleo.cola.retener(p.id, T0)
+    assert asyncio.run(mundo.nucleo.anticipar_destino(p, vacante)) == "cerrada"
+    assert mundo.nucleo.cola.obtener(p.id).estado == E.VACANTE_CERRADA
+
+
+@respx.mock
+def test_anticipar_destino_lee_el_formulario_del_destino_y_pregunta_lo_que_falta(mundo):
+    destino = "https://job-boards.greenhouse.io/prueba/jobs/4100100"
+    guardar(mundo.base, ID_LI, Destino(destino, "greenhouse"), T0 - timedelta(days=1))
+    respx.get(URL_LI).mock(
+        return_value=httpx.Response(200, text=(FIXTURES / "linkedin.html").read_text("utf-8"))
+    )
+    datos = json.loads((FIXTURES.parent / "ats" / "greenhouse_trabajo.json").read_text("utf-8"))
+    respx.get("https://boards-api.greenhouse.io/v1/boards/prueba/jobs/4100100").mock(
+        return_value=httpx.Response(200, json=datos)
+    )
+    p = retenida_de_linkedin(mundo)
+    vacante = mundo.nucleo.indice.obtener(ID_LI)
+    mundo.nucleo.cola.retener(p.id, T0)
+    assert asyncio.run(mundo.nucleo.anticipar_destino(p, vacante)) == "faltan"
+    assert mundo.nucleo.pendientes(mundo.usuario.id)
+
+
+def test_sin_destino_guardado_el_anticipo_es_el_del_esquema_de_la_vacante(mundo):
+    linkedin_listo(mundo)
+    p = mundo.nucleo.tocar(mundo.usuario, ID_LI).postulacion
+    vacante = mundo.nucleo.indice.obtener(ID_LI)
+    assert not mundo.nucleo.requiere_anticipo(p, vacante)
+    assert asyncio.run(mundo.nucleo.anticipar_destino(p, vacante)) == "resuelto"
 
 
 # --- vigía: ensayo diario de cada plataforma en el navegador del dueño -------------------------

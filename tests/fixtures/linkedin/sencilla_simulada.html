@@ -1,0 +1,121 @@
+<!doctype html>
+<!-- Simulación para las pruebas de la extensión (postular-linkedin 5.3), armada con el marcado de
+     los recortes de la 5.1 (vacante_sencilla.html, modal_varios_pasos_*.html, modal_un_paso.html y
+     modal_confirmar_cierre.html): «Solicitud sencilla» abre un <dialog> de tres páginas (contacto,
+     CV, revisión con la casilla «Sigue a …» marcada) y «Enviar solicitud» manda lo elegido a
+     /recibir-solicitud y muestra una confirmación falsa. La X abre el aviso «¿Quieres guardar esta
+     solicitud?»; «Descartar» y «Guardar» avisan a /descartar y /guardar. Con ?sin_cv=1 la cuenta no
+     tiene ningún CV guardado (el <input type=file> aparece solo al pulsar «Cargar currículum»). No
+     es una página real de LinkedIn. -->
+<html lang="es"><body><main>
+<section>
+  <p>Empresa de Prueba</p>
+  <h1>Practicante de soporte</h1>
+  <p>Medellín · hace 1 semana · Más de 100 solicitudes</p>
+  <div>
+    <button type="button" aria-label="Solicitud sencilla"><span>Solicitud sencilla</span></button>
+    <button type="button" aria-label="Guardar empleo"><span>Guardar</span></button>
+  </div>
+</section>
+</main>
+<script>
+  const SIN_CV = new URLSearchParams(location.search).has("sin_cv");
+  const PAGINAS = [
+    `<div data-testid="lazy-column">
+      <p>Contact info</p>
+      <label for="_r_1c_">Email address*</label>
+      <select required="" id="_r_1c_"><option value=""></option><option value="1">ana@example.com</option></select>
+      <label for="_r_1e_">Código del país*</label>
+      <select required="" id="_r_1e_"><option value=""></option><option value="57" selected>Colombia (+57)</option></select>
+      <label for="_r_1g_">Mobile phone number*</label>
+      <input type="tel" required="" id="_r_1g_">
+    </div>
+    <footer><button type="button" data-ir="1"><span><span>Siguiente</span></span></button></footer>`,
+    `<div data-testid="lazy-column">
+      <p>Resume*</p>
+      <fieldset role="radiogroup"><div id="easyApplyUploadedResumeRef">${SIN_CV ? "" :
+        '<input type="radio" name="cv" id="cv-1" value="cv-1"><label for="cv-1">CV_Ana_Perez.pdf</label>'}</div></fieldset>
+      <button type="button" data-cargar="1"><span><span>Cargar currículum</span></span></button>
+    </div>
+    <footer>
+      <button type="button" data-ir="0"><span><span>Volver</span></span></button>
+      <button type="button" data-ir="2"><span><span>Siguiente</span></span></button>
+    </footer>`,
+    `<div data-testid="lazy-column">
+      <p>Revisa tu solicitud</p>
+      <input type="checkbox" aria-label="Sigue a Empresa de Prueba para enterarte de las novedades de su página" checked="" id="_r_1j_"><label for="_r_1j_"></label>
+      <p>Sigue a Empresa de Prueba para enterarte de las novedades de su página</p>
+    </div>
+    <footer>
+      <button type="button" data-ir="1"><span><span>Volver</span></span></button>
+      <button type="button" data-enviar="1"><span><span>Enviar solicitud</span></span></button>
+    </footer>`,
+  ];
+  const elegido = {};
+  let dialogo = null;
+
+  function mostrar(i) {
+    dialogo.querySelector("[data-testid=dialog-content]").innerHTML =
+      `<p>${i + 1}/3 páginas</p>` + PAGINAS[i];
+  }
+
+  function guardarElegido() {
+    const correo = dialogo.querySelector("#_r_1c_");
+    if (correo) elegido.correo = correo.value;
+    const tel = dialogo.querySelector("#_r_1g_");
+    if (tel) elegido.telefono = tel.value;
+    const cv = dialogo.querySelector("input[name=cv]");
+    if (cv) elegido.cv = cv.checked ? cv.value : null;
+    const archivo = dialogo.querySelector("input[type=file]");
+    if (archivo) elegido.archivo = archivo.files.length;
+  }
+
+  function avisar(ruta, cuerpo) {
+    return fetch(ruta, { method: "POST", body: JSON.stringify(cuerpo || {}) });
+  }
+
+  document.querySelector("button[aria-label='Solicitud sencilla']").addEventListener("click", () => {
+    dialogo = document.createElement("dialog");
+    dialogo.setAttribute("open", "");
+    dialogo.setAttribute("aria-labelledby", "dialog-header");
+    dialogo.innerHTML = `<button type="button" aria-label="Descartar" data-x="1"></button>
+      <header id="dialog-header"><h2>Aplicar a Empresa de Prueba</h2></header>
+      <div data-testid="dialog-content"></div>`;
+    document.body.append(dialogo);
+    setTimeout(() => mostrar(0), 300);
+    dialogo.addEventListener("click", async (evento) => {
+      const b = evento.target.closest("button");
+      if (!b) return;
+      if (b.dataset.ir) {
+        guardarElegido();
+        mostrar(Number(b.dataset.ir));
+      } else if (b.dataset.cargar) {
+        if (!dialogo.querySelector("input[type=file]")) {
+          b.insertAdjacentHTML("afterend",
+            '<label for="cv-subido">Resume</label><input type="file" id="cv-subido" accept=".pdf">');
+        }
+      } else if (b.dataset.enviar) {
+        const seguir = dialogo.querySelector("input[type=checkbox]");
+        await avisar("/recibir-solicitud", { ...elegido, seguir: seguir.checked });
+        dialogo.querySelector("[data-testid=dialog-content]").innerHTML =
+          "<h2>Se envió tu solicitud a Empresa de Prueba</h2><button type=button>Listo</button>";
+      } else if (b.dataset.x) {
+        const aviso = document.createElement("dialog");
+        aviso.setAttribute("open", "");
+        aviso.innerHTML = `<button type="button" aria-label="Descartar"></button>
+          <header><h2>¿Quieres guardar esta solicitud?</h2></header>
+          <footer><button type="button" data-fin="descartar"><span><span>Descartar</span></span></button>
+          <button type="button" data-fin="guardar"><span><span>Guardar</span></span></button></footer>`;
+        document.body.append(aviso);
+        aviso.addEventListener("click", async (e) => {
+          const fin = e.target.closest("button[data-fin]");
+          if (!fin) return;
+          await avisar("/" + fin.dataset.fin);
+          aviso.remove();
+          dialogo.remove();
+        });
+      }
+    });
+  });
+</script>
+</body></html>

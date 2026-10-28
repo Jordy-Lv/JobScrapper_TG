@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Recorte del reconocimiento con sesión (2026-10-25, tarea 5.1). Solicitud sencilla de UN solo
+     paso: baja directo a «Enviar solicitud», sin «Siguiente» ni «Revisar». Los valores (correo,
+     código de país, teléfono) y la tarjeta del perfil se quitaron; las opciones de los select
+     se recortan a una. Este modal no se envió: se cerró con «Descartar». -->
+<html lang="es"><body>
+<dialog open aria-labelledby="dialog-header" data-testid="dialog">
+  <button type="button" aria-label="Descartar"></button>
+  <header id="dialog-header"><h2>Aplicar a Holcim ADC</h2></header>
+  <div data-testid="dialog-content">
+    <div data-testid="lazy-column">
+      <p>Contact info</p>
+      <label for="_r_1c_"><div>Email*</div></label>
+      <select required="" id="_r_1c_"><option></option></select>
+      <label for="_r_1e_"><div>Código del país*</div></label>
+      <select required="" id="_r_1e_"><option></option></select>
+      <label for="_r_1g_"><div>Phone*</div></label>
+      <input type="tel" required="" id="_r_1g_">
+    </div>
+    <div>
+      <p>Resume</p>
+      <p>Selecciona o carga un currículum en formato DOC, DOCX o PDF con un tamaño inferior a 2 MB.</p>
+      <fieldset role="radiogroup"><div id="easyApplyUploadedResumeRef"></div></fieldset>
+      <button type="button"><span><span>Cargar currículum</span></span></button>
+    </div>
+    <div>
+      <input type="checkbox" aria-label="Sigue a Holcim ADC para enterarte de las novedades de su página" checked="" id="_r_1j_"><label for="_r_1j_"></label>
+      <p>Sigue a Holcim ADC para enterarte de las novedades de su página</p>
+    </div>
+    <div>
+      <hr role="presentation">
+      <p>Tus<a>respuestas y tu CV se guardarán</a>para personalizar y simplificar el proceso de ahora en adelante.<a>Obtén más información</a>sobre cómo LinkedIn utiliza tus datos en funcionalidades con IA que conectan a equipos de selección y personas en busca de empleo.<a>Aviso de derechos laborales</a></p>
+    </div>
+  </div>
+  <div>
+    <hr role="presentation">
+    <footer><button type="button"><span><span>Enviar solicitud</span></span></button></footer>
+  </div>
+  <section><h2 data-testid="toasts-title">0 notificaciones</h2></section>
+</dialog>
+</body></html>

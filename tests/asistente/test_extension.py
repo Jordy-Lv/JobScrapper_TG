@@ -36,6 +36,9 @@ SELECTORES = RAIZ / "assets" / "asistente" / "selectores"
 REGLAS_MOTOR = json.loads(
     (RAIZ / "assets" / "asistente" / "motor_generico.json").read_text(encoding="utf-8")
 )
+FAMILIAS_ATS = json.loads(
+    (RAIZ / "assets" / "asistente" / "familias_ats.json").read_text(encoding="utf-8")
+)
 TOKEN = "token-de-prueba"
 PDF = b"%PDF-1.4\n% CV de prueba\n"
 
@@ -61,6 +64,8 @@ class ApiPrueba:
         self.al_envio = lambda: None  # se llama al registrar el envío, antes del clic
         self.demora_pantalla = 0.0
         self.selectores_extra: dict[str, dict] = {}  # plataformas de prueba sin archivo
+        # Respuesta de POST /destino (postular-linkedin): por defecto, respaldo
+        self.destino = lambda cuerpo: {"accion": "respaldo", "motivo": "linkedin_apagado"}
         self.app = self._app()
 
     def de(self, ruta: str) -> list[dict]:
@@ -106,7 +111,8 @@ class ApiPrueba:
                          for p in SELECTORES.glob("*.json")}  # fmt: skip
             return {"trabajo": trabajo, "version_minima": "1.0.0", "actualizar": False,
                     "selectores": versiones, "cuentas": cuentas, "latido_s": 30,
-                    "motor_generico": REGLAS_MOTOR["version"]}  # fmt: skip
+                    "motor_generico": REGLAS_MOTOR["version"],
+                    "familias_ats": FAMILIAS_ATS["version"]}  # fmt: skip
 
         @app.get("/api/v1/motor_generico")
         async def motor_generico(request: Request):
@@ -115,6 +121,13 @@ class ApiPrueba:
             api.llamadas.append(("motor_generico", {}))
             reglas = {k: v for k, v in REGLAS_MOTOR.items() if k != "nota"}
             return {"version": REGLAS_MOTOR["version"], "reglas": reglas}
+
+        @app.get("/api/v1/familias_ats")
+        async def familias_ats(request: Request):
+            if not autorizado(request):
+                return JSONResponse({"detail": "token"}, status_code=401)
+            api.llamadas.append(("familias_ats", {}))
+            return {"version": FAMILIAS_ATS["version"], "familias": FAMILIAS_ATS["familias"]}
 
         @app.get("/api/v1/preferencias/{plataforma}")
         async def ver_preferencias(plataforma: str, request: Request):
@@ -187,6 +200,8 @@ class ApiPrueba:
             if accion == "pantalla":
                 await asyncio.sleep(api.demora_pantalla)
                 return api.pantalla(cuerpo)
+            if accion == "destino":
+                return api.destino(cuerpo)
             pedir_usuario = (
                 (api.esperar(cuerpo["campos"]) if callable(api.esperar) else api.esperar)
                 if accion == "formulario" and cuerpo.get("campos")
@@ -243,6 +258,7 @@ def api(servidor):
     servidor.al_envio = lambda: None
     servidor.demora_pantalla = 0.0
     servidor.selectores_extra = {}
+    servidor.destino = lambda cuerpo: {"accion": "respaldo", "motivo": "linkedin_apagado"}
     return servidor
 
 
@@ -250,16 +266,20 @@ def api(servidor):
 
 
 def copia_extension(destino: Path, permisos: tuple[str, ...] = (),
-                    plataformas: dict[str, list[str]] | None = None) -> Path:  # fmt: skip
+                    plataformas: dict[str, list[str]] | None = None,
+                    externa: bool = False) -> Path:  # fmt: skip
     """Copia la extensión y permite el servidor local de prueba (como lo haría Opciones).
 
     `permisos`: dominios opcionales que el usuario ya activó desde el popup (por ejemplo
     elempleo.com). `plataformas`: plataformas de prueba {nombre: dominios} que se suman a
-    DOMINIOS, con su permiso: la «externa» de postular-linkedin aún no existe."""
+    DOMINIOS, con su permiso. `externa`: el usuario ya concedió el permiso de las páginas de las
+    empresas (`https://*/*`, postular-linkedin)."""
     shutil.copytree(EXTENSION, destino)
     manifiesto = json.loads((destino / "manifest.json").read_text(encoding="utf-8"))
     manifiesto["host_permissions"].append("http://127.0.0.1/*")
     manifiesto["host_permissions"] += [f"https://*.{d}/*" for d in permisos]
+    if externa:
+        manifiesto["host_permissions"].append("https://*/*")
     if plataformas:
         archivo = destino / "portales.js"
         texto = archivo.read_text(encoding="utf-8")
@@ -383,9 +403,9 @@ def correr(corutina):
 
 
 async def abrir(tmp_path: Path, url_api: str, portales: Portales, *, vinculado=True,
-                permisos: tuple[str, ...] = (), plataformas=None):  # fmt: skip
+                permisos: tuple[str, ...] = (), plataformas=None, externa=False):  # fmt: skip
     pw = await playwright_api.async_playwright().start()
-    ruta = copia_extension(tmp_path / "ext", permisos, plataformas)
+    ruta = copia_extension(tmp_path / "ext", permisos, plataformas, externa)
     try:
         contexto = await pw.chromium.launch_persistent_context(
             str(tmp_path / "perfil"), channel="chromium", headless=True,
@@ -394,6 +414,10 @@ async def abrir(tmp_path: Path, url_api: str, portales: Portales, *, vinculado=T
     except Exception as exc:  # Chromium no instalado
         await pw.stop()
         pytest.skip(f"Chromium no disponible: {exc}")
+    if externa:
+        # Con el permiso amplio la extensión puede abrir cualquier sitio: nada sale a la red real
+        # (las rutas que se registran después tienen prioridad)
+        await contexto.route("https://**/*", portales.atender)
     await contexto.route("https://*.computrabajo.com/**", portales.atender)
     await contexto.route("https://*.magneto365.com/**", portales.atender)
     await contexto.route("https://*.elempleo.com/**", portales.atender)
@@ -455,7 +479,7 @@ def respuestas_ana(campos: list[dict]) -> list[dict]:
 def test_manifiesto_con_permisos_minimos():
     manifiesto = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
     assert manifiesto["manifest_version"] == 3
-    assert manifiesto["version"] == "1.2.2"
+    assert manifiesto["version"] == "1.3.1"
     assert set(manifiesto["permissions"]) == {"storage", "tabs", "alarms", "scripting"}
     for origen in manifiesto["host_permissions"]:
         assert origen.startswith(("https://*.computrabajo.com", "https://*.magneto365.com",
@@ -469,6 +493,10 @@ def test_manifiesto_con_permisos_minimos():
     opcionales = set(manifiesto["optional_host_permissions"])
     for dominio in ("elempleo.com", "getonbrd.com", "linkedin.com", "buscadordeempleo.gov.co"):
         assert f"https://*.{dominio}/*" in opcionales
+    # Las páginas externas de LinkedIn (postular-linkedin): el permiso amplio es solo opcional y lo
+    # pide el popup con un gesto del usuario; nunca viene de fábrica
+    assert "https://*/*" in opcionales
+    assert "https://*/*" not in manifiesto["host_permissions"]
 
 
 def test_sin_codigo_remoto():
@@ -494,7 +522,7 @@ def test_vinculacion_automatica_desde_la_pagina(tmp_path, api):
     correr(flujo())
     vinculo = api.de("vincular")[0]
     assert vinculo["codigo"] == "ABCD2345"
-    assert vinculo["version"] == "1.2.2"
+    assert vinculo["version"] == "1.3.1"
 
 
 def test_codigo_vencido_lo_dice_en_la_pagina(tmp_path, api):
@@ -2180,6 +2208,339 @@ def test_elempleo_cuestionario_guardado_hacia_el_empleador_queda_incierta(tmp_pa
     assert resultado["estado"] == "incierta"
     assert "empleador" in resultado["motivo"]
     assert cuestionario_recibido(portales) is not None
+
+
+# --- postular-linkedin 5.3: LinkedIn y las páginas de las empresas ----------------------------
+# Las páginas de LinkedIn son los recortes de tests/fixtures/linkedin/ (5.1) y las de las empresas,
+# las copias de tests/fixtures/formularios/. La API de prueba responde POST /destino con lo que
+# fija cada prueba y las pantallas con las decisiones fijas de ServidorFalso.
+
+FIXTURES_LINKEDIN = Path(__file__).parent.parent / "fixtures" / "linkedin"
+VACANTE_LI = "https://www.linkedin.com/jobs/view/4100100/"
+GH_LI = "https://job-boards.greenhouse.io/prueba/jobs/101"
+GH_ENVIO = "https://job-boards.greenhouse.io/prueba/jobs/101/enviar"
+EMPRESA_LI = "https://empresa-prueba.com/trabajo/101"
+FAMILIAS_HOSTS = ["ashbyhq.com", "greenhouse.io", "grnh.se", "lever.co", "myworkdayjobs.com"]
+
+
+def recorte_linkedin(nombre: str) -> str:
+    return (FIXTURES_LINKEDIN / nombre).read_text(encoding="utf-8")
+
+
+def sitio_linkedin(pagina: str = "vacante_externa.html", url: str = VACANTE_LI):
+    """Sitio falso con la vacante de LinkedIn y la copia de Greenhouse; guarda lo que se pide."""
+    from tests.asistente.test_motor_generico import Sitio, sitio_de
+
+    class SitioLinkedin(Sitio):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pedidas: list[str] = []
+            self.cuerpos: dict[str, list[str]] = {}
+
+        async def atender(self, route) -> None:
+            peticion = route.request
+            self.pedidas.append(peticion.url)
+            if peticion.method == "POST" and "linkedin.com" in peticion.url:
+                url = peticion.url.split("?")[0]
+                self.posts.append(url)
+                self.cuerpos.setdefault(url, []).append(peticion.post_data or "")
+                await route.fulfill(status=200, body="{}", content_type="application/json")
+                return
+            await super().atender(route)
+
+    sitio = SitioLinkedin()
+    gh = sitio_de("greenhouse")
+    sitio.paginas.update(gh.paginas)
+    sitio.envios.update(gh.envios)
+    sitio.paginas[url] = recorte_linkedin(pagina)
+    return sitio
+
+
+def trabajo_li(pid: int = 60, url: str = VACANTE_LI, **extra) -> dict:
+    return {"id": pid, "tipo": "postular", "plataforma": "linkedin", "url": url,
+            "titulo": "Practicante de soporte", "actualizar_cv_portal": False,
+            "motor_generico": {"respaldo_declarado": False, "max_pantallas": 12,
+                               "max_pantallas_una_pregunta": 40, "max_minutos": 10},
+            **extra}  # fmt: skip
+
+
+def abrir_destino(url: str = GH_LI, familia: str | None = "greenhouse") -> dict:
+    return {"accion": "abrir", "url": url, "familia": familia, "receta": None,
+            "familia_datos": FAMILIAS_ATS["familias"].get(familia) if familia else None,
+            "familias_hosts": FAMILIAS_HOSTS}  # fmt: skip
+
+
+def decision_fija(api):
+    """Las decisiones de ServidorFalso con el botón que sugieren las reglas (como el bucle)."""
+    from tests.asistente.test_bucle_generico import decide_con
+    from tests.asistente.test_motor_generico import ServidorFalso
+
+    api.pantalla = decide_con(ServidorFalso())
+
+
+def ejecutar_li(tmp_path, api, sitio, pedido: dict, *, externa: bool = True) -> None:
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, Portales(), externa=externa,
+                          permisos=("linkedin.com",))  # fmt: skip
+        try:
+            await nav.contexto.route("https://**/*", sitio.atender)
+            await nav.guardar({"pruebas": {"resultado_ms": 1500}})
+            await asyncio.wait_for(nav.evaluar(f"asistente.ejecutar({json.dumps(pedido)})"), 240)
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+
+
+def resultado_li(api) -> dict:
+    resultados = api.de("resultado")
+    assert len(resultados) == 1, [resultados, [p["paso"] for p in api.de("paso")]]
+    return resultados[0]
+
+
+def test_externa_lee_el_destino_del_enlace_y_llega_a_la_pagina_de_gracias(tmp_path, api):
+    decision_fija(api)
+    api.destino = lambda cuerpo: abrir_destino()
+    sitio = sitio_linkedin()
+    ejecutar_li(tmp_path, api, sitio, trabajo_li())
+    # El destino sale del enlace «Solicitar en el sitio web de la empresa», no del aviso de
+    # privacidad, y nunca se pulsa «Solicitar» (no se pide /safety/go)
+    [destino] = api.de("destino")
+    assert destino == {
+        "id": 60,
+        "tipo": "externa",
+        "url": "https://job-boards.greenhouse.io/prueba/jobs/4100100?utm_source=linkedin",
+    }
+    assert not [u for u in sitio.pedidas if "/safety/go" in u]
+    assert resultado_li(api)["estado"] == "enviada"
+    assert sitio.contados(GH_ENVIO) == 1 and len(api.de("envio")) == 1
+    # La misma pestaña pasó de LinkedIn a la página de la empresa: las pantallas son de Greenhouse
+    assert all("greenhouse.io" in p["url"] for p in api.de("pantalla"))
+    assert "linkedin_tipo" in [p["paso"] for p in api.de("paso")]
+
+
+def test_un_destino_guardado_se_abre_sin_pasar_por_linkedin(tmp_path, api):
+    decision_fija(api)
+    sitio = sitio_linkedin()
+    destino = {"url": GH_LI, "familia": "greenhouse", "familias_hosts": FAMILIAS_HOSTS}
+    ejecutar_li(tmp_path, api, sitio, trabajo_li(destino=destino))
+    assert resultado_li(api)["estado"] == "enviada"
+    assert not api.de("destino")
+    assert not [u for u in sitio.pedidas if "linkedin.com" in u]
+    # Los datos de la familia se piden aparte (GET /familias_ats) cuando el trabajo no los trae
+    assert api.de("familias_ats")
+
+
+PAGINA_SALTO = """<!doctype html><html lang="en"><body><main><h1>Support intern</h1>
+<p>Join our team in Medellín.</p><a href="{destino}">Apply now</a></main></body></html>"""
+
+
+@pytest.mark.parametrize(("ir_a", "motivo"), [
+    ("https://otro-dominio.org/formulario", "salto_de_dominio"),
+    ("https://accounts.google.com/o/oauth2/auth?client_id=prueba", "oauth"),
+], ids=["salto_de_dominio", "oauth"])  # fmt: skip
+def test_la_pagina_externa_se_detiene_si_lleva_a_otro_sitio(tmp_path, api, ir_a, motivo):
+    decision_fija(api)
+    api.destino = lambda cuerpo: abrir_destino(EMPRESA_LI, familia=None)
+    sitio = sitio_linkedin()
+    sitio.paginas[EMPRESA_LI] = PAGINA_SALTO.format(destino=ir_a)
+    sitio.paginas[ir_a] = "<!doctype html><html><body><form><input name=x></form></body></html>"
+    ejecutar_li(tmp_path, api, sitio, trabajo_li())
+    resultado = resultado_li(api)
+    assert resultado["estado"] == "formulario_desconocido"
+    assert resultado["motivo"] == motivo
+    assert not api.de("envio")
+    # Nada se leyó ni se llenó en el otro sitio
+    assert all(p["url"].startswith(EMPRESA_LI) for p in api.de("pantalla"))
+
+
+def test_un_destino_que_ya_es_de_otro_sitio_no_se_abre(tmp_path, api):
+    api.destino = lambda cuerpo: abrir_destino("https://login.empresa-prueba.com/login", None)
+    sitio = sitio_linkedin()
+    ejecutar_li(tmp_path, api, sitio, trabajo_li())
+    resultado = resultado_li(api)
+    assert (resultado["estado"], resultado["motivo"]) == (
+        "formulario_desconocido",
+        "pagina_prohibida",
+    )
+    assert not [u for u in sitio.pedidas if "empresa-prueba.com" in u]
+
+
+def test_respaldo_del_servidor_no_abre_el_destino(tmp_path, api):
+    api.destino = lambda cuerpo: {"accion": "respaldo", "motivo": "destino_mensajeria",
+                                  "url": "https://wa.me/570000000"}  # fmt: skip
+    sitio = sitio_linkedin()
+    ejecutar_li(tmp_path, api, sitio, trabajo_li())
+    resultado = resultado_li(api)
+    assert (resultado["estado"], resultado["motivo"]) == (
+        "formulario_desconocido",
+        "destino_mensajeria",
+    )
+    assert not [u for u in sitio.pedidas if "wa.me" in u]
+
+
+@pytest.mark.parametrize(("recorte", "motivo"), [
+    ("vacante_cerrada.html", "cerrada"), ("vacante_pausada.html", "pausada"),
+], ids=["cerrada", "pausada"])  # fmt: skip
+def test_vacante_cerrada_o_pausada_no_toca_nada(tmp_path, api, recorte, motivo):
+    sitio = sitio_linkedin(recorte)
+    ejecutar_li(tmp_path, api, sitio, trabajo_li())
+    resultado = resultado_li(api)
+    assert (resultado["estado"], resultado["motivo"]) == ("vacante_cerrada", motivo)
+    assert not api.de("destino")
+
+
+def test_aviso_de_seguridad_bloquea_con_su_motivo(tmp_path, api):
+    sitio = sitio_linkedin()
+    sitio.paginas[VACANTE_LI] = (
+        "<!doctype html><html lang=es><body><main><h1>Verificación de "
+        "seguridad</h1><p>Confirma que eres tú.</p></main></body></html>"
+    )
+    ejecutar_li(tmp_path, api, sitio, trabajo_li())
+    resultado = resultado_li(api)
+    assert (resultado["estado"], resultado["motivo"]) == ("bloqueada", "aviso_seguridad")
+
+
+def test_el_muro_de_ingreso_es_falta_de_sesion_y_no_aviso_de_seguridad(tmp_path, api):
+    """/authwall también dice «Verificación de seguridad» (visto el 2026-10-27)."""
+    muro = "https://www.linkedin.com/authwall?trk=prueba"
+    sitio = sitio_linkedin()
+    sitio.paginas[muro] = (
+        "<!doctype html><html lang=es><body><dialog open><h2>Verificación de "
+        "seguridad</h2></dialog></body></html>"
+    )
+    ejecutar_li(tmp_path, api, sitio, trabajo_li(url=muro))
+    assert resultado_li(api)["estado"] == "esperando_sesion"
+
+
+VACANTE_SENCILLA = "https://www.linkedin.com/jobs/view/4200200/"
+
+
+def test_sencilla_llega_a_la_confirmacion_con_seguir_a_la_empresa_desmarcado(tmp_path, api):
+    decision_fija(api)
+    api.destino = lambda cuerpo: {"accion": "sencilla"}
+    sitio = sitio_linkedin("sencilla_simulada.html", VACANTE_SENCILLA)
+    ejecutar_li(tmp_path, api, sitio, trabajo_li(url=VACANTE_SENCILLA), externa=False)
+    assert api.de("destino") == [{"id": 60, "tipo": "sencilla"}]
+    assert resultado_li(api)["estado"] == "enviada", [p["paso"] for p in api.de("paso")]
+    [enviado] = sitio.cuerpos["https://www.linkedin.com/recibir-solicitud"]
+    datos = json.loads(enviado)
+    assert datos["seguir"] is False  # «Sigue a …» venía marcada
+    assert datos["cv"] == "cv-1"  # el primer CV guardado
+    assert datos["correo"] == "1" and "3001234567" in datos["telefono"]
+    assert len(api.de("envio")) == 1
+    # Las pantallas son las del modal: la casilla y el grupo de CV no van al servidor
+    textos = [c["texto"] for p in api.de("pantalla") for c in p["campos"]]
+    assert not [t for t in textos if t.startswith("Sigue a") or "CV_Ana" in t]
+    assert not [u for u in sitio.posts if u.endswith(("/guardar", "/descartar"))]
+    assert "seguir_empresa" in [p["paso"] for p in api.de("paso")]
+
+
+def test_sencilla_sin_cv_guardado_ni_autorizacion_va_al_respaldo_y_descarta(tmp_path, api):
+    decision_fija(api)
+    api.destino = lambda cuerpo: {"accion": "sencilla"}
+    url = VACANTE_SENCILLA + "?sin_cv=1"
+    sitio = sitio_linkedin("sencilla_simulada.html", url)
+    ejecutar_li(tmp_path, api, sitio, trabajo_li(url=url), externa=False)
+    resultado = resultado_li(api)
+    assert (resultado["estado"], resultado["motivo"]) == (
+        "formulario_desconocido",
+        "linkedin_sin_cv",
+    )
+    assert not api.de("envio") and "https://www.linkedin.com/recibir-solicitud" not in sitio.posts
+    # Se cerró con la X y «Descartar», nunca «Guardar»
+    assert "https://www.linkedin.com/descartar" in sitio.posts
+    assert "https://www.linkedin.com/guardar" not in sitio.posts
+
+
+def test_sencilla_apagada_por_el_usuario_no_abre_el_modal(tmp_path, api):
+    api.destino = lambda cuerpo: {"accion": "respaldo", "motivo": "linkedin_apagado"}
+    sitio = sitio_linkedin("sencilla_simulada.html", VACANTE_SENCILLA)
+    ejecutar_li(tmp_path, api, sitio, trabajo_li(url=VACANTE_SENCILLA), externa=False)
+    resultado = resultado_li(api)
+    assert (resultado["estado"], resultado["motivo"]) == (
+        "formulario_desconocido",
+        "linkedin_apagado",
+    )
+    assert not api.de("pantalla")
+
+
+def test_regla_de_salto_y_paginas_prohibidas_de_la_plataforma_externa(tmp_path, api):
+    casos = {
+        "https://empresa-prueba.com/trabajo/101": None,
+        "https://careers.empresa-prueba.com/apply": None,  # mismo dominio registrable
+        "https://empresa.com.co/a": "salto_de_dominio",
+        "https://boards.greenhouse.io/empresa/jobs/1": None,  # familia de ATS conocida
+        "https://otro-dominio.org/formulario": "salto_de_dominio",
+        "https://accounts.google.com/o/oauth2/auth": "oauth",
+        "https://www.linkedin.com/oauth/v2/authorization": "oauth",
+        "https://empresa-prueba.com/login": "pagina_prohibida",
+        "https://empresa-prueba.com/users/sign_up": "pagina_prohibida",
+        "https://empresa-prueba.com/checkout/pago": "pagina_prohibida",
+        "https://www.paypal.com/x": "pagina_prohibida",
+        "http://empresa-prueba.com/trabajo/101": "pagina_prohibida",
+    }
+    ambito = {"destino": EMPRESA_LI, "familias_hosts": FAMILIAS_HOSTS,
+              "hosts_prohibidos": json.loads((SELECTORES / "linkedin.json").read_text(
+                  encoding="utf-8"))["hosts_prohibidos"]}  # fmt: skip
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, Portales())
+        try:
+            # El service worker no admite import(): se evalúa en una página de la extensión
+            pagina = await nav.popup()
+            return await pagina.evaluate(
+                f"import('./portales.js').then(m => Object.fromEntries({json.dumps(list(casos))}"
+                f".map(u => [u, m.motivoExterno(u, {json.dumps(ambito)})])))"
+            )
+        finally:
+            await cerrar(nav)
+
+    assert correr(flujo()) == casos
+
+
+def test_latido_reporta_la_plataforma_externa_solo_con_el_permiso(tmp_path, api):
+    async def flujo(externa):
+        nav = await abrir(tmp_path / str(externa), api.url, Portales(), externa=externa)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo(True))
+    assert api.de("latido")[-1]["portales"]["externa"]["estado"] == "listo"
+    api.llamadas.clear()
+    correr(flujo(False))
+    assert "externa" not in api.de("latido")[-1]["portales"]
+
+
+JS_EXTERNA = (
+    "({visible: !document.getElementById('externa-bloque').hidden,"
+    " estado: document.getElementById('externa-estado').textContent,"
+    " permitir: !document.getElementById('externa-permitir').hidden,"
+    " quitar: !document.getElementById('externa-quitar').hidden,"
+    " explica: document.getElementById('externa-explicacion').textContent})"
+)
+
+
+@pytest.mark.parametrize("concedido", [False, True], ids=["sin_permiso", "con_permiso"])
+def test_el_popup_explica_y_ofrece_el_permiso_de_las_paginas_externas(tmp_path, api, concedido):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_listos(), externa=concedido)
+        try:
+            await nav.latido()
+            pagina = await nav.popup()
+            await esperar(pagina, "document.getElementById('externa-estado').textContent !== ''")
+            await asyncio.sleep(0.5)
+            return await pagina.evaluate(JS_EXTERNA)
+        finally:
+            await cerrar(nav)
+
+    vista = correr(flujo())
+    assert vista["visible"]  # el servidor habilitó LinkedIn
+    assert (vista["permitir"], vista["quitar"]) == (not concedido, concedido)
+    assert vista["estado"] == ("Permitido ✓" if concedido else "Sin permiso")
+    assert "nunca entra a páginas de ingreso, registro o pago" in vista["explica"]
 
 
 # --- Magneto: cuestionario conversacional por turnos (postulaciones 74, 89, 94 y 96) -----------

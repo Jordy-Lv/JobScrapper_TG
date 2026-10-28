@@ -59,7 +59,7 @@ def test_texto_de_oferta_finalizada_es_cerrada():
         ("https://empresas.elempleo.com/x", "elempleo"),
         ("https://magneto365.com/co/empleos/x", "magneto"),
         (URLS["getonboard"], None),
-        (URLS["linkedin"], None),
+        (URLS["linkedin"], "linkedin"),
         ("https://www.buscadordeempleo.gov.co/x", None),
         ("https://computrabajo.com.evil.example/x", None),
         ("https://elempleo.com.evil.example/x", None),

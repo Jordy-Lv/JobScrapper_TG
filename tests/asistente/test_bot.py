@@ -23,6 +23,7 @@ from buscador_vacantes.asistente.cifrado import Cifrador, generar_clave  # noqa:
 from buscador_vacantes.asistente.cola import E, Evento  # noqa: E402
 from buscador_vacantes.asistente.conversacion import Conversacion, cb  # noqa: E402
 from buscador_vacantes.asistente.datos import BaseAsistente, abrir_vacantes_ro  # noqa: E402
+from buscador_vacantes.asistente.destinos_linkedin import Destino, guardar  # noqa: E402
 from buscador_vacantes.asistente.detalle import Detalles, Ritmo  # noqa: E402
 from buscador_vacantes.asistente.enlaces import id_corto  # noqa: E402
 from buscador_vacantes.asistente.ia import crear_clientes  # noqa: E402
@@ -602,7 +603,21 @@ def test_borrarme(mundo):
     assert mundo.n.usuarios.obtener(ANA) is None
 
 
-PDF = b"%PDF-1.4 certificado de notas de Ana"
+def test_borrarme_con_datos_de_linkedin(mundo):
+    correr(alta_completa(mundo, ANA))
+    uid = mundo.n.usuarios.obtener(ANA).id
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO linkedin_usuarios(usuario_id, version, aceptado_en) VALUES (?, 1, 'x')",
+            (uid,),
+        )
+        cx.execute("INSERT INTO linkedin_aperturas(usuario_id, ts) VALUES (?, 'x')", (uid,))
+    correr(mundo.c.al_boton(ANA, cb("borrarme")))
+    assert mundo.n.usuarios.obtener(ANA) is None
+    assert not mundo.base.cx.execute("SELECT 1 FROM linkedin_aperturas").fetchall()
+
+
+PDF =b"%PDF-1.4 certificado de notas de Ana"
 
 
 def botones_enviados(mundo, chat=ANA):
@@ -2555,7 +2570,8 @@ def test_respaldo_manual_solo_muestra_la_card_sin_paquete(mundo):
     pid, enviados = tocar(mundo, usuario)
     cards = [m for m in enviados if "No puedo postularla sola" in m[1]]
     assert len(cards) == 1 and enviados[0] is cards[0]
-    assert "esta plataforma todavía no admite postulación automática" in cards[0][1]
+    # LinkedIn es una plataforma reconocida, apagada hasta su piloto (postular-linkedin)
+    assert "la postulación automática en esta plataforma está pausada" in cards[0][1]
     assert [[texto for texto, _ in fila] for fila in cards[0][2]] == [
         ["Ver vacante", "Pegar preguntas"], ["Ya me postulé", "No me interesa"],
     ]  # fmt: skip
@@ -3462,3 +3478,198 @@ def test_vigia_que_el_navegador_no_pudo_correr_no_es_un_fallo_de_la_plataforma(m
     ))  # fmt: skip
     assert len(mundo.s.mensajes) == antes
     assert mundo.n.preferencias.plataformas_en_ensayo([]) == {}
+
+
+# --- LinkedIn: aceptación del riesgo, /linkedin y avisos (postular-linkedin, 4.3) ---------------
+
+CORTA = id_corto("linkedin:1")
+DESTINO_ACME = Destino("https://acme.com/empleo/7", "propio")
+
+
+def linkedin_listo(mundo, *, aceptar=False):
+    """Ana con navegador vinculado y LinkedIn encendida, sin forzar ningún camino."""
+    usuario = preparar_toque(mundo, automatico=False)
+    mundo.n.config.plataformas["linkedin"].automatica = True
+    codigo = vinculos.crear_codigo(mundo.base, usuario.id, T0)
+    vinculos.canjear(mundo.base, codigo, "Edge", "1.0.0", T0)
+    if aceptar:
+        mundo.n.linkedin.aceptar(usuario.id, mundo.n.config.linkedin.riesgo_version, T0)
+    return usuario
+
+
+def tocar_linkedin(mundo, usuario):
+    async def flujo():
+        toque = await mundo.c.procesar_toque(usuario, CORTA)
+        await mundo.c.esperar_tareas()
+        return toque
+
+    return correr(flujo())
+
+
+def filas_li(mundo):
+    return mundo.base.cx.execute("SELECT * FROM postulaciones").fetchall()
+
+
+@respx.mock
+def test_primer_toque_en_linkedin_ofrece_el_riesgo_sin_cuenta_regresiva_ni_cola(mundo):
+    usuario = linkedin_listo(mundo)
+    mundo.n.config.cuenta_regresiva_segundos = 10  # con la cuenta activa, igual no cuenta
+    toque = tocar_linkedin(mundo, usuario)
+    assert toque.camino == Camino.ACEPTAR_RIESGO and filas_li(mundo) == []
+    _, texto, botones = mundo.s.ultimo(ANA)
+    assert "riesgo" in texto and "Practicante de sistemas" in texto
+    assert [b for fila in botones for b in fila] == [
+        ("✅ Acepto y postular", cb("liok", CORTA)),
+        ("📋 Solo paquete", cb("lipaq", CORTA)),
+    ]
+    assert len(cb("liok", CORTA)) <= 64  # cabe en un botón de Telegram
+
+
+@respx.mock
+def test_acepto_y_postular_guarda_la_aceptacion_y_encola(mundo):
+    usuario = linkedin_listo(mundo)
+    tocar_linkedin(mundo, usuario)
+
+    async def aceptar():
+        await mundo.c.al_boton(ANA, cb("liok", CORTA))
+        await mundo.c.esperar_tareas()
+
+    correr(aceptar())
+    estado = mundo.n.linkedin.estado(usuario.id)
+    assert estado.version == 1 and estado.sencilla and estado.externas
+    [fila] = filas_li(mundo)
+    assert fila["plataforma"] == "linkedin" and fila["estado"] == E.EN_COLA
+
+
+@respx.mock
+def test_solo_paquete_va_al_respaldo_y_la_proxima_vez_se_vuelve_a_ofrecer(mundo):
+    usuario = linkedin_listo(mundo)
+    tocar_linkedin(mundo, usuario)
+    correr(mundo.c.al_boton(ANA, cb("lipaq", CORTA)))
+    [fila] = filas_li(mundo)
+    assert (fila["estado"], fila["motivo"]) == (E.RESPALDO, "linkedin_sin_aceptar")
+    assert mundo.n.linkedin.estado(usuario.id) is None  # no aceptó nada
+    assert "no aceptaste el aviso de riesgo" in mundo.s.ultimo(ANA)[1]
+    assert tocar_linkedin(mundo, usuario).camino == Camino.ACEPTAR_RIESGO
+
+
+@respx.mock
+def test_toque_desde_el_canal_sin_aceptar_avisa_que_hay_que_aceptar_en_el_bot(mundo):
+    linkedin_listo(mundo)
+    r = correr(mundo.c.al_toque_canal(ANA, CORTA))
+    assert r.alerta and "LinkedIn" in r.texto and "aceptar" in r.texto
+    assert filas_li(mundo) == []
+    assert "riesgo" in mundo.s.ultimo(ANA)[1]  # el aviso completo espera en el bot
+
+
+@respx.mock
+def test_linkedin_sin_aceptar_explica_que_se_pregunta_al_tocar(mundo):
+    linkedin_listo(mundo)
+    correr(mundo.c.al_comando(ANA, "linkedin", []))
+    assert mundo.s.ultimo(ANA)[1] == t.LINKEDIN_SIN_ACEPTAR
+
+
+@respx.mock
+def test_linkedin_muestra_los_interruptores_y_los_cambia_con_botones_y_con_texto(mundo):
+    usuario = linkedin_listo(mundo, aceptar=True)
+    correr(mundo.c.al_comando(ANA, "linkedin", []))
+    _, texto, botones = mundo.s.ultimo(ANA)
+    assert "Aceptaste el riesgo el 04/10/2026" in texto
+    assert [b[0] for fila in botones for b in fila] == [
+        "🟢 Solicitud sencilla", "🟢 Páginas externas",
+    ]
+    respuesta = correr(mundo.c.al_boton(ANA, cb("liint", "externas")))
+    assert respuesta == "Apagado" and not mundo.n.linkedin.estado(usuario.id).externas
+    assert [b[0] for fila in mundo.s.ultimo(ANA)[2] for b in fila] == [
+        "🟢 Solicitud sencilla", "⚪ Páginas externas",
+    ]
+    correr(mundo.c.al_comando(ANA, "linkedin", ["sencilla", "off"]))
+    estado = mundo.n.linkedin.estado(usuario.id)
+    assert not estado.sencilla and not estado.externas
+    assert correr(mundo.c.al_boton(ANA, cb("liint", "sencilla"))) == "Encendido"
+    assert mundo.n.linkedin.estado(usuario.id).sencilla
+
+
+@respx.mock
+def test_linkedin_muestra_la_pausa_activa_y_pide_aceptar_de_nuevo_con_una_version_nueva(mundo):
+    usuario = linkedin_listo(mundo, aceptar=True)
+    hasta = mundo.n.pausar_linkedin(usuario.id)
+    correr(mundo.c.al_comando(ANA, "linkedin", []))
+    assert "en pausa hasta las 10:00" in mundo.s.ultimo(ANA)[1]  # T0 + 24 h, hora de Bogotá
+    assert hasta == T0 + timedelta(hours=24)
+    mundo.n.config.linkedin.riesgo_version = 2
+    correr(mundo.c.al_comando(ANA, "linkedin", []))
+    assert mundo.s.ultimo(ANA)[1] == t.LINKEDIN_SIN_ACEPTAR
+
+
+@respx.mock
+def test_la_ayuda_menciona_linkedin(mundo):
+    linkedin_listo(mundo)
+    correr(mundo.c.al_comando(ANA, "ayuda", []))
+    assert "/linkedin" in mundo.s.ultimo(ANA)[1]
+
+
+@respx.mock
+def test_un_aviso_de_seguridad_avisa_al_usuario_y_al_dueno(mundo):
+    usuario = linkedin_listo(mundo, aceptar=True)
+    hasta = a_texto(T0 + timedelta(hours=24))
+    correr(mundo.c.notificar({"tipo": "linkedin_pausado", "usuario_id": usuario.id,
+                              "postulacion_id": 1, "hasta": hasta}))  # fmt: skip
+    assert "aviso de seguridad" in mundo.s.ultimo(ANA)[1] and "10:00" in mundo.s.ultimo(ANA)[1]
+    assert "verificar la cuenta del usuario Ana" in mundo.s.ultimo(DUENO)[1]
+
+
+@respx.mock
+def test_el_dueno_no_recibe_dos_veces_el_aviso_de_su_propia_cuenta(mundo):
+    mundo.n.config.dueno_telegram_id = ANA
+    usuario = linkedin_listo(mundo, aceptar=True)
+    antes = len(mundo.s.de(ANA))
+    hasta = a_texto(T0 + timedelta(hours=24))
+    correr(mundo.c.notificar({"tipo": "linkedin_pausado", "usuario_id": usuario.id,
+                              "postulacion_id": 1, "hasta": hasta}))  # fmt: skip
+    assert len(mundo.s.de(ANA)) == antes + 1
+
+
+@respx.mock
+def test_con_el_destino_guardado_la_postulacion_sale_a_la_cola_tras_confirmar_que_sigue_abierta(
+    mundo,
+):
+    usuario = linkedin_listo(mundo, aceptar=True)
+    guardar(mundo.base, CORTA, DESTINO_ACME, T0 - timedelta(days=1))
+    base = mundo.base.cx
+    base.execute(
+        "UPDATE navegadores SET portales_json = ?", (json.dumps({"externa": {"estado": "listo"}}),)
+    )
+    base.commit()
+    toque = tocar_linkedin(mundo, usuario)
+    assert toque.camino == Camino.AUTOMATICA
+    assert mundo.n.cola.obtener(toque.postulacion.id).estado == E.EN_COLA
+
+
+@respx.mock
+def test_con_el_destino_guardado_y_la_vacante_cerrada_la_card_queda_cerrada(mundo):
+    usuario = linkedin_listo(mundo, aceptar=True)
+    guardar(mundo.base, CORTA, DESTINO_ACME, T0 - timedelta(days=1))
+    mundo.base.cx.execute(
+        "UPDATE navegadores SET portales_json = ?", (json.dumps({"externa": {"estado": "listo"}}),)
+    )
+    mundo.base.cx.commit()
+    respx.get(URL_LI).mock(
+        return_value=httpx.Response(
+            200, text="<html><body><main><h1>No longer accepting applications</h1></main></body>"
+        )
+    )
+    toque = tocar_linkedin(mundo, usuario)
+    assert mundo.n.cola.obtener(toque.postulacion.id).estado == E.VACANTE_CERRADA
+    assert card_guardada(mundo, toque.postulacion.id).fase == tp.CERRADA
+
+
+@respx.mock
+def test_un_destino_de_mensajeria_guardado_va_al_respaldo_y_el_paquete_trae_el_enlace(mundo):
+    usuario = linkedin_listo(mundo, aceptar=True)
+    guardar(mundo.base, CORTA, Destino("https://wa.me/573001112233", "propio"), T0)
+    toque = tocar_linkedin(mundo, usuario)
+    assert toque.camino == Camino.RESPALDO and toque.motivo == "destino_mensajeria"
+    _, texto, botones = mundo.s.ultimo(ANA)
+    assert "WhatsApp, Telegram o correo" in texto and "wa.me/573001112233" in texto
+    assert ("Ver vacante", "url:https://wa.me/573001112233") in [b for f in botones for b in f]

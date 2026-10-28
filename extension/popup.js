@@ -1,5 +1,5 @@
 import { ajustes, ping } from "./api.js";
-import { INICIO, NOMBRES, origenes, tienePermiso } from "./portales.js";
+import { INICIO, NOMBRES, ORIGEN_EXTERNO, origenes, tienePermiso, tienePermisoExterno } from "./portales.js";
 
 const RESULTADOS = {
   enviada: "✅ Enviada", ya_postulada: "Ya estabas postulado", vacante_cerrada: "Vacante cerrada",
@@ -215,6 +215,7 @@ async function pintar() {
     }));
   }
   $("portales").replaceChildren(...tarjetas);
+  await pintarExterna(vinculado && "linkedin" in selectores_version);
 
   $("sin-vincular").hidden = vinculado;
   if (!vinculado) $("nivel-ia-bloque").hidden = true;
@@ -236,6 +237,35 @@ async function pintar() {
     ? `Última: ${RESULTADOS[estado.ultima.estado] || estado.ultima.estado} · ${hace(estado.ultima.fin)}`
     : "";
 }
+
+// Permiso para las páginas de las empresas (vacantes externas de LinkedIn): es amplio y
+// opcional, así que se pide solo cuando el servidor habilita LinkedIn, con un toque del usuario
+// (Chrome no deja pedirlo desde el service worker) y con su explicación a la vista
+async function pintarExterna(visible) {
+  $("externa-bloque").hidden = !visible;
+  if (!visible) return;
+  const concedido = await tienePermisoExterno();
+  $("externa-estado").textContent = concedido ? "Permitido ✓" : "Sin permiso";
+  $("externa-permitir").hidden = concedido;
+  $("externa-quitar").hidden = !concedido;
+}
+
+$("externa-permitir").addEventListener("click", async () => {
+  let concedido = false;
+  try {
+    concedido = await chrome.permissions.request({ origins: [ORIGEN_EXTERNO] });
+  } catch {
+    concedido = false;
+  }
+  if (concedido) await chrome.runtime.sendMessage({ tipo: "latido" });
+  pintar();
+});
+
+$("externa-quitar").addEventListener("click", async () => {
+  await chrome.permissions.remove({ origins: [ORIGEN_EXTERNO] }).catch(() => false);
+  await chrome.runtime.sendMessage({ tipo: "latido" });
+  pintar();
+});
 
 $("form-codigo").addEventListener("submit", async (evento) => {
   evento.preventDefault();

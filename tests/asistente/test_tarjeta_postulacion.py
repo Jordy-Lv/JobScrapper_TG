@@ -634,6 +634,73 @@ def test_ensayada_trabada_dice_la_pantalla_y_el_motivo_y_no_ofrece_enviar(trabad
     assert etiquetas(tp.botones(card, d, cb)) == [[tp.BOTON_PAQUETE_RESPALDO], ["Ver vacante"]]
 
 
+# --- LinkedIn: motivos de respaldo, destino resuelto y espera por su ritmo (postular-linkedin) ---
+
+
+@pytest.mark.parametrize(
+    ("motivo", "frase"),
+    [
+        ("linkedin_sin_aceptar", "no aceptaste el aviso de riesgo de postular en LinkedIn"),
+        ("linkedin_apagado", "apagaste este tipo de postulación de LinkedIn"),
+        ("destino_mensajeria", "se postula por WhatsApp, Telegram o correo"),
+        ("sin_permiso_externo", "falta el permiso de la extensión"),
+        ("salto_de_dominio", "no es el de la empresa y me detuve por seguridad"),
+        ("oauth", "entrando con una cuenta de Google, LinkedIn u otro servicio"),
+    ],
+)
+def test_respaldo_explica_los_motivos_de_linkedin(motivo, frase):
+    texto = tp.texto(tp.Card(fase=tp.RESPALDO, motivo=motivo), datos(plataforma="linkedin"))
+    assert frase in texto and motivo not in texto
+
+
+def test_respaldo_sin_permiso_externo_explica_como_concederlo():
+    card = tp.Card(fase=tp.RESPALDO, motivo="sin_permiso_externo")
+    texto = tp.texto(card, datos(plataforma="linkedin"))
+    assert "Abre la ventana de la extensión" in texto and "vuelve a tocar ⚡" in texto
+
+
+def test_respaldo_con_las_dos_opciones_apagadas_manda_a_linkedin_y_no_a_los_botones_de_otros():
+    card = tp.Card(fase=tp.RESPALDO, motivo="linkedin_apagado")
+    assert "Enciéndelo con /linkedin." in tp.texto(card, datos(plataforma="linkedin"))
+
+
+def test_respaldo_de_linkedin_trae_el_destino_resuelto_como_texto_copiable():
+    card = tp.Card(fase=tp.RESPALDO, motivo="destino_mensajeria")
+    d = datos(plataforma="linkedin", destino="mailto:talento@acme.com?subject=Practica")
+    texto = tp.texto(card, d)
+    assert "Aquí se postula: <code>mailto:talento@acme.com?subject=Practica</code>" in texto
+    # Un correo no sirve como botón de Telegram: «Ver vacante» sigue siendo la de LinkedIn
+    assert ("Ver vacante", f"url:{URL}") in [b for f in tp.botones(card, d, cb) for b in f]
+
+
+def test_respaldo_de_linkedin_con_destino_web_abre_esa_pagina_en_ver_vacante():
+    card = tp.Card(fase=tp.RESPALDO, motivo="ats_con_cuenta")
+    destino = "https://acme.wd3.myworkdayjobs.com/x/job/1"
+    d = datos(plataforma="linkedin", url=destino, destino=destino)
+    assert ("Ver vacante", f"url:{destino}") in [b for f in tp.botones(card, d, cb) for b in f]
+
+
+def test_una_card_sin_destino_no_lo_menciona():
+    card = tp.Card(fase=tp.RESPALDO, motivo="sin_navegador")
+    assert "Aquí se postula" not in tp.texto(card, datos())
+
+
+@pytest.mark.parametrize(
+    ("codigo", "frase"),
+    [
+        ("tope_linkedin", "tope de postulaciones de LinkedIn de hoy"),
+        ("pausa_linkedin", "entre una apertura de LinkedIn y la siguiente"),
+        ("linkedin_pausado", "aviso de seguridad en tu cuenta"),
+    ],
+)
+def test_la_espera_por_el_ritmo_de_linkedin_dice_por_que_y_hasta_cuando(codigo, frase):
+    card = con_espera(codigo, plataforma="linkedin", cuando=CUANDO.isoformat())
+    texto = tp.texto(card, datos(plataforma="linkedin"))
+    assert frase in texto
+    if codigo != "tope_linkedin":
+        assert "18:23" in texto  # 23:23 UTC en Bogotá
+
+
 def test_respaldo_por_proceso_abandonado_explica_el_motivo_y_no_alerta_al_dueno():
     assert "proceso_abandonado" in t.MOTIVOS_RESPALDO
     assert "proceso_abandonado" in t.MOTIVOS_SIN_ALERTA

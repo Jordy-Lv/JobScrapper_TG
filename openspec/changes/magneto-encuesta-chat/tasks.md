@@ -12,10 +12,10 @@
 ## 3. Extensión y selectores de Magneto
 
 - [x] 3.1 🔴 Implementar en `extension/motor.js` las acciones declarativas `chat_turno` y `chat_llenar` (con normalización `magneto_texto`, opción única, múltiple con «Guardar» y abierta con botón de envío), salida anticipada `cortar_si` en `esperar`/`enviar`, selectores con `ocultos: true` en `buscar` para componentes Shadow DOM (`magneto-spe`, `magneto-sign-up`), preservación de `<header>`/`<footer>` de diálogos y formularios en `htmlSinValores` y `enZonaExcluida`, alcance al modal activo (`[aria-modal="true"], dialog[open]`) y agrupación de radios sin `name`.
-- [x] 3.2 🟡 Implementar en `extension/servicio.js` el bucle por turnos del cuestionario conversacional (`r.chat`), el restablecimiento de `contexto.envio = false` cuando un paso con `abre_sin_enviar` abre un contenedor sin enviar, y subir `extension/manifest.json` a `1.2.2`.
+- [x] 3.2 🟡 Implementar en `extension/servicio.js` el bucle por turnos del cuestionario conversacional (`r.chat`), el restablecimiento de `contexto.envio = false` cuando un paso con `abre_sin_enviar` abre un contenedor sin enviar, y subir `extension/manifest.json` a `1.3.1`.
 - [x] 3.3 🟡 Actualizar `assets/asistente/selectores/magneto.json` a la versión `2026.10.27-2` con `chat`, `abre_sin_enviar`, `cortar_si`, `proceso_abandonado`, `datos_adicionales_portal` (`magneto-spe`, `magneto-sign-up[open='true']`, `appliedSummaryPending_applied-modal`, «Aplicación pendiente») y exigencia estricta del modal de confirmación incluso tras `alreadyAnsweredQuestionnaire`.
 
 ## 4. Verificación y despliegue
 
 - [x] 4.1 🟡 Ejecutar `ruff check`, `ruff format --check` y toda la suite de pruebas (`pytest` unitarias y suites Playwright secuenciales) verificando cero regresiones.
-- [ ] 4.2 👤 Desplegar en Fedora (`git pull && systemctl --user restart buscador-asistente`), recargar la extensión desempaquetada (`1.2.2`) en el navegador vinculado y reintentar la vacante de Magneto para verificar el resultado real en vivo.
+- [ ] 4.2 👤 Desplegar en Fedora (`git pull && systemctl --user restart buscador-asistente`), recargar la extensión desempaquetada (`1.3.1`) en el navegador vinculado y reintentar la vacante de Magneto para verificar el resultado real en vivo.
