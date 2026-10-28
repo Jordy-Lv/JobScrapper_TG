@@ -980,6 +980,13 @@
     return { abierto: true };
   }
 
+  // Hay portales que pintan la ventana de la cuenta con JavaScript tras cargar la página
+  // (LinkedIn): `cuenta.espera_ms` es lo máximo que se espera a que aparezca el correo
+  async function esperarCorreo(sel) {
+    const limite = Date.now() + ((sel.cuenta || {}).espera_ms || 0);
+    while (!correoDeLaCuenta(sel) && Date.now() < limite) await dormir(250);
+  }
+
   // Enlaces del mismo portal hacia la cuenta o el perfil del usuario
   function enlacesCuenta() {
     const salida = [];
@@ -2234,6 +2241,7 @@
     revisar,
     buscarCorreo,
     abrirCuenta,
+    esperarCorreo,
     enlacesCuenta,
     sesion: (sel) => ({ sin_sesion: sinSesion(sel), captcha: hayCaptcha(sel) }),
     html: () => htmlSinValores(),

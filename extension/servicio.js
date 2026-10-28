@@ -202,6 +202,17 @@ const MAX_PAGINAS_CORREO = 5;
 // Una página de cuenta puede llevar el perfil del usuario (`{perfil}`): LinkedIn no abre el
 // contacto en /in/me/, redirige al perfil real; `cuenta.perfil` es la expresión que lo extrae de
 // la URL en la que terminó la página de inicio
+// LinkedIn salta de /in/me/ al perfil con JavaScript, ya cargada la página: se espera a que la
+// pestaña esté en una URL con usuario real antes de armar la página de cuenta
+async function esperarPerfil(tabId, cuenta, tab, esperaMs = 10000) {
+  const limite = Date.now() + esperaMs;
+  while (!conPerfil("{perfil}", cuenta, tab.url) && Date.now() < limite) {
+    await new Promise((resolver) => setTimeout(resolver, 500));
+    tab = await chrome.tabs.get(tabId);
+  }
+  return tab;
+}
+
 function conPerfil(url, cuenta, actual) {
   if (!url.includes("{perfil}")) return url;
   const m = cuenta.perfil ? actual.match(new RegExp(cuenta.perfil)) : null;
@@ -220,13 +231,29 @@ async function revisarPortal(plataforma) {
     if (plataformaDeUrl(tab.url) !== plataforma) {
       return { estado: "sin_sesion", correo: null, motivo: "fuera_del_portal" };
     }
-    await inyectar(pestana.id, plataforma);
-    const s = await enPestana(
-      pestana.id, (ss) => globalThis.__asistente.revisar(ss, { secciones: false }), sel,
-    );
+    // Un portal que salta a otra página mientras se lee (LinkedIn: /in/me/ → perfil) destruye el
+    // contexto del script: se reintenta sobre la página en la que quedó
+    let s;
+    for (let intento = 1; ; intento++) {
+      try {
+        await inyectar(pestana.id, plataforma);
+        s = await enPestana(
+          pestana.id, (ss) => globalThis.__asistente.revisar(ss, { secciones: false }), sel,
+        );
+        if (!s) throw new Error("la página cambió mientras se leía");  // sin resultado: navegó
+        break;
+      } catch (error) {
+        if (intento >= 4) throw error;
+        await new Promise((resolver) => setTimeout(resolver, 1500));
+        tab = await chrome.tabs.get(pestana.id);
+      }
+    }
     if (s.estado === "sin_sesion") return { estado: "sin_sesion", correo: null, motivo: s.motivo };
     let correo = s.correo;
     let origen = correo ? tab.url : null;
+    if ((cuenta.urls || []).some((u) => u.includes("{perfil}"))) {
+      tab = await esperarPerfil(pestana.id, cuenta, tab);
+    }
     const pendientes = [...(cuenta.urls || (cuenta.url ? [cuenta.url] : []))]
       .map((u) => conPerfil(u, cuenta, tab.url)).filter(Boolean);
     pendientes.push(...(await enPestana(
@@ -246,7 +273,9 @@ async function revisarPortal(plataforma) {
       if (!paginaPermitida(tab.url, plataforma)) continue;
       await inyectar(pestana.id, plataforma);
       await enPestana(pestana.id, (ss) => globalThis.__asistente.abrirCuenta(ss), sel);
+      await enPestana(pestana.id, (ss) => globalThis.__asistente.esperarCorreo(ss), sel);
       const r = await enPestana(pestana.id, (ss) => globalThis.__asistente.buscarCorreo(ss), sel);
+      if (!r) continue;  // la página navegó mientras se leía
       if (r.sin_sesion) return { estado: "sin_sesion", correo: null };
       if (r.correo) {
         correo = r.correo;

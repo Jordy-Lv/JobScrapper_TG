@@ -479,7 +479,7 @@ def respuestas_ana(campos: list[dict]) -> list[dict]:
 def test_manifiesto_con_permisos_minimos():
     manifiesto = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
     assert manifiesto["manifest_version"] == 3
-    assert manifiesto["version"] == "1.3.1"
+    assert manifiesto["version"] == "1.3.2"
     assert set(manifiesto["permissions"]) == {"storage", "tabs", "alarms", "scripting"}
     for origen in manifiesto["host_permissions"]:
         assert origen.startswith(("https://*.computrabajo.com", "https://*.magneto365.com",
@@ -522,7 +522,7 @@ def test_vinculacion_automatica_desde_la_pagina(tmp_path, api):
     correr(flujo())
     vinculo = api.de("vincular")[0]
     assert vinculo["codigo"] == "ABCD2345"
-    assert vinculo["version"] == "1.3.1"
+    assert vinculo["version"] == "1.3.2"
 
 
 def test_codigo_vencido_lo_dice_en_la_pagina(tmp_path, api):
@@ -987,16 +987,21 @@ def test_el_correo_se_busca_siguiendo_mi_cuenta(tmp_path, api):
 
 
 def test_linkedin_lee_el_correo_con_el_perfil_real_y_no_con_in_me(tmp_path, api):
-    """`/in/me/` redirige al perfil sin abrir el contacto: la extensión toma el usuario de la URL en
-    la que cae y pide `<perfil>/overlay/contact-info/` (visto con la sesión del dueño)."""
+    """`/in/me/` salta al perfil con JavaScript (ya cargada la página) y la ventana de contacto se
+    pinta tarde: la extensión espera el salto, toma el usuario de la URL en la que cae y espera el
+    correo en `<perfil>/overlay/contact-info/` (visto con la sesión del dueño)."""
     perfil = "https://www.linkedin.com/in/ana-perez"
     portales = portales_listos()
-    portales.redirecciones["https://www.linkedin.com/in/me/"] = f"{perfil}/"
+    portales.paginas["https://www.linkedin.com/in/me/"] = (
+        "<!doctype html><html><body>Cargando…<script>setTimeout(() => "
+        f'location.replace("{perfil}/"), 1500)</script></body></html>'
+    )
     portales.paginas[f"{perfil}/"] = "<!doctype html><html><body>Perfil de Ana</body></html>"
     portales.paginas[f"{perfil}/overlay/contact-info/"] = (
-        "<!doctype html><html><body><dialog open aria-labelledby='t'><h2 id='t'>Información de "
-        "contacto</h2><a href='mailto:ana.linkedin@gmail.com'>ana.linkedin@gmail.com</a>"
-        "</dialog></body></html>"
+        "<!doctype html><html><body><script>setTimeout(() => { document.body.innerHTML = "
+        "\"<dialog open aria-labelledby='t'><h2 id='t'>Información de contacto</h2>"
+        "<a href='mailto:ana.linkedin@gmail.com'>ana.linkedin@gmail.com</a></dialog>\"; }, 2500)"
+        "</script></body></html>"
     )
 
     async def flujo():
