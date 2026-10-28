@@ -494,6 +494,31 @@ _AUTORIZACION = re.compile(
     r"autorizad[oa]|autorizacion|autorizacao|legalmente|permiso|permissao"
 )
 _PATROCINIO = re.compile(r"sponsor|patrocin|requiere visa|require.*visa")  # lo contrario
+
+# Preguntas de ánimo o confirmación de interés en el proceso («¿Te animas a dar el siguiente
+# paso...?», «¿Confirmas tu participación en el proceso?»): se contestan siempre «Si»
+_DESCARTAR_INTERES = re.compile(r"\b(?:no te|sin|si no|en caso de)\b")
+_FORMULA_INTERES = re.compile(
+    r"\b(?:te animas|confirmas|estas interesad[oa]|deseas (?:continuar|seguir|participar)|"
+    r"quieres (?:continuar|seguir|participar)|interes)\b"
+)
+_REFERENCIA_PROCESO = re.compile(
+    r"\b(?:proceso|vacante|postulacion|oferta|participacion|aplicacion)\b"
+)
+
+
+def confirma_interes(norma: str, opciones: list[str]) -> int | None:
+    """Índice de la opción afirmativa si la pregunta pide confirmar interés o participación en
+    el proceso/vacante; None si no aplica."""
+    si_idx = elegir_opcion("si", opciones)
+    no_idx = elegir_opcion("no", opciones)
+    if si_idx is None or no_idx is None or si_idx == no_idx:
+        return None
+    if _DESCARTAR_INTERES.search(norma):
+        return None
+    if _FORMULA_INTERES.search(norma) and _REFERENCIA_PROCESO.search(norma):
+        return si_idx
+    return None
 _PAISES = {
     "colombia": "Colombia",
     "estados unidos": "Estados Unidos", "united states": "Estados Unidos", "usa": "Estados Unidos",
@@ -539,6 +564,8 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
     if es_consentimiento(norma):
         # Solo vale lo que el usuario respondió: ni el banco ni la IA aceptan por él
         return Respuesta(pregunta, falta=True)
+    if (opcion_interes := confirma_interes(norma, pregunta.opciones)) is not None:
+        return Respuesta(pregunta, opcion=opcion_interes, origen=Origen.PERFIL)
     if encontrada := buscar_en_banco(ctx.base, norma):
         if encontrada[0] == REDACTAR:
             return _para_redactar(pregunta)

@@ -217,9 +217,56 @@ def test_numero_y_fecha_sin_dato_nunca_van_al_redactor(base, pregunta):
 @respx.mock
 def test_opciones_sin_dato_conocido_van_al_redactor_para_elegir(base):
     respx.post(URL_LITE).mock(return_value=gemini({"campo": None, "formato": "redactar"}))
-    pregunta = Pregunta("¿Confirmas tu participación en el proceso?", "opciones", ["Si", "No"])
+    pregunta = Pregunta("¿Prefieres trabajo en equipo?", "opciones", ["Si", "No"])
     r = asyncio.run(resolver(pregunta, contexto(base)))
     assert r.redactar and not r.falta and r.opcion is None
+
+
+def test_confirmacion_de_interes_se_responde_sola(base):
+    ctx_sin_ia = contexto(base, con_ia=False)
+    # (a) Pregunta de ánimo de Magneto: Si sin IA
+    animo = Pregunta(
+        "¿Te animas a dar el siguiente paso en tu camino laboral y participar en este proceso "
+        "que podría abrirte nuevas oportunidades?",
+        "opciones",
+        ["Si", "No"],
+    )
+    r_a = asyncio.run(resolver(animo, ctx_sin_ia))
+    assert r_a.opcion == 0 and r_a.origen == Origen.PERFIL and not r_a.falta and not r_a.redactar
+
+    # (b) Confirmación de participación sin cliente de IA
+    confirma = Pregunta("¿Confirmas tu participación en el proceso?", "opciones", ["Si", "No"])
+    r_b = asyncio.run(resolver(confirma, ctx_sin_ia))
+    assert r_b.opcion == 0 and r_b.origen == Origen.PERFIL
+
+    # (c) Lo aprendido gana a la regla
+    with base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO respuestas_aprendidas(usuario_id, pregunta_norm, respuesta, actualizada) "
+            "VALUES (?, ?, 'No', '2026-10-04T15:00:00+00:00')",
+            (1, normalizar_pregunta(confirma.texto)),
+        )
+    r_c = asyncio.run(resolver(confirma, ctx_sin_ia))
+    assert r_c.opcion == 1 and r_c.origen == Origen.APRENDIDA
+
+    # (d) Pregunta de autorización/tratamiento de datos -> falta
+    datos_personales = Pregunta(
+        "¿Autorizas el tratamiento de tus datos personales para participar en este proceso?",
+        "opciones",
+        ["Si", "No"],
+    )
+    r_d = asyncio.run(resolver(datos_personales, ctx_sin_ia))
+    assert r_d.falta and r_d.opcion is None
+
+    # (e) Pregunta que no es de confirmación -> no la resuelve la regla
+    soporte = Pregunta("¿Tienes experiencia previa en soporte técnico?", "opciones", ["Si", "No"])
+    r_e = asyncio.run(resolver(soporte, ctx_sin_ia))
+    assert r_e.falta or r_e.opcion is None
+
+    # (f) Pregunta con una sola opción o sin opción negativa clara -> no aplica
+    una_opcion = Pregunta("¿Confirmas tu participación en el proceso?", "opciones", ["Si"])
+    r_f = asyncio.run(resolver(una_opcion, ctx_sin_ia))
+    assert r_f.falta or r_f.opcion is None
 
 
 @respx.mock
