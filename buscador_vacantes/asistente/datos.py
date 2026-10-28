@@ -310,7 +310,7 @@ CREATE TABLE IF NOT EXISTS destinos_linkedin (
 -- Estado de LinkedIn de cada usuario (change postular-linkedin): aceptación del riesgo, los dos
 -- interruptores y la pausa de 24 h tras un aviso de seguridad de LinkedIn
 CREATE TABLE IF NOT EXISTS linkedin_usuarios (
-    usuario_id INTEGER PRIMARY KEY REFERENCES usuarios(id),
+    usuario_id INTEGER PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
     version INTEGER NOT NULL,                  -- versión del texto del riesgo que aceptó
     aceptado_en TEXT NOT NULL,
     sencilla INTEGER NOT NULL DEFAULT 1,       -- interruptor «Solicitud sencilla»
@@ -321,7 +321,7 @@ CREATE TABLE IF NOT EXISTS linkedin_usuarios (
 -- Cada vez que se abre una página de LinkedIn para postular (cuenta para el tope y la pausa)
 CREATE TABLE IF NOT EXISTS linkedin_aperturas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
     id_corto TEXT,
     ts TEXT NOT NULL
 );

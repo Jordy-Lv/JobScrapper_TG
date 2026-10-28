@@ -315,5 +315,9 @@ class Usuarios:
         if ruta.exists():
             shutil.rmtree(ruta)
         with self.base.transaccion() as cx:
+            # Las tablas de LinkedIn se crearon sin CASCADE: en las bases que ya las tienen el
+            # esquema no cambia, así que se vacían a mano antes de borrar al usuario
+            cx.execute("DELETE FROM linkedin_aperturas WHERE usuario_id = ?", (usuario.id,))
+            cx.execute("DELETE FROM linkedin_usuarios WHERE usuario_id = ?", (usuario.id,))
             cx.execute("DELETE FROM usuarios WHERE id = ?", (usuario.id,))
             cx.execute("INSERT INTO bajas(ts) VALUES (?)", (a_texto(ahora),))

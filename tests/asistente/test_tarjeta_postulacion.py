@@ -700,6 +700,7 @@ def test_la_espera_por_el_ritmo_de_linkedin_dice_por_que_y_hasta_cuando(codigo, 
     if codigo != "tope_linkedin":
         assert "18:23" in texto  # 23:23 UTC en Bogotá
 
+
 def test_respaldo_por_proceso_abandonado_explica_el_motivo_y_no_alerta_al_dueno():
     assert "proceso_abandonado" in t.MOTIVOS_RESPALDO
     assert "proceso_abandonado" in t.MOTIVOS_SIN_ALERTA
@@ -707,3 +708,15 @@ def test_respaldo_por_proceso_abandonado_explica_el_motivo_y_no_alerta_al_dueno(
     texto = tp.texto(card, datos(plataforma="magneto"))
     assert "abandonado" in texto
     assert "el formulario del portal cambió" not in texto
+
+
+def test_respaldo_por_datos_adicionales_del_portal_ofrece_reintentar_y_ver_vacante():
+    assert "datos_adicionales_portal" in t.MOTIVOS_RESPALDO
+    assert "datos_adicionales_portal" in t.MOTIVOS_REINTENTABLES
+    assert "datos_adicionales_portal" in t.MOTIVOS_SIN_ALERTA
+    card = tp.Card(fase=tp.RESPALDO, motivo="datos_adicionales_portal")
+    d = datos(plataforma="magneto")
+    texto = tp.texto(card, d)
+    assert "datos adicionales" in texto
+    assert "Reintentar" in [b for fila in tp.botones(card, d, cb) or [] for b, _ in fila]
+    assert "Ver vacante" in [b for fila in tp.botones(card, d, cb) or [] for b, _ in fila]

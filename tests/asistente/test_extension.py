@@ -479,7 +479,7 @@ def respuestas_ana(campos: list[dict]) -> list[dict]:
 def test_manifiesto_con_permisos_minimos():
     manifiesto = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
     assert manifiesto["manifest_version"] == 3
-    assert manifiesto["version"] == "1.3.0"
+    assert manifiesto["version"] == "1.3.1"
     assert set(manifiesto["permissions"]) == {"storage", "tabs", "alarms", "scripting"}
     for origen in manifiesto["host_permissions"]:
         assert origen.startswith(("https://*.computrabajo.com", "https://*.magneto365.com",
@@ -522,7 +522,7 @@ def test_vinculacion_automatica_desde_la_pagina(tmp_path, api):
     correr(flujo())
     vinculo = api.de("vincular")[0]
     assert vinculo["codigo"] == "ABCD2345"
-    assert vinculo["version"] == "1.3.0"
+    assert vinculo["version"] == "1.3.1"
 
 
 def test_codigo_vencido_lo_dice_en_la_pagina(tmp_path, api):
@@ -2333,8 +2333,11 @@ def test_externa_lee_el_destino_del_enlace_y_llega_a_la_pagina_de_gracias(tmp_pa
     # El destino sale del enlace «Solicitar en el sitio web de la empresa», no del aviso de
     # privacidad, y nunca se pulsa «Solicitar» (no se pide /safety/go)
     [destino] = api.de("destino")
-    assert destino == {"id": 60, "tipo": "externa",
-                       "url": "https://job-boards.greenhouse.io/prueba/jobs/4100100?utm_source=linkedin"}
+    assert destino == {
+        "id": 60,
+        "tipo": "externa",
+        "url": "https://job-boards.greenhouse.io/prueba/jobs/4100100?utm_source=linkedin",
+    }
     assert not [u for u in sitio.pedidas if "/safety/go" in u]
     assert resultado_li(api)["estado"] == "enviada"
     assert sitio.contados(GH_ENVIO) == 1 and len(api.de("envio")) == 1
@@ -2384,7 +2387,9 @@ def test_un_destino_que_ya_es_de_otro_sitio_no_se_abre(tmp_path, api):
     ejecutar_li(tmp_path, api, sitio, trabajo_li())
     resultado = resultado_li(api)
     assert (resultado["estado"], resultado["motivo"]) == (
-        "formulario_desconocido", "pagina_prohibida")
+        "formulario_desconocido",
+        "pagina_prohibida",
+    )
     assert not [u for u in sitio.pedidas if "empresa-prueba.com" in u]
 
 
@@ -2395,7 +2400,9 @@ def test_respaldo_del_servidor_no_abre_el_destino(tmp_path, api):
     ejecutar_li(tmp_path, api, sitio, trabajo_li())
     resultado = resultado_li(api)
     assert (resultado["estado"], resultado["motivo"]) == (
-        "formulario_desconocido", "destino_mensajeria")
+        "formulario_desconocido",
+        "destino_mensajeria",
+    )
     assert not [u for u in sitio.pedidas if "wa.me" in u]
 
 
@@ -2412,8 +2419,10 @@ def test_vacante_cerrada_o_pausada_no_toca_nada(tmp_path, api, recorte, motivo):
 
 def test_aviso_de_seguridad_bloquea_con_su_motivo(tmp_path, api):
     sitio = sitio_linkedin()
-    sitio.paginas[VACANTE_LI] = ("<!doctype html><html lang=es><body><main><h1>Verificación de "
-                                 "seguridad</h1><p>Confirma que eres tú.</p></main></body></html>")
+    sitio.paginas[VACANTE_LI] = (
+        "<!doctype html><html lang=es><body><main><h1>Verificación de "
+        "seguridad</h1><p>Confirma que eres tú.</p></main></body></html>"
+    )
     ejecutar_li(tmp_path, api, sitio, trabajo_li())
     resultado = resultado_li(api)
     assert (resultado["estado"], resultado["motivo"]) == ("bloqueada", "aviso_seguridad")
@@ -2423,8 +2432,10 @@ def test_el_muro_de_ingreso_es_falta_de_sesion_y_no_aviso_de_seguridad(tmp_path,
     """/authwall también dice «Verificación de seguridad» (visto el 2026-10-27)."""
     muro = "https://www.linkedin.com/authwall?trk=prueba"
     sitio = sitio_linkedin()
-    sitio.paginas[muro] = ("<!doctype html><html lang=es><body><dialog open><h2>Verificación de "
-                           "seguridad</h2></dialog></body></html>")
+    sitio.paginas[muro] = (
+        "<!doctype html><html lang=es><body><dialog open><h2>Verificación de "
+        "seguridad</h2></dialog></body></html>"
+    )
     ejecutar_li(tmp_path, api, sitio, trabajo_li(url=muro))
     assert resultado_li(api)["estado"] == "esperando_sesion"
 
@@ -2460,7 +2471,9 @@ def test_sencilla_sin_cv_guardado_ni_autorizacion_va_al_respaldo_y_descarta(tmp_
     ejecutar_li(tmp_path, api, sitio, trabajo_li(url=url), externa=False)
     resultado = resultado_li(api)
     assert (resultado["estado"], resultado["motivo"]) == (
-        "formulario_desconocido", "linkedin_sin_cv")
+        "formulario_desconocido",
+        "linkedin_sin_cv",
+    )
     assert not api.de("envio") and "https://www.linkedin.com/recibir-solicitud" not in sitio.posts
     # Se cerró con la X y «Descartar», nunca «Guardar»
     assert "https://www.linkedin.com/descartar" in sitio.posts
@@ -2473,7 +2486,9 @@ def test_sencilla_apagada_por_el_usuario_no_abre_el_modal(tmp_path, api):
     ejecutar_li(tmp_path, api, sitio, trabajo_li(url=VACANTE_SENCILLA), externa=False)
     resultado = resultado_li(api)
     assert (resultado["estado"], resultado["motivo"]) == (
-        "formulario_desconocido", "linkedin_apagado")
+        "formulario_desconocido",
+        "linkedin_apagado",
+    )
     assert not api.de("pantalla")
 
 
@@ -2631,13 +2646,62 @@ def test_magneto_proceso_abandonado_termina_bloqueada_sin_pulsar_aplicar(tmp_pat
     assert "aplicar" not in [p["paso"] for p in api.de("paso")]
 
 
-def test_magneto_ya_respondiste_termina_ya_postulada(tmp_path, api):
-    ya = {
-        '<button type="button" class="applyButton_apply-btn__x9p2q">Aplicar</button>': (
-            '<div class="alreadyAnsweredQuestionnaire_modal__z1x2c">'
-            "Ya respondiste este cuestionario</div>"
+def test_magneto_cuestionario_ya_respondido_con_modal_final_termina_enviada(tmp_path, api):
+    reemplazos = {
+        "raiz.innerHTML =": (
+            "document.body.insertAdjacentHTML('beforeend', "
+            '\'<div class="alreadyAnsweredQuestionnaireModal_modal__Hs15t">'
+            "Ya presentaste el cuestionario prefiltro</div>'); "
+            "setTimeout(() => { document.body.insertAdjacentHTML('beforeend', "
+            '\'<div class="mg_application_summary_summary-modal_17gu5">'
+            "<h2>Se ha enviado tu aplicación</h2></div>'); }, 600); "
+            "if (false) raiz.innerHTML ="
         ),
     }
-    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", ya))
-    assert api.de("resultado")[0]["estado"] == "ya_postulada"
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", reemplazos))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "enviada", resultado
+    assert "Se ha enviado tu aplicación" in resultado["confirmacion"]
+
+
+@pytest.mark.parametrize(
+    "extra_html",
+    [
+        "<magneto-spe open></magneto-spe>",
+        '<magneto-sign-up id="sign-up" open="true"></magneto-sign-up>',
+        '<div class="appliedSummaryPending_applied-modal__9mShs">'
+        "Tu aplicación quedará pendiente</div>",
+    ],
+    ids=["spe_shadow", "signup_shadow", "modal_pendiente"],
+)
+def test_magneto_cuestionario_ya_respondido_con_spe_o_sign_up_termina_datos_adicionales(
+    tmp_path, api, extra_html
+):
+    reemplazos = {
+        "raiz.innerHTML =": (
+            "document.body.insertAdjacentHTML('beforeend', "
+            '\'<div class="alreadyAnsweredQuestionnaireModal_modal__Hs15t">'
+            "Ya presentaste el cuestionario prefiltro</div>'); "
+            "setTimeout(() => { document.body.insertAdjacentHTML("
+            f"'beforeend', {extra_html!r}); }}, 300); "
+            "if (false) raiz.innerHTML ="
+        ),
+    }
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", reemplazos))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "bloqueada", resultado
+    assert resultado["motivo"] == "datos_adicionales_portal"
+
+
+def test_magneto_aplicacion_pendiente_en_cabecera_no_se_confunde_con_ya_postulada(tmp_path, api):
+    reemplazos = {
+        '<button type="button" class="applyButton_apply-btn__x9p2q">Aplicar</button>': (
+            '<div data-testid="application-status-alert">Aplicación pendiente</div>'
+            '<div class="renderApplyButton_status-label__x9p2q">¡Ya aplicaste!</div>'
+        ),
+    }
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", reemplazos))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "bloqueada", resultado
+    assert resultado["motivo"] == "datos_adicionales_portal"
     assert not api.de("envio")

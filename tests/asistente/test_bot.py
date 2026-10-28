@@ -603,7 +603,21 @@ def test_borrarme(mundo):
     assert mundo.n.usuarios.obtener(ANA) is None
 
 
-PDF = b"%PDF-1.4 certificado de notas de Ana"
+def test_borrarme_con_datos_de_linkedin(mundo):
+    correr(alta_completa(mundo, ANA))
+    uid = mundo.n.usuarios.obtener(ANA).id
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO linkedin_usuarios(usuario_id, version, aceptado_en) VALUES (?, 1, 'x')",
+            (uid,),
+        )
+        cx.execute("INSERT INTO linkedin_aperturas(usuario_id, ts) VALUES (?, 'x')", (uid,))
+    correr(mundo.c.al_boton(ANA, cb("borrarme")))
+    assert mundo.n.usuarios.obtener(ANA) is None
+    assert not mundo.base.cx.execute("SELECT 1 FROM linkedin_aperturas").fetchall()
+
+
+PDF =b"%PDF-1.4 certificado de notas de Ana"
 
 
 def botones_enviados(mundo, chat=ANA):
