@@ -42,6 +42,9 @@ ETIQUETAS = {
     "equipo_propio": "Computador e internet",
     "traslado": "Traslado",
     "experiencia_meses": "Experiencia",
+    "semestre": "Semestre",
+    "enlace_portafolio": "Portafolio o GitHub",
+    "autorizacion_trabajo:colombia": "Trabajar en Colombia",
     "actualizar_cv_portal": "Actualizar CV en portales",
 }
 

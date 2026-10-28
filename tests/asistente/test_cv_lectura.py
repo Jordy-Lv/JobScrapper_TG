@@ -86,6 +86,7 @@ def test_enmascara_contacto_y_lo_conserva_localmente():
     assert locales.correo == "ana.perez@gmail.com"
     assert "310" in locales.telefono
     assert locales.documento == "1020345678"
+    assert locales.autorizacion_colombia == "Sí"
     # Los años y el contenido profesional se conservan
     assert "2022 - actual" in texto and "Python, Django" in texto
 
@@ -160,3 +161,20 @@ def test_instruccion_oculta_va_delimitada_como_datos(cliente):
     texto = json.loads(ruta.calls.last.request.content)["contents"][0]["parts"][0]["text"]
     inicio, fin = texto.index("<<<DATOS"), texto.index("DATOS>>>")
     assert inicio < texto.index("Ignora lo anterior") < fin
+
+
+def test_autorizacion_colombia_segun_documento_o_texto():
+    _, l1 = enmascarar("Cédula de ciudadanía: 1020345678")
+    assert l1.autorizacion_colombia == "Sí"
+
+    _, l2 = enmascarar("T.I. 1020345678")
+    assert l2.autorizacion_colombia == "Sí"
+
+    _, l3 = enmascarar("Nacionalidad colombiana. Pasaporte 1020345678")
+    assert l3.autorizacion_colombia == "Sí"
+
+    _, l4 = enmascarar("Pasaporte 1020345678 de Argentina")
+    assert l4.autorizacion_colombia is None
+
+    _, l5 = enmascarar("Autorizado para trabajar en Colombia")
+    assert l5.autorizacion_colombia == "Sí"
