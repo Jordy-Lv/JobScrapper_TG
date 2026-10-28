@@ -245,6 +245,29 @@ class Nucleo:
                     abiertos.add(plataforma)
         return abiertos
 
+    def marcar_cuenta_ok(self, usuario_id: int, plataforma: str) -> bool:
+        """Tras confirmar la cuenta, el último latido de sus navegadores ya la da por buena;
+        así el motivo de espera no sigue mostrando «confirma la cuenta» hasta el próximo latido.
+        Devuelve si cambió algún navegador."""
+        filas = self.base.cx.execute(
+            "SELECT id, portales_json FROM navegadores WHERE usuario_id = ? AND revocado = 0",
+            (usuario_id,),
+        ).fetchall()
+        cambio = False
+        with self.base.transaccion() as cx:
+            for fila in filas:
+                portales = json.loads(fila["portales_json"]) if fila["portales_json"] else {}
+                portal = portales.get(plataforma)
+                if not isinstance(portal, dict):
+                    continue
+                portal["cuenta"] = "ok"
+                cx.execute(
+                    "UPDATE navegadores SET portales_json = ? WHERE id = ?",
+                    (json.dumps(portales), fila["id"]),
+                )
+                cambio = True
+        return cambio
+
     # --- vacantes y selectores -----------------------------------------------------------
 
     def vacante(self, id_corto: str) -> dict[str, Any] | None:
