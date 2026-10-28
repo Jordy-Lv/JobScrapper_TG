@@ -70,6 +70,7 @@ class Pregunta:
     busqueda: bool = False  # lista demasiado larga para leerla: se escribe el valor y se elige
     # Lo que la receta del sitio dice de este campo: «campo», «campo:parámetro» o «redactar»
     campo_receta: str | None = None
+    multiple: bool = False  # permite elegir una o varias opciones (casillas de verificación)
 
 
 @dataclass
@@ -77,6 +78,7 @@ class Respuesta:
     pregunta: Pregunta
     valor: str | None = None
     opcion: int | None = None  # índice en pregunta.opciones
+    opciones: list[int] = field(default_factory=list)  # índices en pregunta.opciones si es múltiple
     origen: Origen | None = None
     campo: str | None = None
     falta: bool = False  # no se pudo responder con fundamento: hay que preguntarle al usuario
@@ -85,6 +87,8 @@ class Respuesta:
 
     @property
     def texto(self) -> str | None:
+        if self.opciones:
+            return ", ".join(self.pregunta.opciones[i] for i in self.opciones)
         if self.opcion is not None:
             return self.pregunta.opciones[self.opcion]
         return self.valor
@@ -227,6 +231,29 @@ def elegir_opcion(valor: str, opciones: list[str]) -> int | None:
     return None
 
 
+def elegir_opciones(valor: str, opciones: list[str]) -> list[int]:
+    """Índices en orden de las opciones que corresponden al valor en selección múltiple."""
+    if not opciones:
+        return []
+    elegidas: list[int] = []
+    partes = [p.strip() for p in re.split(r"[,;\n]|\s+(?:y|e|and)\s+", valor) if p.strip()]
+    if len(partes) > 1:
+        for parte in partes:
+            idx = elegir_opcion(parte, opciones)
+            if idx is not None and idx not in elegidas:
+                elegidas.append(idx)
+    norma = normalizar_texto(valor)
+    for i, op in enumerate(opciones):
+        op_norm = normalizar_texto(op)
+        if len(op_norm) >= 2 and re.search(rf"\b{re.escape(op_norm)}\b", norma):
+            if i not in elegidas:
+                elegidas.append(i)
+    if elegidas:
+        return sorted(elegidas)
+    unica = elegir_opcion(valor, opciones)
+    return [unica] if unica is not None else []
+
+
 # --- idioma del formulario ----------------------------------------------------------------
 
 IDIOMAS = {"es": "español", "en": "inglés", "pt": "portugués"}
@@ -312,6 +339,9 @@ class RespuestaRedactada(BaseModel):
     indice: int = Field(description="número de la pregunta")
     respuesta: str | None = Field(None, description="null si falta un dato del usuario")
     opcion: int | None = Field(None, description="índice de la opción elegida, si hay opciones")
+    opciones: list[int] = Field(
+        default_factory=list, description="índices elegidos si la pregunta permite varias opciones"
+    )
     faltan: list[DatoFaltante] = Field(default_factory=list)
 
 
@@ -352,7 +382,8 @@ INSTRUCCION_REDACTAR_FORMULARIO = (
     "- Si la pregunta dice «máximo N caracteres», la respuesta no lo supera.\n"
     "- Si la pregunta trae opciones, no redactes: devuelve en opcion el número de la que "
     "corresponde según los datos y deja respuesta=null; si los datos no alcanzan para elegir "
-    "con verdad, pide el dato en faltan."
+    "con verdad, pide el dato en faltan. Si permite varias opciones, devuelve sus números en "
+    "opciones."
 )
 
 
@@ -406,6 +437,13 @@ def _desde_campo(pregunta, campo, parametro, ctx: Contexto, origen: Origen) -> R
     if valor is None:
         return Respuesta(pregunta, campo=clave, falta=True)
     if pregunta.opciones:
+        if pregunta.multiple:
+            elegidas = elegir_opciones(valor, pregunta.opciones)
+            if not elegidas:
+                return Respuesta(pregunta, campo=clave, redactar=True)
+            return Respuesta(
+                pregunta, opcion=elegidas[0], opciones=elegidas, origen=origen, campo=clave
+            )
         indice = elegir_opcion(valor, pregunta.opciones)
         if indice is None:  # el dato existe pero no calza con las opciones: elige el redactor
             return Respuesta(pregunta, campo=clave, redactar=True)
@@ -531,6 +569,12 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
     texto = aprendida(ctx.base, ctx.usuario_id, norma)
     if texto is not None and texto != RESERVADO:
         if pregunta.opciones:
+            if pregunta.multiple:
+                elegidas = elegir_opciones(texto, pregunta.opciones)
+                if elegidas:
+                    return Respuesta(
+                        pregunta, opcion=elegidas[0], opciones=elegidas, origen=Origen.APRENDIDA
+                    )
             indice = elegir_opcion(texto, pregunta.opciones)
             if indice is not None:
                 return Respuesta(pregunta, opcion=indice, origen=Origen.APRENDIDA)
@@ -628,6 +672,7 @@ class Redactada:
     valor: str | None = None
     faltan: list[DatoFaltante] = field(default_factory=list)
     opcion: int | None = None  # pregunta con opciones: índice válido de la elegida
+    opciones: list[int] = field(default_factory=list)  # selección múltiple: índices elegidos
     alternativas: list[str] = field(default_factory=list)  # doble redacción: la otra versión
     revisada: bool = False  # el revisor final la corrigió, la cambió por otra versión o la frenó
 
@@ -693,7 +738,8 @@ def _texto_preguntas(preguntas: list[Pregunta]) -> str:
     for n, p in enumerate(preguntas, 1):
         if p.opciones:
             opciones = " · ".join(f"{i}) {o}" for i, o in enumerate(p.opciones))
-            lineas.append(f"{n}. {p.texto} [opciones: {opciones}]")
+            etiqueta_op = "opciones (puedes elegir una o varias)" if p.multiple else "opciones"
+            lineas.append(f"{n}. {p.texto} [{etiqueta_op}: {opciones}]")
         else:
             limite = f" (máximo {p.maximo} caracteres)" if p.maximo else ""
             lineas.append(f"{n}. {p.texto}{limite}")
@@ -854,7 +900,22 @@ async def redactar_formulario(
         faltan = _limpiar_faltantes(r.faltan)
         if pregunta.opciones:  # solo vale una opción del portal, nunca texto inventado
             valida = r.opcion is not None and 0 <= r.opcion < len(pregunta.opciones)
-            resultado[posicion] = Redactada(faltan=faltan, opcion=r.opcion if valida else None)
+            if pregunta.multiple and r.opciones:
+                validas: list[int] = []
+                for idx in r.opciones:
+                    if 0 <= idx < len(pregunta.opciones) and idx not in validas:
+                        validas.append(idx)
+                if validas:
+                    resultado[posicion] = Redactada(
+                        faltan=faltan, opcion=validas[0], opciones=validas
+                    )
+                    continue
+            elegida = r.opcion if valida else None
+            resultado[posicion] = Redactada(
+                faltan=faltan,
+                opcion=elegida,
+                opciones=[elegida] if (pregunta.multiple and elegida is not None) else [],
+            )
             continue
         valor = _texto_redactado(r, pregunta)
         if valor and afirma_requisito_ajeno(valor, ajenos):

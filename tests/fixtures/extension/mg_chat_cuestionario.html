@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Auxiliar TI - Magneto</title></head>
+<body>
+<!-- Vacante de Magneto con cuestionario conversacional en cajón lateral (evidencia de la
+     postulación 96, 2026-10-28, y paquetes compilados de Magneto). Al pulsar «Aplicar» se abre
+     un cajón Ant Design con aria-modal="true" y detailChatQuestionnaireChat_container: muestra
+     una pregunta a la vez tras loading_dots, separa el enunciado de la instrucción en la burbuja
+     role="bot", soporta selección única (radio sin name), selección múltiple (casillas + botón
+     «Guardar») y texto abierto (textarea con filtro estricto de caracteres + botón de solo ícono),
+     marca cada turno respondido con role="candidate" y solo entonces habilita «Enviar respuestas»
+     dentro del <footer> del cajón. -->
+<header>
+  <div class="logoutBlock_avatar_7d3k2">
+    <img alt="User Avatar" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="32" height="32">
+  </div>
+</header>
+<main>
+  <h1>Auxiliar TI</h1>
+  <p>Servicio de Empleo Comfama · Medellín</p>
+  <button type="button" class="applyButton_apply-btn__x9p2q">Aplicar</button>
+</main>
+<footer>Portal Magneto · Todos los derechos reservados</footer>
+<div id="cajon-raiz"></div>
+<script>
+  const DEMORA_CARGA = 350;
+  const DEMORA_MODAL = 1200;
+  const FILTRO_MAGNETO = /[^a-zA-ZÀ-ÿ0-9\s.,¿¡!?@$%^&*()_+\-=;:'"|`´]/g;
+  const PREGUNTAS_CHAT = [
+    {
+      tipo: "unica",
+      titulo: "¿Tienes disponibilidad para trabajar de forma presencial?",
+      ayuda: "Selecciona una opción",
+      opciones: ["Sí", "No"],
+    },
+    {
+      tipo: "multiple",
+      titulo: "¿Qué herramientas manejas actualmente?",
+      ayuda: "Selecciona una o más opciones",
+      opciones: ["Python", "Excel", "SQL"],
+    },
+    {
+      tipo: "abierta",
+      titulo: "¿Cuál es tu experiencia en soporte técnico?",
+      ayuda: "Escribe una respuesta de máximo 140 caracteres",
+      maximo: 140,
+    },
+    {
+      tipo: "abierta",
+      titulo: "Cuéntanos brevemente por qué te interesa esta vacante",
+      ayuda: "Escribe una respuesta de máximo 500 caracteres",
+      maximo: 500,
+    },
+  ];
+
+  document.querySelector(".applyButton_apply-btn__x9p2q").addEventListener("click", () => {
+    const raiz = document.getElementById("cajon-raiz");
+    raiz.innerHTML =
+      '<div class="ant-drawer ant-drawer-right ant-drawer-open">' +
+      '<div class="ant-drawer-mask"></div>' +
+      '<div class="ant-drawer-content-wrapper">' +
+      '<div class="ant-drawer-content" role="dialog" aria-modal="true">' +
+      '<div class="detailChatQuestionnaireChat_container__a1b2c">' +
+      '<div class="mg_chat_questionnaire_questionnaire_d3e4f">' +
+      '<header class="mg_chat_questionnaire_header_header_ma41l">' +
+      '<span>Responde el cuestionario para completar tu aplicación</span>' +
+      '</header>' +
+      '<div class="mg_chat_questionnaire_body_g5h6i" id="chat-cuerpo"></div>' +
+      '</div>' +
+      '<footer class="detailChatQuestionnaireChat_chat__footer__j7k8l">' +
+      '<button type="button" class="detailChatQuestionnaireChat_chat__cancel__m9n0o">Cancelar</button>' +
+      '<button type="button" class="detailChatQuestionnaireChat_chat__submit__p1q2r" disabled>Enviar respuestas</button>' +
+      '</footer>' +
+      '</div></div></div></div>';
+
+    const cuerpo = document.getElementById("chat-cuerpo");
+    const enviar = raiz.querySelector("[class*='detailChatQuestionnaireChat_chat__submit']");
+    let indice = 0;
+
+    function cerrarTurno(bloque, contenedorControl, textoRespuesta) {
+      contenedorControl.remove();
+      const candidato = document.createElement("article");
+      candidato.className = "mg_chat_questionnaire_message_candidate_message_1747a";
+      candidato.setAttribute("role", "candidate");
+      const span = document.createElement("span");
+      span.textContent = textoRespuesta;
+      candidato.appendChild(span);
+      bloque.appendChild(candidato);
+      indice += 1;
+      if (indice < PREGUNTAS_CHAT.length) {
+        montarTurno(indice);
+      } else {
+        enviar.disabled = false;
+      }
+    }
+
+    function montarTurno(i) {
+      const p = PREGUNTAS_CHAT[i];
+      const bloque = document.createElement("div");
+      bloque.className = "mg_chat_questionnaire_question_question_1747a";
+      bloque.innerHTML =
+        '<div class="mg_chat_questionnaire_loading_dots_1747a"><span>.</span><span>.</span><span>.</span></div>';
+      cuerpo.appendChild(bloque);
+
+      setTimeout(() => {
+        bloque.innerHTML = "";
+        const bot = document.createElement("article");
+        bot.className = "mg_chat_questionnaire_question_question_bot_1747a";
+        bot.setAttribute("role", "bot");
+        const burbuja = document.createElement("div");
+        burbuja.className = "mg_chat_questionnaire_bubble-message_1747a";
+        const sTitulo = document.createElement("span");
+        sTitulo.textContent = p.titulo;
+        const sAyuda = document.createElement("span");
+        sAyuda.textContent = p.ayuda || "";
+        burbuja.appendChild(sTitulo);
+        burbuja.appendChild(sAyuda);
+        bot.appendChild(burbuja);
+        bloque.appendChild(bot);
+
+        if (p.tipo === "unica") {
+          const caja = document.createElement("div");
+          caja.className = "mg_chat_questionnaire_unique_choice_answers_1747a";
+          p.opciones.forEach((op, idx) => {
+            const label = document.createElement("label");
+            label.className = "mg_chat_questionnaire_unique_choice_answers_option_1747a";
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.id = "unica-" + i + "-" + idx;
+            const texto = document.createElement("span");
+            texto.textContent = op;
+            label.appendChild(input);
+            label.appendChild(texto);
+            input.addEventListener("change", () => {
+              if (input.checked) cerrarTurno(bloque, caja, op);
+            });
+            caja.appendChild(label);
+          });
+          bloque.appendChild(caja);
+        } else if (p.tipo === "multiple") {
+          const form = document.createElement("form");
+          form.className = "mg_chat_questionnaire_multiple_choice_answers-container_1747a";
+          const guardar = document.createElement("button");
+          guardar.type = "submit";
+          guardar.className = "mg_chat_questionnaire_multiple_choice_continue-button_1747a";
+          guardar.disabled = true;
+          guardar.textContent = "Guardar";
+          p.opciones.forEach((op, idx) => {
+            const label = document.createElement("label");
+            label.className = "mg_chat_questionnaire_multiple_choice_answers_option_1747a";
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.name = "question-" + i;
+            input.id = "multiple-" + i + "-" + idx;
+            const texto = document.createElement("span");
+            texto.textContent = op;
+            label.appendChild(input);
+            label.appendChild(texto);
+            input.addEventListener("change", () => {
+              const marcadas = [...form.querySelectorAll("input[type='checkbox']:checked")];
+              guardar.disabled = marcadas.length === 0;
+            });
+            form.appendChild(label);
+          });
+          form.appendChild(guardar);
+          form.addEventListener("submit", (ev) => {
+            ev.preventDefault();
+            const elegidas = [...form.querySelectorAll("input[type='checkbox']:checked")]
+              .map((c) => c.parentElement.textContent.trim());
+            if (elegidas.length) cerrarTurno(bloque, form, elegidas.join(", "));
+          });
+          bloque.appendChild(form);
+        } else if (p.tipo === "abierta") {
+          const caja = document.createElement("div");
+          caja.className = "mg_chat_questionnaire_open_short_field_1747a";
+          const textarea = document.createElement("textarea");
+          textarea.className = "mg_chat_questionnaire_open_short_input_1747a";
+          textarea.maxLength = p.maximo || 140;
+          textarea.placeholder = "Escribe tu respuesta";
+          const boton = document.createElement("button");
+          boton.type = "button";
+          boton.className = "mg_chat_questionnaire_open_short_button_1747a";
+          boton.disabled = true;
+          boton.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 2l12 6-12 6z"/></svg>';
+          textarea.addEventListener("input", () => {
+            textarea.value = textarea.value.replace(FILTRO_MAGNETO, "");
+            boton.disabled = textarea.value.trim().length === 0;
+          });
+          boton.addEventListener("click", () => {
+            if (!boton.disabled && textarea.value.trim()) {
+              cerrarTurno(bloque, caja, textarea.value.trim());
+            }
+          });
+          caja.appendChild(textarea);
+          caja.appendChild(boton);
+          bloque.appendChild(caja);
+        }
+      }, DEMORA_CARGA);
+    }
+
+    montarTurno(0);
+
+    enviar.addEventListener("click", () => {
+      if (enviar.disabled) return;
+      setTimeout(() => {
+        raiz.innerHTML = "";
+        const modal = document.createElement("div");
+        modal.className = "mg_application_summary_summary-modal_y7z8a";
+        modal.innerHTML =
+          '<h2>Se ha enviado tu aplicación</h2>' +
+          '<button type="button" class="mg_application_button_button-summary_b9c0d">Cerrar</button>';
+        document.body.appendChild(modal);
+      }, DEMORA_MODAL);
+    });
+  });
+</script>
+</body></html>

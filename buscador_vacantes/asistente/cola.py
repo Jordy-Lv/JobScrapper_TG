@@ -57,7 +57,12 @@ CON_RESPALDO = {E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO}
 # Resultados que el usuario puede reintentar tocando ⚡ otra vez. No hay riesgo de duplicar:
 # antes de llenar nada la extensión revisa si el portal ya tiene la postulación (ya_postulada)
 REINTENTABLES = (
-    E.BLOQUEADA, E.FORMULARIO_DESCONOCIDO, E.FALLIDA, E.RESPALDO, E.CANCELADA, E.ENSAYADA,
+    E.BLOQUEADA,
+    E.FORMULARIO_DESCONOCIDO,
+    E.FALLIDA,
+    E.RESPALDO,
+    E.CANCELADA,
+    E.ENSAYADA,
 )
 
 
@@ -362,6 +367,18 @@ class Cola:
             self.paso(cx, pid, "envio_pulsado", ahora, E.EN_CURSO)
         return True
 
+    def desmarcar_envio_pulsado(self, pid: int, navegador_id: int, ahora: datetime) -> bool:
+        """Un clic precavido (como «Aplicar» en Magneto) abrió una encuesta aún sin enviar."""
+        actual = self.obtener(pid)
+        if actual is None or actual.navegador_id != navegador_id or actual.estado != E.EN_CURSO:
+            return False
+        with self.base.transaccion() as cx:
+            cx.execute(
+                "UPDATE postulaciones SET envio_pulsado = 0, actualizada = ? WHERE id = ?",
+                (a_texto(ahora), pid),
+            )
+        return True
+
     def registrar_paso(
         self, pid: int, navegador_id: int, paso: str, detalle, ahora: datetime
     ) -> bool:
@@ -385,7 +402,13 @@ class Cola:
         if actual is None or actual.navegador_id != navegador_id:
             return False
         return self._cambiar(
-            pid, (E.EN_CURSO,), E.ESPERANDO_USUARIO, ahora, navegador_id=None, tomada_en=None
+            pid,
+            (E.EN_CURSO,),
+            E.ESPERANDO_USUARIO,
+            ahora,
+            navegador_id=None,
+            tomada_en=None,
+            envio_pulsado=0,
         )
 
     def terminar(

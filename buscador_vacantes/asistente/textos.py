@@ -138,6 +138,8 @@ MOTIVOS_RESPALDO = {
     "documento_faltante": "el formulario pide un documento obligatorio que no tengo guardado",
     "nivel_ahorro": "tu nivel de IA es Ahorro y para entender este formulario hacía falta usarla",
     "plataforma_en_ensayo": "esta postulación estaba en modo ensayo y no se envió nada",
+    "proceso_abandonado": "habías abandonado este proceso en el portal y ya no permite volver a "
+    "postular",
 }
 # Motivos que la extensión reporta con texto libre y que tienen código propio
 MOTIVOS_DE_EXTENSION = {"la página de la vacante no cargó": "pagina_no_cargo"}
@@ -146,7 +148,7 @@ MOTIVOS_REINTENTABLES = ("fallida", "pagina_no_cargo")
 # Motivos que no son un fallo del asistente: el dueño no necesita revisar su evidencia
 MOTIVOS_SIN_ALERTA = (
     "ats_con_cuenta", "captcha", "oauth", "codigo_verificacion", "sin_ia", "documento_faltante",
-    "nivel_ahorro",
+    "nivel_ahorro", "proceso_abandonado",
 )  # fmt: skip
 
 # Avisos al dueño del vigía diario (ensayo de cada plataforma en su navegador)

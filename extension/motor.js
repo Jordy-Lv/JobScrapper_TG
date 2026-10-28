@@ -7,6 +7,7 @@
 
   const adaptadores = {};
   let campos = []; // campos leídos por el último paso "formulario" en esta página
+  let turnoChat = null; // turno actual leído por chat_turno en esta página
 
   const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
   const pausa = (min = 150, max = 450) => dormir(min + Math.random() * (max - min));
@@ -63,6 +64,7 @@
     const limite = Date.now() + ms;
     do {
       const el = buscar(selectores, opciones);
+      if (!el && opciones.cortar && buscar(opciones.cortar)) return null;
       if (el) return el;
       await dormir(250);
     } while (Date.now() < limite);
@@ -129,10 +131,17 @@
 
   // HTML del formulario (o la página) sin los valores escritos: evidencia para el dueño
   function htmlSinValores(raiz) {
+    const enContenedor = Boolean(
+      raiz && raiz !== document.documentElement && raiz !== document.body
+      && raiz.closest("[role=dialog], [aria-modal=true], dialog, form, article"),
+    );
     const copia = (raiz || document.documentElement).cloneNode(true);
     copia.querySelectorAll("script, style, noscript, svg, img, iframe").forEach((n) => n.remove());
     // Sin la cabecera, el menú ni el recuadro de la cuenta: ahí están el nombre y el correo
-    copia.querySelectorAll("header, nav, footer, [data-info-user], .header_popup, [class*='user' i]")
+    copia.querySelectorAll("header, nav, footer").forEach((n) => {
+      if (!enContenedor && !n.closest("[role=dialog], [aria-modal=true], dialog, form, article")) n.remove();
+    });
+    copia.querySelectorAll("[data-info-user], .header_popup, [class*='user' i]")
       .forEach((n) => n.remove());
     copia.querySelectorAll("input").forEach((n) => {
       n.removeAttribute("value");
@@ -347,6 +356,233 @@
     return { campos: salida.slice(0, 80) };
   }
 
+  // --- cuestionario conversacional por turnos (Magneto) -------------------------------------
+
+  function limpiarTextoPortal(valor, regla, maximo) {
+    let t = String(valor ?? "");
+    if (regla === "magneto_texto") {
+      t = t
+        .replace(/[—–―]/g, "-")
+        .replace(/[/\\]/g, "-")
+        .replace(/[«»“”„]/g, '"')
+        .replace(/[‘’‚]/g, "'")
+        .replace(/…/g, "...")
+        .replace(/[•·]/g, "-")
+        .replace(/\[/g, "(")
+        .replace(/\]/g, ")")
+        .replace(/[^a-zA-ZÀ-ÿ0-9\s.,¿¡!?@$%^&*()_+\-=;:'"|`´]/g, " ")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+    }
+    if (maximo && t.length > maximo) t = t.slice(0, maximo).trim();
+    return t;
+  }
+
+  function esContenedorChat(contenedor, def) {
+    if (!def || !def.contenedor) return false;
+    const propios = [].concat(def.contenedor).flatMap((s) => candidatos(s));
+    return propios.includes(contenedor) || Boolean(buscar(def.contenedor, { raiz: contenedor }));
+  }
+
+  function limiteChat(abierta, ayuda, bloque) {
+    const propio = maximoDe(abierta);
+    if (propio) return propio;
+    const fuente = `${ayuda || ""} ${textoDe(bloque)}`;
+    const m = fuente.match(/m[aá]ximo\s+(\d+)|de\s+(\d+)\s*$/i);
+    return m ? Number(m[1] || m[2]) : null;
+  }
+
+  async function esperarTurnoChat(def) {
+    turnoChat = null;
+    const esperaMs = def.espera_turno_ms || 8000;
+    const limite = Date.now() + esperaMs;
+    let ultimoTextoSinControl = "";
+    let raiz = null;
+    do {
+      raiz = buscar(def.contenedor);
+      if (!raiz) {
+        return {
+          error: "formulario_desconocido",
+          contenedor_abierto: true,
+          motivo: "chat: desapareció la encuesta antes de enviar",
+          html: htmlSinValores(),
+        };
+      }
+      const todos = candidatos(def.pregunta, raiz).filter(visible);
+      const preguntas = todos.filter((b) => !todos.some((o) => o !== b && b.contains(o)));
+      const pendientes = preguntas.filter((b) => !buscar(def.respondida, { raiz: b }));
+      const botonEnviar = buscar(def.enviar_final, { raiz }) || buscar(def.enviar_final);
+      if (preguntas.length > 0 && pendientes.length === 0 && botonEnviar && !botonEnviar.disabled) {
+        return { listo: true };
+      }
+      if (pendientes.length > 0) {
+        const actual = pendientes[0];
+        const cargando = def.cargando && buscar(def.cargando, { raiz: actual });
+        const burbuja = !cargando && buscar(def.burbuja_bot, { raiz: actual });
+        if (burbuja) {
+          const nodoTitulo = def.titulo ? burbuja.querySelector(def.titulo) : burbuja;
+          const nodoAyuda = def.ayuda ? burbuja.querySelector(def.ayuda) : null;
+          const texto = textoDe(nodoTitulo || burbuja);
+          const ayuda = textoDe(nodoAyuda) || null;
+          if (texto) {
+            const unicas = candidatos(def.unica, actual).filter(visible);
+            if (unicas.length) {
+              turnoChat = { bloque: actual, raiz, tipo: "unica", elementos: unicas, def };
+              return {
+                campo: {
+                  texto: texto.slice(0, 1000),
+                  ayuda,
+                  tipo: "opciones",
+                  opciones: unicas.map((o) => textoDe(o)),
+                  obligatoria: true,
+                  multiple: false,
+                  nombre: null,
+                  maximo: null,
+                },
+              };
+            }
+            const multiples = candidatos(def.multiple, actual).filter(visible);
+            if (multiples.length) {
+              turnoChat = { bloque: actual, raiz, tipo: "multiple", elementos: multiples, def };
+              return {
+                campo: {
+                  texto: texto.slice(0, 1000),
+                  ayuda,
+                  tipo: "opciones",
+                  opciones: multiples.map((o) => textoDe(o)),
+                  obligatoria: true,
+                  multiple: true,
+                  nombre: null,
+                  maximo: null,
+                },
+              };
+            }
+            const abierta = buscar(def.abierta, { raiz: actual });
+            if (abierta && !abierta.disabled && !abierta.readOnly) {
+              const maximo = limiteChat(abierta, ayuda, actual);
+              turnoChat = { bloque: actual, raiz, tipo: "abierta", el: abierta, maximo, def };
+              return {
+                campo: {
+                  texto: texto.slice(0, 1000),
+                  ayuda,
+                  tipo: "texto",
+                  opciones: [],
+                  obligatoria: true,
+                  multiple: false,
+                  nombre: null,
+                  maximo,
+                },
+              };
+            }
+            ultimoTextoSinControl = texto;
+          }
+        }
+      }
+      await dormir(150);
+    } while (Date.now() < limite);
+    const motivo = ultimoTextoSinControl
+      ? `chat: la pregunta «${ultimoTextoSinControl.slice(0, 200)}» no tiene controles de respuesta`
+      : "chat: no apareció la siguiente pregunta ni se habilitó enviar";
+    return {
+      error: "formulario_desconocido",
+      contenedor_abierto: true,
+      motivo,
+      html: htmlSinValores(raiz),
+    };
+  }
+
+  async function responderTurnoChat(respuestas) {
+    if (!turnoChat || !turnoChat.bloque || !turnoChat.bloque.isConnected) {
+      return {
+        error: "formulario_desconocido",
+        contenedor_abierto: true,
+        motivo: "llenar: el turno del chat ya no está en pantalla",
+        html: htmlSinValores(),
+      };
+    }
+    const { bloque, raiz, tipo, def } = turnoChat;
+    const r = (respuestas || [])[0];
+    const fallo = (motivo) => ({
+      error: "formulario_desconocido",
+      contenedor_abierto: true,
+      motivo: `llenar: ${motivo}`,
+      html: htmlSinValores(raiz),
+    });
+    const esperarRespondida = async (ms = 2500) => {
+      const limite = Date.now() + ms;
+      while (Date.now() < limite) {
+        if (buscar(def.respondida, { raiz: bloque })) return true;
+        await dormir(100);
+      }
+      return Boolean(buscar(def.respondida, { raiz: bloque }));
+    };
+    if (!r) return fallo("falta la respuesta del turno");
+
+    if (tipo === "unica") {
+      const op = turnoChat.elementos[r.opcion];
+      if (!op) return fallo("la opción elegida no existe en el turno");
+      const input = op.querySelector("input");
+      op.scrollIntoView({ block: "center" });
+      op.click();
+      if (!(await esperarRespondida(400)) && input && input.isConnected && !input.checked) {
+        input.click();
+      }
+      if (!(await esperarRespondida(2500))) {
+        return fallo("la opción elegida no quedó marcada");
+      }
+    } else if (tipo === "multiple") {
+      const indices = Array.isArray(r.opciones) && r.opciones.length
+        ? r.opciones
+        : (r.opcion != null ? [r.opcion] : []);
+      if (!indices.length) return fallo("no hay opciones elegidas para marcar");
+      for (const idx of indices) {
+        const op = turnoChat.elementos[idx];
+        if (!op) return fallo("una opción elegida no existe en el turno");
+        const input = op.querySelector("input[type='checkbox'], input");
+        op.scrollIntoView({ block: "center" });
+        if (!input || !input.checked) op.click();
+        await dormir(150);
+        if (input && !input.checked) input.click();
+        await dormir(100);
+        if (input && !input.checked) return fallo("la opción múltiple no quedó marcada");
+      }
+      const guardar = await esperar(def.guardar_multiple, 2000, { raiz: bloque });
+      if (!guardar) return fallo("no apareció el botón Guardar de la pregunta múltiple");
+      const topeGuardar = Date.now() + 1500;
+      while (guardar.disabled && Date.now() < topeGuardar) await dormir(100);
+      if (guardar.disabled) return fallo("el botón Guardar sigue deshabilitado");
+      guardar.scrollIntoView({ block: "center" });
+      guardar.click();
+      if (!(await esperarRespondida(2500))) {
+        return fallo("la pregunta múltiple no quedó registrada al guardar");
+      }
+    } else if (tipo === "abierta") {
+      if (r.valor == null) return fallo("falta el texto de la respuesta abierta");
+      const limpio = limpiarTextoPortal(r.valor, def.caracteres_permitidos, turnoChat.maximo);
+      if (!limpio) return fallo("la respuesta abierta quedó vacía tras limpiar caracteres");
+      const el = turnoChat.el;
+      el.scrollIntoView({ block: "center" });
+      asignarValor(el, limpio);
+      await dormir(200);
+      const normalizarSaltos = (t) => String(t).replace(/\r\n?/g, "\n");
+      if (normalizarSaltos(el.value) !== normalizarSaltos(limpio)) {
+        return fallo("la respuesta abierta no quedó escrita en el campo");
+      }
+      const boton = await esperar(def.enviar_abierta, 2000, { raiz: bloque });
+      if (!boton) return fallo("no apareció el botón para enviar la respuesta abierta");
+      const topeBoton = Date.now() + 1500;
+      while (boton.disabled && Date.now() < topeBoton) await dormir(100);
+      if (boton.disabled) return fallo("el botón de la respuesta abierta sigue deshabilitado");
+      boton.scrollIntoView({ block: "center" });
+      boton.click();
+      if (!(await esperarRespondida(2500))) {
+        return fallo("el chat no registró la respuesta abierta");
+      }
+    }
+    await pausa();
+    return { ok: true };
+  }
+
   // --- llenado con eventos nativos ---------------------------------------------------------
 
   function asignarValor(el, valor) {
@@ -553,19 +789,30 @@
         return { ir: new URL(url, location.href).href };
       }
       case "formulario": {
-        const contenedor = await esperar(paso.contenedor || ["form"], ms);
+        const contenedor = await esperar(paso.contenedor || ["form"], ms, { cortar: paso.cortar_si });
         if (!contenedor) {
           if (paso.opcional) return { ok: true, campos: [] };
           return error(paso, "no apareció el formulario");
         }
+        if (paso.chat && esContenedorChat(contenedor, paso.chat)) {
+          return { chat: true, contenedor_abierto: true };
+        }
         if (paso.preguntas) {
           const leidas = leerPreguntas(contenedor, paso.preguntas);
           if (leidas.sin_respuesta) {
-            return error(paso, `la pregunta «${leidas.sin_respuesta}» no tiene botones ni campo de respuesta`, contenedor);
+            return {
+              ...error(paso, `la pregunta «${leidas.sin_respuesta}» no tiene botones ni campo de respuesta`, contenedor),
+              contenedor_abierto: true,
+            };
           }
-          return { campos: leidas.campos };
+          return { campos: leidas.campos, contenedor_abierto: true };
         }
-        return { campos: leerCampos(contenedor) };
+        return { campos: leerCampos(contenedor), contenedor_abierto: true };
+      }
+      case "chat_turno":
+        return esperarTurnoChat(paso.chat || {});
+      case "chat_llenar": {
+        return responderTurnoChat(datos.respuestas || []);
       }
       case "llenar":
         return { ok: true, ...(await llenar(datos.respuestas || [], datos.cv)) };
@@ -842,7 +1089,30 @@
   }
 
   function enZonaExcluida(el, banners) {
-    return Boolean(el.closest(FUERA)) || banners.some((b) => b.contains(el));
+    const zona = el.closest(FUERA);
+    if (zona && !zona.closest("[role=dialog], [aria-modal=true], dialog, form")) return true;
+    return banners.some((b) => b.contains(el));
+  }
+
+  function modalActivo(banners = []) {
+    const modales = [...document.querySelectorAll("[aria-modal='true'], dialog[open]")]
+      .filter((m) => visible(m) && dentroDePantalla(m) && !banners.some((b) => b.contains(m)));
+    for (let i = modales.length - 1; i >= 0; i--) {
+      const m = modales[i];
+      if (m.querySelector(CONTROLES) || m.querySelector("button, input[type=submit], [role=button]")) {
+        return m;
+      }
+    }
+    return null;
+  }
+
+  function contenedorRadiosSinNombre(el, ambito) {
+    let nodo = el.parentElement;
+    for (let i = 0; nodo && i < 4 && nodo !== document.body && nodo !== ambito; i++, nodo = nodo.parentElement) {
+      const radios = [...nodo.querySelectorAll("input[type=radio]")].filter((r) => !r.name);
+      if (radios.length > 1) return nodo;
+    }
+    return null;
   }
 
   // Texto de un campo en el orden de la spec: etiqueta, aria-labelledby, aria-label, etiqueta
@@ -1011,7 +1281,9 @@
     const usados = new Set();
     const items = [];
     const grupos = new Map();
-    for (const el of document.querySelectorAll(CONTROLES)) {
+    const ambito = modalActivo(banners) || document;
+    const gruposSinNombre = new Map();
+    for (const el of ambito.querySelectorAll(CONTROLES)) {
       if (usados.has(el) || enZonaExcluida(el, banners)) continue;
       if (esTrampa(el, reglas) || esClave(el) || RESPUESTA_CAPTCHA.test(`${el.name} ${el.id}`)) continue;
       if (el.disabled || el.readOnly || el.getAttribute("aria-disabled") === "true") continue;
@@ -1061,7 +1333,14 @@
         const lab = (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)) || el.closest("label");
         if (!visibleGenerico(el) && !(lab && visibleGenerico(lab))) continue;
         if (t === "radio" || el.name) {
-          const clave = `${t}:${el.name || el.id}`;
+          let clave = `${t}:${el.name || el.id}`;
+          if (t === "radio" && !el.name) {
+            const caja = contenedorRadiosSinNombre(el, ambito);
+            if (caja) {
+              if (!gruposSinNombre.has(caja)) gruposSinNombre.set(caja, `radio_caja_${gruposSinNombre.size}`);
+              clave = gruposSinNombre.get(caja);
+            }
+          }
           if (!grupos.has(clave)) {
             const grupo = { tipo: t, el, elementos: [] };
             grupos.set(clave, grupo);
@@ -1211,13 +1490,15 @@
     const salida = [];
     const elementos = [];
     const abajo = contenedor ? contenedor.getBoundingClientRect().bottom : 0;
-    const todos = document.querySelectorAll("button, input[type=submit], input[type=button], [role=button], a[href]");
+    const ambito = modalActivo(banners) || document;
+    const todos = ambito.querySelectorAll("button, input[type=submit], input[type=button], [role=button], a[href]");
     for (const el of todos) {
       if (!visibleGenerico(el) || enZonaExcluida(el, banners)) continue;
       if (el.closest("[role=listbox]") || el.closest("[role=combobox]")) continue;
       if (contenedor && !contenedor.contains(el)) {
         const despues = contenedor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING;
-        if (!despues || el.getBoundingClientRect().top - abajo > 300) continue;
+        const margen = ambito === document ? 300 : 2000;
+        if (!despues || el.getBoundingClientRect().top - abajo > margen) continue;
       }
       const texto = textoBoton(el);
       if (!texto) continue;
@@ -1356,7 +1637,8 @@
   function resumenDe(contenedor, banners) {
     const elementos = [];
     const lista = [];
-    for (const el of document.querySelectorAll(INTERACTIVOS)) {
+    const ambito = modalActivo(banners) || document;
+    for (const el of ambito.querySelectorAll(INTERACTIVOS)) {
       if (lista.length >= MAX_RESUMEN) break;
       if (!visibleGenerico(el) || esClave(el)) continue;
       const t = (el.getAttribute("type") || "").toLowerCase();

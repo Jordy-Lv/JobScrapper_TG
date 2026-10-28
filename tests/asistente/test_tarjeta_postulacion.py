@@ -632,3 +632,12 @@ def test_ensayada_trabada_dice_la_pantalla_y_el_motivo_y_no_ofrece_enviar(trabad
     d = datos(ensayo={"trabado": trabado, "en_plataforma": False})
     assert frase in tp.texto(card, d)
     assert etiquetas(tp.botones(card, d, cb)) == [[tp.BOTON_PAQUETE_RESPALDO], ["Ver vacante"]]
+
+
+def test_respaldo_por_proceso_abandonado_explica_el_motivo_y_no_alerta_al_dueno():
+    assert "proceso_abandonado" in t.MOTIVOS_RESPALDO
+    assert "proceso_abandonado" in t.MOTIVOS_SIN_ALERTA
+    card = tp.Card(fase=tp.RESPALDO, motivo="proceso_abandonado")
+    texto = tp.texto(card, datos(plataforma="magneto"))
+    assert "abandonado" in texto
+    assert "el formulario del portal cambió" not in texto
