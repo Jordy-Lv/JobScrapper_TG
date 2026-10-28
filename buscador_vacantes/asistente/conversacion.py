@@ -102,9 +102,19 @@ def derivar_del_cv(
     valores = dict(locales)
     valores["nombre"] = perfil.nombre
     valores["ciudad"] = perfil.ciudad
-    if perfil.formacion and perfil.formacion[0].estado:
-        en_curso = "curso" in perfil.formacion[0].estado.lower()
-        valores["estudia_actualmente"] = "Sí" if en_curso else "No"
+    if perfil.formacion:
+        for f in perfil.formacion:
+            if f.semestre:
+                valores["semestre"] = f.semestre
+                break
+        if perfil.formacion[0].estado:
+            en_curso = "curso" in perfil.formacion[0].estado.lower()
+            valores["estudia_actualmente"] = "Sí" if en_curso else "No"
+    for enlace in perfil.enlaces:
+        tipo = enlace.tipo.lower()
+        if tipo in ("github", "portafolio") or "github.com" in enlace.url.lower():
+            valores["enlace_portafolio"] = enlace.url
+            break
     for idioma in perfil.idiomas:
         if idioma.idioma.lower().startswith(("ingl", "engl")) and idioma.nivel:
             valores["ingles_nivel"] = idioma.nivel
@@ -475,6 +485,8 @@ class Conversacion:
         self.n.guardar_perfil(usuario.id, lectura.perfil)
         datos = self.n.datos_usuario(usuario.id)
         locales = {c: getattr(lectura.locales, c) for c in ("correo", "telefono", "documento")}
+        if lectura.locales.autorizacion_colombia:
+            locales["autorizacion_trabajo:colombia"] = lectura.locales.autorizacion_colombia
         self.n.guardar_cuestionario(
             usuario.id, derivar_del_cv(lectura.perfil, locales, datos.cuestionario)
         )

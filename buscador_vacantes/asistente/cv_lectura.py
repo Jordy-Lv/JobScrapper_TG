@@ -36,6 +36,13 @@ RE_DIRECCION = re.compile(
     r"\.?\s*\d+[a-z]?(?:\s*bis)?\s*(?:#|n[°º]?|no\.?)\s*\d+[a-z]?\s*-\s*\d+[^\n,;]*",
     re.IGNORECASE,
 )
+RE_DOC_COLOMBIA = re.compile(r"\b(?:c\.?c\.?|c[eé]dula|t\.?i\.?|c\.?e\.?)\b", re.IGNORECASE)
+RE_AUTORIZACION_COLOMBIA = re.compile(
+    r"\b(?:nacionalidad colombiana|colombian[oa]|"
+    r"autorizaci[oó]n (?:legal )?para trabajar en colombia|"
+    r"autorizad[oa] para trabajar en colombia)\b",
+    re.IGNORECASE,
+)
 
 
 class CVInvalido(Exception):
@@ -131,6 +138,7 @@ class DatosLocales:
     correo: str | None = None
     telefono: str | None = None
     documento: str | None = None
+    autorizacion_colombia: str | None = None
 
 
 @dataclass
@@ -175,6 +183,10 @@ def enmascarar(texto: str) -> tuple[str, DatosLocales]:
     texto = RE_CORREO.sub("[correo]", texto)
     if m := RE_DOCUMENTO.search(texto):
         locales.documento = re.sub(r"\D", "", m.group(0)) or None
+        if RE_DOC_COLOMBIA.search(m.group(0)):
+            locales.autorizacion_colombia = "Sí"
+    if not locales.autorizacion_colombia and RE_AUTORIZACION_COLOMBIA.search(texto):
+        locales.autorizacion_colombia = "Sí"
     texto = RE_DOCUMENTO.sub("[documento]", texto)
     texto = RE_DIRECCION.sub("[dirección]", texto)
     for m in RE_TELEFONO.finditer(texto):

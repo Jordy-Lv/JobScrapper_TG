@@ -243,7 +243,10 @@ def test_resumen_unico_con_dos_botones_y_sin_cuestionario(mundo):
         item = next(i for i in t.CUESTIONARIO if i.clave == clave)
         assert t.e(item.pregunta) not in preguntadas
     # Sí se preguntan las que suelen pedir las vacantes y el CV no dice
-    for clave in ("salario", "disponibilidad_inicio", "actualizar_cv_portal"):
+    for clave in (
+        "salario", "disponibilidad_inicio", "semestre", "autorizacion_trabajo:colombia",
+        "enlace_portafolio", "actualizar_cv_portal",
+    ):
         item = next(i for i in t.CUESTIONARIO if i.clave == clave)
         assert t.e(item.pregunta) in preguntadas
 
@@ -3673,3 +3676,80 @@ def test_un_destino_de_mensajeria_guardado_va_al_respaldo_y_el_paquete_trae_el_e
     _, texto, botones = mundo.s.ultimo(ANA)
     assert "WhatsApp, Telegram o correo" in texto and "wa.me/573001112233" in texto
     assert ("Ver vacante", "url:https://wa.me/573001112233") in [b for f in botones for b in f]
+
+
+def test_derivar_del_cv_preguntas_frecuentes():
+    from buscador_vacantes.asistente.conversacion import derivar_del_cv
+    from buscador_vacantes.asistente.cv_lectura import Enlace, Formacion, PerfilExtraido
+
+    perfil = PerfilExtraido(
+        es_cv=True,
+        nombre="Carlos Ruiz",
+        ciudad="Medellín",
+        formacion=[
+            Formacion(
+                institucion="EAFIT", programa="Ingeniería de Sistemas",
+                semestre="7", estado="En curso",
+            )
+        ],
+        enlaces=[
+            Enlace(tipo="github", url="https://github.com/carlos"),
+            Enlace(tipo="linkedin", url="https://linkedin.com/in/carlos"),
+        ],
+    )
+    locales = {
+        "correo": "carlos@test.com",
+        "telefono": "3001234567",
+        "documento": "12345678",
+        "autorizacion_trabajo:colombia": "Sí",
+    }
+    cuestionario = derivar_del_cv(perfil, locales, {})
+    assert cuestionario["semestre"] == "7"
+    assert cuestionario["enlace_portafolio"] == "https://github.com/carlos"
+    assert cuestionario["autorizacion_trabajo:colombia"] == "Sí"
+    assert cuestionario["estudia_actualmente"] == "Sí"
+    assert cuestionario["nombre"] == "Carlos Ruiz"
+    assert cuestionario["ciudad"] == "Medellín"
+
+    # No pisa lo que el usuario ya contestó
+    existente = {
+        "semestre": "8",
+        "enlace_portafolio": "https://carlos.dev",
+        "autorizacion_trabajo:colombia": "No",
+    }
+    cuestionario2 = derivar_del_cv(perfil, locales, existente)
+    assert cuestionario2["semestre"] == "8"
+    assert cuestionario2["enlace_portafolio"] == "https://carlos.dev"
+    assert cuestionario2["autorizacion_trabajo:colombia"] == "No"
+
+
+def test_onboarding_omite_preguntas_frecuentes_si_vienen_en_el_cv(mundo):
+    from buscador_vacantes.asistente.cv_lectura import Enlace, Formacion, PerfilExtraido
+
+    correr(hasta_resumen(mundo, ANA))
+    usuario = mundo.n.usuarios.obtener(ANA)
+
+    # Si el perfil y cuestionario tienen los datos frecuentes precargados
+    perfil = PerfilExtraido(
+        es_cv=True,
+        nombre="Ana Pérez",
+        ciudad="Bogotá",
+        formacion=[
+            Formacion(
+                institucion="SENA", programa="Tecnólogo en ADSO", semestre="5", estado="En curso"
+            )
+        ],
+        enlaces=[Enlace(tipo="github", url="https://github.com/anaperez")],
+    )
+    mundo.n.guardar_perfil(usuario.id, perfil)
+    cuestionario = mundo.n.datos_usuario(usuario.id).cuestionario
+    cuestionario["semestre"] = "5"
+    cuestionario["enlace_portafolio"] = "https://github.com/anaperez"
+    cuestionario["autorizacion_trabajo:colombia"] = "Sí"
+    mundo.n.guardar_cuestionario(usuario.id, cuestionario)
+
+    faltantes = mundo.c._faltantes(usuario)
+    claves_faltantes = [t.CUESTIONARIO[i].clave for i in faltantes]
+    assert "semestre" not in claves_faltantes
+    assert "enlace_portafolio" not in claves_faltantes
+    assert "autorizacion_trabajo:colombia" not in claves_faltantes

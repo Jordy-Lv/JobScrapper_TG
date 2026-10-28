@@ -116,3 +116,23 @@ def test_ida_y_vuelta_del_estado():
 @pytest.mark.parametrize("clave", [it.clave for it in t.CUESTIONARIO])
 def test_todas_las_preguntas_tienen_etiqueta(clave):
     assert clave in pt.ETIQUETAS
+
+
+def test_preguntas_frecuentes_en_cuestionario_y_resumen():
+    claves = [it.clave for it in t.CUESTIONARIO]
+    for c in ("semestre", "enlace_portafolio", "autorizacion_trabajo:colombia"):
+        assert c in claves
+
+    indices = [
+        indice("semestre"), indice("enlace_portafolio"), indice("autorizacion_trabajo:colombia")
+    ]
+    est = pt.Preguntas(indices=indices, actual=indices[0])
+    respuestas = {
+        "semestre": "6",
+        "enlace_portafolio": "https://github.com/ana",
+        "autorizacion_trabajo:colombia": "Sí",
+    }
+    texto = pt.texto_resumen(est, respuestas)
+    assert "• Semestre: 6" in texto
+    assert "• Portafolio o GitHub: https://github.com/ana" in texto
+    assert "• Trabajar en Colombia: Sí" in texto
