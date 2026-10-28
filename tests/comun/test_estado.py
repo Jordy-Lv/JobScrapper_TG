@@ -513,3 +513,9 @@ def test_limpieza_de_descartes_y_lotes_canal(estado):
     assert claves == ["computrabajo:2"]
     lotes = [f["id"] for f in estado.cx.execute("SELECT id FROM lotes_canal")]
     assert lotes == ["lote_nuevo"]
+
+
+def test_pragmas_de_resiliencia_y_rendimiento(estado):
+    assert estado.cx.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
+    assert estado.cx.execute("PRAGMA temp_store").fetchone()[0] == 2  # MEMORY
+    assert estado.cx.execute("PRAGMA cache_size").fetchone()[0] == -64000
