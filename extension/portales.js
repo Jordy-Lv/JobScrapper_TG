@@ -81,9 +81,76 @@ export function plataformaDeUrl(url) {
   return null;
 }
 
-// El motor solo opera en los dominios del portal y fuera de las páginas prohibidas
-export function paginaPermitida(url, plataforma) {
+// El motor solo opera en los dominios del portal y fuera de las páginas prohibidas. En la
+// plataforma `externa`, `ambito` es el destino del trabajo (ver motivoExterno).
+export function paginaPermitida(url, plataforma, ambito = null) {
+  if (plataforma === "externa") return motivoExterno(url, ambito) === null;
   if (plataformaDeUrl(url) !== plataforma) return false;
   const ruta = new URL(url).pathname;
   return !PROHIBIDAS.some((patron) => patron.test(ruta));
+}
+
+// --- plataforma «externa»: la página de la empresa a la que lleva una vacante de LinkedIn ------
+// Cualquier https, con el permiso opcional `https://*/*` que el usuario concede desde el popup.
+
+export const ORIGEN_EXTERNO = "https://*/*";
+
+export async function tienePermisoExterno() {
+  return chrome.permissions.contains({ origins: [ORIGEN_EXTERNO] });
+}
+
+// Además de las prohibidas de siempre: ingreso, registro, OAuth y pagos
+export const PROHIBIDAS_EXTERNA = [
+  ...PROHIBIDAS,
+  /(^|[/_.-])(log[-_]?in|sign[-_]?in|sign[-_]?up|register|oauth2?|authorize|checkout|payments?)([/_.-]|$)/i,
+];
+
+// Proveedores de identidad: llegar a ellos es una barrera «oauth», no un salto cualquiera
+const OAUTH = /^(accounts\.google\.com|login\.microsoftonline\.com|login\.live\.com|appleid\.apple\.com)(\/|$)|\/(oauth2?|authorize)(\/|$)/i;
+
+const SEGUNDO_NIVEL = /^(com|co|org|net|gov|gob|edu|ac|nom|mil)$/;
+
+// Dominio registrable aproximado: empresa.com, empresa.com.co, empresa.co.uk
+export function dominioBase(host) {
+  const partes = host.toLowerCase().split(".");
+  const n = partes.length > 2 && partes.at(-1).length === 2 && SEGUNDO_NIVEL.test(partes.at(-2)) ? 3 : 2;
+  return partes.slice(-n).join(".");
+}
+
+function delPatron(host, patron) {
+  const p = String(patron).toLowerCase();
+  return host === p || host.endsWith("." + p);
+}
+
+// Por qué el motor no puede operar en `url` dentro del destino `ambito` ({destino,
+// familias_hosts, hosts_prohibidos}), o null si puede: `oauth`, `pagina_prohibida` o
+// `salto_de_dominio` (el host no es el del destino, ni de su mismo dominio, ni de una familia
+// de ATS conocida, como el sitio propio que incrusta Greenhouse).
+export function motivoExterno(url, ambito) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return "pagina_prohibida";
+  }
+  if (u.protocol !== "https:") return "pagina_prohibida";
+  const host = u.hostname.toLowerCase();
+  const hostRuta = host + u.pathname.toLowerCase();
+  if (OAUTH.test(hostRuta)) return "oauth";
+  const a = ambito || {};
+  for (const prohibido of a.hosts_prohibidos || []) {
+    const p = String(prohibido).toLowerCase();
+    const enHost = p.includes("/") ? hostRuta === p || hostRuta.startsWith(p + "/") : delPatron(host, p);
+    if (enHost) return "pagina_prohibida";
+  }
+  if (PROHIBIDAS_EXTERNA.some((patron) => patron.test(u.pathname))) return "pagina_prohibida";
+  let destino;
+  try {
+    destino = new URL(a.destino).hostname.toLowerCase();
+  } catch {
+    return "salto_de_dominio";
+  }
+  if (host === destino || dominioBase(host) === dominioBase(destino)) return null;
+  if ((a.familias_hosts || []).some((p) => delPatron(host, p))) return null;
+  return "salto_de_dominio";
 }

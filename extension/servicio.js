@@ -2,7 +2,8 @@
 // Coordina el flujo entre páginas; cada paso lo ejecuta motor.js dentro de la pestaña.
 
 import { ajustes, llamar, version, vincular, ErrorApi } from "./api.js";
-import { ADAPTADORES, INGRESO, paginaPermitida, plataformaDeUrl, tienePermiso } from "./portales.js";
+import { ADAPTADORES, INGRESO, motivoExterno, paginaPermitida, plataformaDeUrl, tienePermiso,
+  tienePermisoExterno } from "./portales.js";
 
 const ALARMA = "latido";
 const REVISION_MAX_MS = 6 * 60 * 60 * 1000; // estado de los portales: se revisa cada 6 h
@@ -101,11 +102,15 @@ async function enviarLatido(portales) {
     cuerpo.portales[plataforma] = { estado: p.estado, correo: p.correo || null,
       pagina_correo: p.pagina_correo || null, motivo: p.motivo || null };
   }
+  // Páginas de las empresas (vacantes externas de LinkedIn): no tienen sesión ni cuenta, solo
+  // el permiso. El servidor lo lee para decidir si las abre (Nucleo.permiso_externo).
+  if (await tienePermisoExterno()) cuerpo.portales.externa = { estado: "listo", correo: null };
   try {
     const r = await llamar("POST", "/latido", cuerpo);
     await chrome.storage.local.set({
       selectores_version: r.selectores || {}, enlaces: r.enlaces || {},
       motor_generico_version: r.motor_generico || null,
+      familias_ats_version: r.familias_ats || null,
     });
     await guardarEstado({
       en_linea: true, ultimo_latido: Date.now(), actualizar: r.actualizar,
@@ -142,6 +147,23 @@ async function reglasMotor() {
   const r = await llamar("GET", "/motor_generico");
   await chrome.storage.local.set({ motor_generico_cache: r });
   return r.reglas;
+}
+
+// Datos de las familias de ATS (CV, botón de enviar, señal de éxito), por la versión del latido.
+// Un servidor sin ellos deja el motor con sus reglas genéricas.
+async function familiasAts() {
+  const { familias_ats_version = null, familias_ats_cache = null } =
+    await chrome.storage.local.get(["familias_ats_version", "familias_ats_cache"]);
+  if (familias_ats_cache && familias_ats_cache.version === familias_ats_version) {
+    return familias_ats_cache.familias;
+  }
+  try {
+    const r = await llamar("GET", "/familias_ats");
+    await chrome.storage.local.set({ familias_ats_cache: r });
+    return r.familias || {};
+  } catch (error) {
+    return {};
+  }
 }
 
 // --- estado de los portales ----------------------------------------------------------------
@@ -367,6 +389,10 @@ async function ejecutar(trabajo) {
     return; // otro navegador la tomó o ya no está disponible
   }
   await guardarEstado({ trabajo_actual: { id, titulo: trabajo.titulo, plataforma, inicio: Date.now() } });
+  if (plataforma === "linkedin" && tipo === "postular") {
+    await ejecutarLinkedin(trabajo, sel);
+    return;
+  }
   // Una plataforma sin pasos de postular (un ATS sin declarar) va directo al bucle genérico
   const generico = tipo === "postular" && !pasos.length && Boolean(trabajo.motor_generico);
   if ((!pasos.length && !generico) || !url) {
@@ -413,6 +439,235 @@ async function ejecutar(trabajo) {
     await guardarEstado({ trabajo_actual: null });
     if (cerrar) await cerrarPestana(pestana);
   }
+}
+
+// --- LinkedIn --------------------------------------------------------------------------------
+// La vacante se abre una vez con la sesión del usuario y se clasifica con linkedin.json. En una
+// externa nunca se pulsa «Solicitar»: se lee el destino del enlace /safety/go, el servidor lo
+// limpia y decide, y la misma pestaña navega a la página de la empresa (plataforma `externa`).
+// En una sencilla se pulsa «Solicitud sencilla» y el bucle genérico trabaja dentro del modal.
+// Un destino ya resuelto por otro usuario se abre directo, sin pasar por LinkedIn.
+
+async function ejecutarLinkedin(trabajo, sel) {
+  const { id } = trabajo;
+  if (!trabajo.motor_generico) {
+    await terminar(id, "formulario_desconocido", { motivo: "LinkedIn necesita el motor genérico" });
+    return;
+  }
+  const destino = trabajo.destino || null;
+  let pestana;
+  try {
+    pestana = await abrirPestana(destino ? destino.url : trabajo.url);
+  } catch (error) {
+    await terminar(id, "fallida", { motivo: "la página de la vacante no cargó" });
+    return;
+  }
+  let cerrar = true;
+  const contexto = { trabajo, sel, cv: null, cv_nombre: null, inicio: Date.now(), envio: false };
+  ensayoEnCurso = trabajo.ensayo ? { id, pantalla: 0 } : null;
+  try {
+    await reportar(id, "abrir", trabajo.titulo || trabajo.url);
+    let r;
+    if (destino) {
+      await reportar(id, "destino_guardado", destino.familia || null);
+      r = await paginaExterna(pestana.id, contexto, { accion: "abrir", ...destino });
+    } else {
+      r = await vacanteLinkedin(pestana.id, contexto);
+    }
+    cerrar = (r || {}).cerrar !== false;
+  } catch (error) {
+    await terminar(id, "fallida", { motivo: String(error.message || error).slice(0, 400) });
+  } finally {
+    ensayoEnCurso = null;
+    await guardarEstado({ trabajo_actual: null });
+    if (cerrar) await cerrarPestana(pestana);
+  }
+}
+
+// Qué solicitud tiene la vacante: corre dentro de la pestaña con el motor ya inyectado
+async function leerVacante(sel, ms) {
+  const a = globalThis.__asistente.api;
+  const t = sel.textos || {};
+  const tipo = sel.tipo || {};
+  const enUrl = (lista) => (lista || []).some((p) => location.href.includes(p));
+  const limite = Date.now() + ms;
+  for (;;) {
+    // El muro de ingreso (/authwall) también dice «Verificación de seguridad» (visto el
+    // 2026-10-27): la URL sin sesión se mira antes que los textos del aviso de seguridad
+    if (enUrl((sel.sesion || {}).url_sin_sesion)) return { tipo: "sin_sesion" };
+    if (enUrl((sel.seguridad || {}).url) || a.hayTexto(t.seguridad)) return { tipo: "seguridad" };
+    const enlace = a.buscar(tipo.externa || [], { ocultos: true });
+    if (enlace) {
+      // Solo el enlace «Solicitar en el sitio web de la empresa»: hay otros /safety/go (el aviso
+      // de privacidad de la empresa) que no son el destino
+      const def = tipo.externa_destino || {};
+      let url = null;
+      try {
+        const u = new URL(enlace.href);
+        url = u.pathname.startsWith(def.ruta || "/safety/go") ? u.searchParams.get(def.param || "url") : u.href;
+      } catch {
+        url = null;
+      }
+      return { tipo: "externa", url };
+    }
+    if (a.buscar(tipo.sencilla || [])) return { tipo: "sencilla" };
+    if (a.hayTexto(t.pausada)) return { tipo: "pausada" };
+    if (a.hayTexto(t.cerrada)) return { tipo: "cerrada" };
+    if (Date.now() >= limite) return { tipo: "desconocida" };
+    await a.dormir(300);
+  }
+}
+
+async function vacanteLinkedin(tabId, contexto) {
+  const { trabajo, sel } = contexto;
+  const { id } = trabajo;
+  await inyectar(tabId, "linkedin");
+  const vista = await enPestana(tabId, leerVacante, sel, 10000);
+  await reportar(id, "linkedin_tipo", vista.tipo);
+  if (vista.tipo === "seguridad") {
+    // El servidor pausa LinkedIn 24 h para este usuario y le avisa
+    await terminar(id, "bloqueada", { motivo: "aviso_seguridad" });
+    return { fin: true };
+  }
+  if (vista.tipo === "sin_sesion") {
+    await terminar(id, "esperando_sesion", { motivo: "no hay sesión iniciada en LinkedIn" });
+    return { fin: true };
+  }
+  if (vista.tipo === "cerrada" || vista.tipo === "pausada") {
+    await terminar(id, "vacante_cerrada", { motivo: vista.tipo });
+    return { fin: true };
+  }
+  if (vista.tipo === "externa") {
+    if (!vista.url) {
+      await terminar(id, "formulario_desconocido", { motivo: "el enlace de la vacante externa no trae destino" });
+      return { fin: true };
+    }
+    const r = await llamar("POST", `/postulaciones/${id}/destino`, { tipo: "externa", url: vista.url });
+    return paginaExterna(tabId, contexto, r);
+  }
+  if (vista.tipo === "sencilla") {
+    const r = await llamar("POST", `/postulaciones/${id}/destino`, { tipo: "sencilla" });
+    if (r.accion !== "sencilla") {
+      await terminar(id, "formulario_desconocido", { motivo: r.motivo || "respaldo" });
+      return { fin: true };
+    }
+    return solicitudSencilla(tabId, contexto);
+  }
+  const html = await enPestana(tabId, () => globalThis.__asistente.html()).catch(() => null);
+  await terminar(id, "formulario_desconocido", { motivo: "no se reconoció el tipo de solicitud de LinkedIn", html });
+  return { fin: true };
+}
+
+// Respuesta de /destino (o el destino guardado): respaldo, esperar al usuario o abrir la página
+// de la empresa en la misma pestaña y seguir con el bucle genérico como plataforma `externa`
+async function paginaExterna(tabId, contexto, r) {
+  const { trabajo, sel } = contexto;
+  const { id } = trabajo;
+  if (r.esperar_usuario) {
+    await reportar(id, "esperando_usuario", "faltan datos que solo tú sabes");
+    return { fin: true };
+  }
+  if (r.accion !== "abrir" || !r.url) {
+    await terminar(id, "formulario_desconocido", { motivo: r.motivo || "respaldo" });
+    return { fin: true };
+  }
+  const familias = r.familia ? await familiasAts() : {};
+  contexto.trabajo = {
+    ...trabajo,
+    plataforma: "externa",
+    origen: trabajo.plataforma,
+    externa: {
+      destino: r.url, familia: r.familia || null, familias_hosts: r.familias_hosts || [],
+      hosts_prohibidos: sel.hosts_prohibidos || [],
+      datos: r.familia_datos || familias[r.familia] || null,
+    },
+    ...(r.esquema ? { esquema: r.esquema } : {}),
+    ...(r.receta ? { receta: r.receta } : {}),
+  };
+  const ambito = contexto.trabajo.externa;
+  const motivo = motivoExterno(r.url, ambito);
+  if (motivo) {
+    await terminar(id, "formulario_desconocido", { motivo });
+    return { fin: true };
+  }
+  const actual = (await chrome.tabs.get(tabId)).url;
+  if (actual.split("#")[0] !== r.url.split("#")[0]) await navegar(tabId, r.url);
+  await reportar(id, "destino", `${r.familia || "generico"}: ${new URL(r.url).host}`);
+  return bucleGenerico(tabId, contexto);
+}
+
+async function solicitudSencilla(tabId, contexto) {
+  const { trabajo, sel } = contexto;
+  const { id } = trabajo;
+  const modal = sel.modal || {};
+  const abierto = await enPestana(tabId, async (s) => {
+    const a = globalThis.__asistente.api;
+    const boton = a.buscar((s.tipo || {}).sencilla || []);
+    if (!boton) return false;
+    boton.click();
+    const contenedor = (s.modal || {}).contenedor || [];
+    if (!(await a.esperar(contenedor, 10000))) return false;
+    // El contenido del modal llega después del marco: se espera a que traiga sus botones
+    await a.esperar(contenedor.map((c) => `${c} footer button`), 5000);
+    return true;
+  }, sel);
+  if (!abierto) {
+    const html = await enPestana(tabId, () => globalThis.__asistente.html()).catch(() => null);
+    await terminar(id, "formulario_desconocido", { motivo: "no se abrió el modal de la Solicitud sencilla", html });
+    return { fin: true };
+  }
+  contexto.trabajo = { ...trabajo, modal: true };
+  try {
+    return await bucleGenerico(tabId, contexto);
+  } finally {
+    // Sin envío (ensayo, respaldo, error) el modal se cierra con «Descartar», nunca «Guardar»
+    if (!contexto.envio) {
+      await enPestana(tabId, (d) => globalThis.__asistente.generico.descartarModal(d),
+        defModal(modal)).catch(() => null);
+    }
+  }
+}
+
+// Lo que el motor necesita del modal de linkedin.json
+function defModal(modal) {
+  return {
+    contenedor: modal.contenedor || [],
+    cerrar: modal.cerrar || [],
+    aviso: (modal.confirmar_cierre || {}).contenedor || [],
+    descartar: (modal.confirmar_cierre || {}).descartar || "descartar",
+    desmarcar: (modal.seguir_empresa || {}).selector || [],
+    cv_grupo: (modal.cv || {}).grupo || [],
+    cv_subir: (modal.cv || {}).subir || "",
+  };
+}
+
+// Reglas del motor ajustadas al trabajo: los datos de la familia de ATS del destino van antes
+// que las reglas genéricas y, en la Solicitud sencilla, todo se lee dentro del modal
+function reglasDelTrabajo(base, trabajo, sel) {
+  const reglas = { ...base, textos: { ...(base.textos || {}) } };
+  const sumar = (clave, lista) => {
+    if (!lista || !lista.length) return;
+    reglas.textos[clave] = { datos: lista, ...(reglas.textos[clave] || {}) };
+  };
+  const datos = trabajo.externa && trabajo.externa.datos;
+  if (datos) {
+    reglas.familia = datos;
+    sumar("enviar", (datos.enviar || {}).textos);
+    sumar("exito", (datos.exito || {}).textos);
+    reglas.url_exito = [...((datos.exito || {}).url || []), ...(base.url_exito || [])];
+  }
+  if (trabajo.modal) {
+    const modal = (sel || {}).modal || {};
+    const botones = modal.botones || {};
+    const def = defModal(modal);
+    reglas.contenedor = def.contenedor;
+    reglas.excluir = [...def.desmarcar, ...def.cv_grupo];
+    sumar("avanzar", [...(botones.siguiente || []), ...(botones.revisar || [])]);
+    sumar("enviar", botones.enviar);
+    sumar("nunca", [...(botones.volver || []), "descartar", "guardar"]);
+    sumar("exito", ((sel || {}).textos || {}).confirmacion);
+  }
+  return reglas;
 }
 
 async function ejecutarPaso(tabId, paso, contexto) {
@@ -728,7 +983,7 @@ async function guardarBucle(tabId, contexto) {
 
 // Marcos de la pestaña donde el motor puede operar (la página y los iframes de dominios del
 // portal); un iframe de otro dominio se trata como si no existiera
-async function marcosPermitidos(tabId, plataforma) {
+async function marcosPermitidos(tabId, plataforma, ambito = null) {
   let marcos;
   try {
     marcos = await chrome.scripting.executeScript({
@@ -737,14 +992,15 @@ async function marcosPermitidos(tabId, plataforma) {
   } catch (error) {
     return [];
   }
-  return marcos.filter((m) => m.result && paginaPermitida(m.result, plataforma)).map((m) => m.frameId);
+  return marcos.filter((m) => m.result && paginaPermitida(m.result, plataforma, ambito))
+    .map((m) => m.frameId);
 }
 
 // Lee todos los marcos permitidos y elige el que tiene más campos (a igual número, el que
 // tiene un botón sugerido y luego el más alto en la página)
-async function leerMarcos(tabId, plataforma, reglas) {
+async function leerMarcos(tabId, plataforma, reglas, ambito = null) {
   for (let intento = 0; intento < 3; intento++) {
-    const frameIds = await marcosPermitidos(tabId, plataforma);
+    const frameIds = await marcosPermitidos(tabId, plataforma, ambito);
     if (!frameIds.length) return { prohibida: true };
     try {
       const target = { tabId, frameIds };
@@ -775,7 +1031,7 @@ async function enMarco(marco, func, args = [], { reintentos = 3 } = {}) {
     try {
       const [donde] = await chrome.scripting.executeScript({ target, func: () => location.href });
       if (!donde || !donde.result) throw new Error("el marco ya no está");
-      if (!paginaPermitida(donde.result, marco.plataforma)) return { prohibida: donde.result };
+      if (!paginaPermitida(donde.result, marco.plataforma, marco.ambito)) return { prohibida: donde.result };
       await chrome.scripting.executeScript({ target, files: ["motor.js"] });
       const [r] = await chrome.scripting.executeScript({ target, func, args });
       if (r && r.result != null) return r.result;
@@ -873,26 +1129,46 @@ async function recorrerPantallas(tabId, contexto) {
   const topes = { ...TOPES_GENERICO, ...(trabajo.motor_generico || {}) };
   const { resultado_ms: resultadoMs, llenado_max_ms: llenadoMs } = await opciones();
   const e = (contexto.bucle ||= { pantallas: 0, max_campos: 0, clave: null, iguales: 0, corrigiendo: false });
-  let marco = { tabId, frameId: 0, plataforma };
+  const ambito = trabajo.externa || null;
+  let marco = { tabId, frameId: 0, plataforma, ambito };
   // Tras registrar el envío, un final sin señal clara es incierta (no se reintenta nunca)
   const detener = async (motivo, html = null) => {
     await terminar(id, contexto.envio ? "incierta" : "formulario_desconocido", { motivo, html });
     return { fin: true };
   };
+  // En una página externa el motivo dice adónde se fue: salto_de_dominio, oauth…
+  const prohibida = async (url = null) => {
+    if (plataforma !== "externa") return "página no permitida";
+    const donde = url || (await chrome.tabs.get(tabId).catch(() => ({}))).url;
+    return (donde && motivoExterno(donde, ambito)) || "página no permitida";
+  };
   let reglas;
   try {
-    reglas = await reglasMotor();
+    reglas = reglasDelTrabajo(await reglasMotor(), trabajo, contexto.sel);
   } catch (error) {
     return detener("el motor genérico no está disponible en el servidor");
   }
+  const modal = trabajo.modal ? defModal((contexto.sel || {}).modal || {}) : null;
 
   for (;;) {
     await guardarBucle(tabId, contexto);
 
-    const lectura = await leerMarcos(tabId, plataforma, reglas);
-    if (lectura.prohibida) return detener("página no permitida");
+    if (plataforma === "externa") {
+      const motivo = motivoExterno((await chrome.tabs.get(tabId)).url, ambito);
+      if (motivo) return detener(motivo);
+    }
+    if (modal) {
+      // «Sigue a …» desmarcada y el CV resuelto antes de leer la pantalla del modal
+      await inyectar(tabId, "linkedin").catch(() => {});
+      const listo = await enPestana(tabId, (d, o) => globalThis.__asistente.generico.prepararModal(d, o),
+        modal, { subir_cv: Boolean(trabajo.actualizar_cv_portal) }).catch(() => null);
+      if (listo && listo.sin_cv) return detener("linkedin_sin_cv");
+      if (listo && listo.desmarcadas) await reportar(id, "seguir_empresa", "desmarcada");
+    }
+    const lectura = await leerMarcos(tabId, plataforma, reglas, ambito);
+    if (lectura.prohibida) return detener(await prohibida());
     if (lectura.fallo) return detener("no se pudo leer la pantalla");
-    marco = { tabId, frameId: lectura.frameId, plataforma };
+    marco = { tabId, frameId: lectura.frameId, plataforma, ambito };
     const p = lectura.pantalla;
     e.pantallas += 1;
     if (ensayoEnCurso) ensayoEnCurso.pantalla = e.pantallas;
@@ -986,7 +1262,7 @@ async function recorrerPantallas(tabId, contexto) {
       if (!lleno || lleno.vencido) {
         return detener("llenado_sin_respuesta", await evidencia(marco));
       }
-      if (lleno.prohibida) return detener("página no permitida");
+      if (lleno.prohibida) return detener(await prohibida(lleno.prohibida));
       for (const n of lleno.escritas || []) await reportar(id, `llenado_${n}`);
       if (lleno.error) {
         await terminar(id, lleno.error, { motivo: lleno.motivo, html: lleno.html });
@@ -1017,7 +1293,8 @@ async function recorrerPantallas(tabId, contexto) {
     }
     const pulso = await enMarco(marco, (i) => globalThis.__asistente.generico.pulsar(i),
       [accion.indice], { reintentos: 1 });
-    if (!pulso || pulso.prohibida) return detener("no se pudo pulsar el botón", await evidencia(marco));
+    if (pulso && pulso.prohibida) return detener(await prohibida(pulso.prohibida));
+    if (!pulso) return detener("no se pudo pulsar el botón", await evidencia(marco));
     if (pulso.error) {
       await terminar(id, contexto.envio ? "incierta" : pulso.error, { motivo: pulso.motivo, html: await evidencia(marco) });
       return { fin: true };
@@ -1032,7 +1309,7 @@ async function recorrerPantallas(tabId, contexto) {
       await terminar(id, "enviada", { confirmacion: r.texto });
       return { fin: true };
     }
-    if (r.resultado === "prohibida") return detener("página no permitida");
+    if (r.resultado === "prohibida") return detener(await prohibida(r.url));
     if (r.resultado === "barrera") return detener(r.motivo || "barrera", await evidencia(marco));
     if (r.resultado === "error") {
       // Una sola vuelta de corrección por pantalla; si persiste, el portal no la aceptó
@@ -1074,8 +1351,8 @@ async function retomarBucle() {
   }
   let cerrar = true;
   try {
-    const sel = await selectores(trabajo.plataforma);
-    await guardarEstado({ trabajo_actual: { id: trabajo.id, titulo: trabajo.titulo, plataforma: trabajo.plataforma, inicio: b.inicio } });
+    const sel = await selectores(trabajo.origen || trabajo.plataforma);
+    await guardarEstado({ trabajo_actual: { id: trabajo.id, titulo: trabajo.titulo, plataforma: trabajo.origen || trabajo.plataforma, inicio: b.inicio } });
     await reportar(trabajo.id, "retomar", "el navegador se reinició a mitad del formulario");
     const contexto = { trabajo, sel, cv: null, cv_nombre: null, inicio: b.inicio, envio: false, bucle: b.bucle };
     ensayoEnCurso = trabajo.ensayo ? { id: trabajo.id, pantalla: 0 } : null;

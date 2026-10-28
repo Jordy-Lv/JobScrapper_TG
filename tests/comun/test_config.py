@@ -277,7 +277,7 @@ def test_asistente_por_defecto_desactivado(config):
     assert asistente is not None
     assert asistente.activo is False
     assert asistente.enlace_canal is False
-    assert set(asistente.plataformas) == {"computrabajo", "magneto", "elempleo"}
+    assert set(asistente.plataformas) == {"computrabajo", "magneto", "elempleo", "linkedin"}
     assert asistente.plataformas["elempleo"].automatica is True  # activada en 9c9e46e
     assert {"gemini", "groq", "openrouter", "openai", "anthropic", "deepseek"} <= set(
         asistente.ia.proveedores
@@ -770,3 +770,24 @@ def test_prompt_del_clasificador_sin_las_reglas_viejas(config):
     assert "exige_modalidad" in prompt and "ciudad_base" in prompt
     assert "en sitio" in prompt and "con moto" in prompt
     assert "uno bajo nunca basta por sí solo para aceptar" in prompt
+
+
+def test_linkedin_apagado_con_su_ritmo_y_familias(config):
+    asistente = config.asistente
+    assert asistente.plataformas["linkedin"].automatica is False
+    assert (asistente.linkedin.tope_diario, asistente.linkedin.pausa_min_s) == (15, 240)
+    assert "wa.me" in asistente.linkedin.mensajeria
+    assert "accounts.google.com" in asistente.linkedin.hosts_prohibidos
+    familias = asistente.medicion_linkedin.familias
+    assert {"ashby", "typeform", "pandape"} <= set(familias)
+    assert "grnh.se" in familias["greenhouse"]
+    assert set(asistente.linkedin.familias_con_cuenta) <= set(familias)
+
+
+def test_familia_con_cuenta_desconocida_es_error(tmp_path):
+    ruta = escribir_config(
+        tmp_path, lambda d: d["asistente"]["linkedin"].update(familias_con_cuenta=["oracle"])
+    )
+    with pytest.raises(ErrorConfiguracion) as error:
+        cargar_configuracion(ruta)
+    assert "familias_con_cuenta" in str(error.value)

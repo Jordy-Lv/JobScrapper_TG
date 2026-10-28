@@ -30,15 +30,23 @@ PERFIL_INCOMPLETO = "perfil_incompleto"
 OTRA_EN_CURSO = "otra_en_curso"
 TOPE_DIARIO = "tope_diario"
 PAUSA = "pausa"
+TOPE_LINKEDIN = "tope_linkedin"
+PAUSA_LINKEDIN = "pausa_linkedin"
+LINKEDIN_PAUSADO = "linkedin_pausado"
 
 CAUSAS = (
     SIN_NAVEGADOR, SIN_LATIDO, EXTENSION_DESACTUALIZADA, EXTENSION_EN_PAUSA, PLATAFORMA_APAGADA,
     SIN_PERMISO, SIN_SESION, CUENTA_POR_CONFIRMAR, CUENTA_DISTINTA, CORREO_ILEGIBLE,
-    PERFIL_INCOMPLETO, OTRA_EN_CURSO, TOPE_DIARIO, PAUSA,
+    PERFIL_INCOMPLETO, OTRA_EN_CURSO, TOPE_DIARIO, PAUSA, TOPE_LINKEDIN, PAUSA_LINKEDIN,
+    LINKEDIN_PAUSADO,
 )  # fmt: skip
 
 # Causa de la cola (restricción) → causa de la espera
-_DE_RESTRICCION = {"en_curso": OTRA_EN_CURSO, "tope_diario": TOPE_DIARIO, "pausa": PAUSA}
+_DE_RESTRICCION = {
+    "en_curso": OTRA_EN_CURSO, "tope_diario": TOPE_DIARIO, "pausa": PAUSA,
+    "tope_linkedin": TOPE_LINKEDIN, "pausa_linkedin": PAUSA_LINKEDIN,
+    "linkedin_pausado": LINKEDIN_PAUSADO,
+}  # fmt: skip
 _DE_CUENTA = {
     EstadoCuenta.POR_CONFIRMAR: CUENTA_POR_CONFIRMAR,
     EstadoCuenta.DISTINTA: CUENTA_DISTINTA,

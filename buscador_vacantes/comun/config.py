@@ -527,6 +527,33 @@ class AsistenteVigia(Modelo):
     ventana_h: int = Field(3, ge=1)  # si el servicio estaba apagado a la hora, hasta cuándo sale
 
 
+class AsistenteMedicionLinkedin(Modelo):
+    """Medición de los destinos de LinkedIn (change medir-destinos-linkedin)."""
+
+    muestra: int = Field(100, ge=1)
+    pausa_s: float = Field(8, gt=0)
+    salida: Path = Path("data/asistente/medicion_linkedin.json")
+    # familia de ATS → patrones de host (el host es el patrón o termina en «.patrón»)
+    familias: dict[str, list[str]] = Field(default_factory=dict)
+    senales_cuenta: list[str] = Field(default_factory=list)  # textos de «crear cuenta» o similares
+
+
+class AsistenteLinkedin(Modelo):
+    """Ritmo y clasificador de destino de la postulación en LinkedIn (change postular-linkedin)."""
+
+    tope_diario: int = Field(15, ge=1)  # aperturas de LinkedIn por usuario y día
+    pausa_min_s: float = Field(240, ge=0)  # entre dos aperturas de LinkedIn del mismo usuario
+    familias_con_cuenta: list[str] = Field(default_factory=list)  # van al respaldo sin abrir
+    mensajeria: list[str] = Field(default_factory=list)  # hosts o esquemas de mensajería
+    hosts_prohibidos: list[str] = Field(default_factory=list)  # OAuth, pagos y banca
+    # Acortadores cuyo destino se sigue (solo estos hosts, nunca uno arbitrario) para clasificar
+    acortadores: list[str] = Field(default_factory=list)
+    destino_dias: int = Field(7, ge=1)  # vigencia del destino guardado de una vacante
+    riesgo_version: int = Field(1, ge=1)  # versión del texto del riesgo; al subir se vuelve a pedir
+    pausa_seguridad_h: float = Field(24, gt=0)  # pausa de LinkedIn ante un aviso de seguridad
+    pausa_variacion: float = Field(0.25, ge=0, lt=1)  # la pausa mínima varía ±esta fracción
+
+
 class TareaIA(Modelo):
     modelo: str = Field(min_length=1)
     temperatura: float = Field(0.3, ge=0, le=2)
@@ -607,6 +634,8 @@ class Asistente(Modelo):
     autorreparacion: AsistenteAutorreparacion = Field(default_factory=AsistenteAutorreparacion)
     ensayo: AsistenteEnsayo = Field(default_factory=AsistenteEnsayo)
     vigia: AsistenteVigia = Field(default_factory=AsistenteVigia)
+    medicion_linkedin: AsistenteMedicionLinkedin = Field(default_factory=AsistenteMedicionLinkedin)
+    linkedin: AsistenteLinkedin = Field(default_factory=AsistenteLinkedin)
     ia: AsistenteIA
 
     @model_validator(mode="after")
@@ -614,6 +643,9 @@ class Asistente(Modelo):
         desconocidas = sorted(set(self.ensayo.plataformas) - set(self.plataformas))
         if desconocidas:
             raise ValueError(f"ensayo.plataformas desconocidas: {', '.join(desconocidas)}")
+        familias = set(self.medicion_linkedin.familias)
+        if faltan := sorted(set(self.linkedin.familias_con_cuenta) - familias):
+            raise ValueError(f"linkedin.familias_con_cuenta desconocidas: {', '.join(faltan)}")
         # Los topes de motor_generico son el máximo absoluto de cualquier nivel
         for nombre, nivel in self.niveles_ia:
             for campo in ("max_arbitro", "max_reparaciones"):

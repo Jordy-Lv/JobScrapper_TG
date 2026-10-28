@@ -1,0 +1,63 @@
+{
+  "data": {
+    "jobPosting": {
+      "id": "4b3b7cc7-0000-4000-8000-000000000001",
+      "title": "Junior Backend Engineer",
+      "applicationForm": {
+        "id": "f0f0f0f0-0000-4000-8000-000000000002",
+        "sections": [
+          {
+            "title": null,
+            "fieldEntries": [
+              {"id": "e1", "isRequired": true, "descriptionHtml": null, "field": {
+                "id": "x1", "path": "_systemfield_name", "title": "Name", "type": "String",
+                "selectableValues": []}},
+              {"id": "e2", "isRequired": true, "descriptionHtml": null, "field": {
+                "id": "x2", "path": "_systemfield_email", "title": "Email", "type": "Email",
+                "selectableValues": []}},
+              {"id": "e3", "isRequired": false, "descriptionHtml": null, "field": {
+                "id": "x3", "path": "_systemfield_phone", "title": "Phone", "type": "Phone",
+                "selectableValues": []}},
+              {"id": "e4", "isRequired": true, "descriptionHtml": null, "field": {
+                "id": "x4", "path": "_systemfield_resume", "title": "Resume", "type": "File",
+                "selectableValues": []}}
+            ]
+          },
+          {
+            "title": "Questions",
+            "fieldEntries": [
+              {"id": "e5", "isRequired": true, "descriptionHtml": "<p>Number of full years</p>", "field": {
+                "id": "x5", "path": "5f4d3c2b-0000-4000-8000-0000000000a1",
+                "title": "Years of professional experience", "type": "Number",
+                "selectableValues": []}},
+              {"id": "e6", "isRequired": true, "descriptionHtml": null, "field": {
+                "id": "x6", "path": "5f4d3c2b-0000-4000-8000-0000000000a2",
+                "title": "Do you need visa sponsorship?", "type": "Boolean",
+                "selectableValues": []}},
+              {"id": "e7", "isRequired": true, "descriptionHtml": null, "field": {
+                "id": "x7", "path": "5f4d3c2b-0000-4000-8000-0000000000a3",
+                "title": "English level", "type": "ValueSelect", "selectableValues": [
+                  {"label": "Intermediate", "value": "intermediate"},
+                  {"label": "Advanced", "value": "advanced"}]}},
+              {"id": "e8", "isRequired": false, "descriptionHtml": null, "field": {
+                "id": "x8", "path": "5f4d3c2b-0000-4000-8000-0000000000a4",
+                "title": "Which of these have you used?", "type": "MultiValueSelect",
+                "selectableValues": [
+                  {"label": "Postgres", "value": "pg"}, {"label": "Redis", "value": "redis"}]}},
+              {"id": "e9", "isRequired": false, "descriptionHtml": null, "field": {
+                "id": "x9", "path": "5f4d3c2b-0000-4000-8000-0000000000a5",
+                "title": "Tell us about a project you are proud of", "type": "LongText",
+                "selectableValues": []}},
+              {"id": "e10", "isRequired": false, "descriptionHtml": null, "field": {
+                "id": "x10", "path": "5f4d3c2b-0000-4000-8000-0000000000a6",
+                "title": "When can you start?", "type": "Date", "selectableValues": []}},
+              {"id": "e11", "isRequired": true, "descriptionHtml": null, "field": {
+                "id": "x11", "path": "_systemfield_location", "title": "Current location",
+                "type": "Location", "selectableValues": []}}
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

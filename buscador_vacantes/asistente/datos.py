@@ -297,6 +297,36 @@ CREATE TABLE IF NOT EXISTS dominios_barrera (
     creado TEXT NOT NULL
 );
 
+-- Destino de cada vacante de LinkedIn que el servidor ya resolvió (change postular-linkedin): solo
+-- la URL limpia del destino, que es pública y la misma para todos; nunca datos del usuario.
+CREATE TABLE IF NOT EXISTS destinos_linkedin (
+    id_vacante TEXT PRIMARY KEY,               -- id_corto de la vacante
+    destino TEXT NOT NULL,
+    familia TEXT NOT NULL,
+    resuelto TEXT NOT NULL,                    -- cuándo se leyó de LinkedIn
+    ultima_vez TEXT NOT NULL                   -- la última vez que se usó
+);
+
+-- Estado de LinkedIn de cada usuario (change postular-linkedin): aceptación del riesgo, los dos
+-- interruptores y la pausa de 24 h tras un aviso de seguridad de LinkedIn
+CREATE TABLE IF NOT EXISTS linkedin_usuarios (
+    usuario_id INTEGER PRIMARY KEY REFERENCES usuarios(id),
+    version INTEGER NOT NULL,                  -- versión del texto del riesgo que aceptó
+    aceptado_en TEXT NOT NULL,
+    sencilla INTEGER NOT NULL DEFAULT 1,       -- interruptor «Solicitud sencilla»
+    externas INTEGER NOT NULL DEFAULT 1,       -- interruptor «Páginas externas»
+    pausado_hasta TEXT
+);
+
+-- Cada vez que se abre una página de LinkedIn para postular (cuenta para el tope y la pausa)
+CREATE TABLE IF NOT EXISTS linkedin_aperturas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    id_corto TEXT,
+    ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_linkedin_aperturas ON linkedin_aperturas(usuario_id, ts);
+
 CREATE TABLE IF NOT EXISTS bajas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL

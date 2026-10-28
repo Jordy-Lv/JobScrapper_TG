@@ -1,0 +1,54 @@
+{
+  "version": "1",
+  "nota": "Datos de las familias de ATS con lector de esquema (change postular-linkedin). La extensión los usa antes que las reglas genéricas del motor y no trae listas propias. Greenhouse, Ashby y Typeform salen del reconocimiento del 2026-10-21 y Lever del 2026-10-25 (docs/asistente/portales.md). Sin ver todavía, por no haberse enviado nada: la señal de éxito de las cuatro familias (URL, textos y selectores son los esperados, no vistos); se corrigen aquí sin publicar otra extensión. Los textos se comparan sin tildes, en minúsculas y por palabra completa; los selectores son CSS.",
+  "familias": {
+    "greenhouse": {
+      "cv": ["input#resume"],
+      "enviar": {
+        "selectores": ["form#application-form button[type=submit]"],
+        "textos": ["Submit application"]
+      },
+      "exito": {
+        "url": ["/confirmation"],
+        "textos": ["Thank you for applying"],
+        "selectores": [".application--confirmation"]
+      }
+    },
+    "ashby": {
+      "cv": ["#_systemfield_resume"],
+      "enviar": {
+        "selectores": ["button.ashby-application-form-submit-button"],
+        "textos": ["Submit Application"]
+      },
+      "exito": {
+        "url": [],
+        "textos": ["Your application was successfully submitted"],
+        "selectores": []
+      }
+    },
+    "lever": {
+      "cv": ["input[name=resume]"],
+      "enviar": {
+        "selectores": ["#btn-submit"],
+        "textos": ["Submit application"]
+      },
+      "exito": {
+        "url": ["/thanks"],
+        "textos": ["Application submitted"],
+        "selectores": []
+      }
+    },
+    "typeform": {
+      "cv": [],
+      "enviar": {
+        "selectores": ["[data-qa^=ok-button-visible]"],
+        "textos": ["Submit", "Enviar"]
+      },
+      "exito": {
+        "url": [],
+        "textos": [],
+        "selectores": ["[data-qa=thank-you-screen]"]
+      }
+    }
+  }
+}

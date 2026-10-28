@@ -15,7 +15,9 @@ from datetime import datetime, time, timedelta
 from enum import StrEnum
 from typing import NamedTuple
 
+from buscador_vacantes.asistente import destinos_linkedin
 from buscador_vacantes.asistente.datos import BaseAsistente
+from buscador_vacantes.asistente.usuarios_linkedin import UsuariosLinkedin
 from buscador_vacantes.comun import config as cfg
 from buscador_vacantes.comun.estado import a_texto, de_texto
 from buscador_vacantes.comun.fechas import ZONA
@@ -116,7 +118,8 @@ class Evento:
 
 
 class Restriccion(NamedTuple):
-    """Por qué una postulación esperando todavía no se entrega: en_curso, tope_diario o pausa."""
+    """Por qué una postulación esperando todavía no se entrega: en_curso, tope_diario, pausa o,
+    en LinkedIn, linkedin_pausado, tope_linkedin o pausa_linkedin."""
 
     codigo: str
     cuando: datetime | None  # desde cuándo vuelve a poder salir; None si no se sabe
@@ -126,6 +129,7 @@ class Cola:
     def __init__(self, base: BaseAsistente, config: cfg.Asistente) -> None:
         self.base = base
         self.config = config
+        self.linkedin = UsuariosLinkedin(base)
 
     # --- consultas -----------------------------------------------------------------
 
@@ -299,6 +303,9 @@ class Cola:
             return Restriccion("en_curso", None)  # de a una por usuario
         if p.tipo == Tipo.COMPLETAR_PERFIL:
             return None
+        if p.plataforma == "linkedin" and p.tipo == Tipo.POSTULAR:
+            if restriccion := self._restriccion_linkedin(p, ahora):
+                return restriccion
         if (
             p.tipo == Tipo.POSTULAR
             and self.postulaciones_hoy(p.usuario_id, ahora) >= self.config.topes.usuario_dia
@@ -314,6 +321,36 @@ class Cola:
             fin_pausa = de_texto(ultima) + self._pausa_para(p.id)
             if ahora < fin_pausa:
                 return Restriccion("pausa", fin_pausa)
+        return None
+
+    def _abre_linkedin(self, p: Postulacion, ahora: datetime) -> bool:
+        """Si postular abre una página de LinkedIn: no la abre si otro usuario ya resolvió (y
+        guardó, con menos de `destino_dias`) el destino de la vacante."""
+        if not p.id_corto:
+            return True
+        guardado = destinos_linkedin.vigente(
+            self.base, p.id_corto, ahora, self.config.linkedin.destino_dias
+        )
+        return guardado is None
+
+    def _restriccion_linkedin(self, p: Postulacion, ahora: datetime) -> Restriccion | None:
+        """Ritmo de LinkedIn: la pausa de 24 h tras un aviso de seguridad detiene todo; el tope
+        diario y la pausa mínima cuentan solo las aperturas de LinkedIn, no los destinos
+        guardados."""
+        ajustes = self.config.linkedin
+        if hasta := self.linkedin.pausado_hasta(p.usuario_id, ahora):
+            return Restriccion("linkedin_pausado", hasta)
+        if not self._abre_linkedin(p, ahora):
+            return None
+        if self.linkedin.aperturas_hoy(p.usuario_id, ahora) >= ajustes.tope_diario:
+            return Restriccion("tope_linkedin", self.linkedin.manana(ahora))
+        ultima = self.linkedin.ultima_apertura(p.usuario_id)
+        if ultima:
+            margen = ajustes.pausa_variacion
+            variacion = random.Random(p.id).uniform(-margen, margen)
+            fin = ultima + timedelta(seconds=ajustes.pausa_min_s * (1 + variacion))
+            if ahora < fin:
+                return Restriccion("pausa_linkedin", fin)
         return None
 
     def siguiente(
@@ -339,9 +376,13 @@ class Cola:
 
     def tomar(self, pid: int, navegador_id: int, ahora: datetime) -> bool:
         """Asignación atómica: si dos navegadores la piden, solo uno la obtiene."""
-        return self._cambiar(
+        tomada = self._cambiar(
             pid, ESPERANDO, E.TOMADA, ahora, navegador_id=navegador_id, tomada_en=a_texto(ahora)
         )
+        if tomada and (p := self.obtener(pid)) and p.plataforma == "linkedin":
+            if p.tipo == Tipo.POSTULAR and self._abre_linkedin(p, ahora):
+                self.linkedin.registrar_apertura(p.usuario_id, p.id_corto, ahora)
+        return tomada
 
     def iniciar(self, pid: int, navegador_id: int, ahora: datetime) -> bool:
         return self._cambiar_de_navegador(pid, navegador_id, (E.TOMADA,), E.EN_CURSO, ahora)
@@ -474,6 +515,10 @@ class Cola:
         return self._cambiar(pid, REINTENTABLES, E.EN_COLA, ahora, "reintento",
                              navegador_id=None, tomada_en=None, terminada_en=None,
                              envio_pulsado=0)  # fmt: skip
+
+    def cerrar_vacante(self, pid: int, ahora: datetime, desde: tuple[str, ...]) -> bool:
+        """La vacante ya no recibe postulaciones: se cierra sin pasar por la extensión."""
+        return self._cambiar(pid, desde, E.VACANTE_CERRADA, ahora, terminada_en=a_texto(ahora))
 
     def a_respaldo(self, pid: int, ahora: datetime, motivo: str, desde: tuple[str, ...]) -> bool:
         return self._cambiar(pid, desde, E.RESPALDO, ahora, motivo, terminada_en=a_texto(ahora))

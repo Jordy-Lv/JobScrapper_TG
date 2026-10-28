@@ -1,0 +1,57 @@
+{
+  "id": 4100100,
+  "title": "Practicante de Desarrollo",
+  "absolute_url": "https://job-boards.greenhouse.io/prueba/jobs/4100100",
+  "location": {"name": "Bogotá, Colombia"},
+  "questions": [
+    {"label": "First Name", "required": true, "description": null,
+     "fields": [{"name": "first_name", "type": "input_text", "values": []}]},
+    {"label": "Last Name", "required": true, "description": null,
+     "fields": [{"name": "last_name", "type": "input_text", "values": []}]},
+    {"label": "Email", "required": true, "description": null,
+     "fields": [{"name": "email", "type": "input_text", "values": []}]},
+    {"label": "Phone", "required": false, "description": null,
+     "fields": [{"name": "phone", "type": "input_text", "values": []}]},
+    {"label": "Resume/CV", "required": true, "description": null,
+     "fields": [
+       {"name": "resume", "type": "input_file", "values": []},
+       {"name": "resume_text", "type": "textarea", "values": []}
+     ]},
+    {"label": "Cover Letter", "required": false, "description": null,
+     "fields": [
+       {"name": "cover_letter", "type": "input_file", "values": []},
+       {"name": "cover_letter_text", "type": "textarea", "values": []}
+     ]},
+    {"label": "What is your English level?", "required": true, "description": null,
+     "fields": [{"name": "question_9001", "type": "multi_value_single_select", "values": [
+       {"label": "A1", "value": 1}, {"label": "A2", "value": 2}, {"label": "B1", "value": 3},
+       {"label": "B2", "value": 4}, {"label": "C1", "value": 5}]}]},
+    {"label": "Are you authorized to work in Colombia?", "required": true, "description": null,
+     "fields": [{"name": "question_9002", "type": "multi_value_single_select", "values": [
+       {"label": "Yes", "value": 1}, {"label": "No", "value": 0}]}]},
+    {"label": "Expected salary (COP, monthly)", "required": true,
+     "description": "<p>Include the currency</p>",
+     "fields": [{"name": "question_9003", "type": "input_text", "values": []}]},
+    {"label": "Academic transcript", "required": true, "description": null,
+     "fields": [{"name": "question_9004", "type": "input_file", "values": []}]},
+    {"label": "Why do you want to join us?", "required": false, "description": null,
+     "fields": [{"name": "question_9005", "type": "textarea", "values": []}]},
+    {"label": "Which tools have you used?", "required": false, "description": null,
+     "fields": [{"name": "question_9006", "type": "multi_value_multi_select", "values": [
+       {"label": "Python", "value": 11}, {"label": "SQL", "value": 12}, {"label": "Docker", "value": 13}]}]},
+    {"label": "Internal tracking", "required": false, "description": null,
+     "fields": [{"name": "question_9007", "type": "input_hidden", "values": []}]}
+  ],
+  "location_questions": [
+    {"label": "Location (City)", "required": true, "description": null,
+     "fields": [{"name": "job_application_location", "type": "input_text", "values": []}]}
+  ],
+  "demographic_questions": {"header": "Voluntary self-identification", "questions": [
+    {"label": "Gender", "required": false, "fields": [
+      {"name": "gender", "type": "multi_value_single_select", "values": [{"label": "Female", "value": 1}]}]}
+  ]},
+  "compliance": [{"type": "eeoc", "questions": [
+    {"label": "Veteran status", "required": false, "fields": [
+      {"name": "veteran_status", "type": "multi_value_single_select", "values": [{"label": "No", "value": 1}]}]}
+  ]}]
+}

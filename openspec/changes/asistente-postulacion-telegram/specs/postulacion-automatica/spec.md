@@ -21,7 +21,7 @@ Si la plataforma no está soportada o el usuario no tiene navegador vinculado, M
 - **THEN** el bot responde "Se enviará cuando abras tu navegador", y la postulación se ejecuta sola al reconectarse
 
 #### Scenario: Plataforma no soportada
-- **WHEN** toca ⚡ en una vacante de LinkedIn
+- **WHEN** toca ⚡ en una vacante de LinkedIn con LinkedIn apagado (ver `postular-linkedin`)
 - **THEN** recibe el paquete de respaldo con el aviso de que LinkedIn no admite postulación automática
 
 ### Requirement: Preparación en el servidor

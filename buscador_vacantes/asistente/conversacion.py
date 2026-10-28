@@ -53,6 +53,7 @@ from buscador_vacantes.asistente.respuestas import (
 from buscador_vacantes.asistente.tarjeta import Tarjeta
 from buscador_vacantes.asistente.usuarios import EstadoUsuario, Usuario
 from buscador_vacantes.comun.estado import a_texto, de_texto
+from buscador_vacantes.comun.fechas import ZONA
 
 log = logging.getLogger(__name__)
 
@@ -1247,6 +1248,10 @@ class Conversacion:
             segundos_etapa=self.reloj() - self._desde_etapa.get(pid, self.reloj()),
             url_tienda=self.config.extension.url_edge,
         )  # fmt: skip
+        if fila["plataforma"] == "linkedin" and card.fase == tp.RESPALDO:
+            d.destino = self._destino_de(pid)
+            if d.destino and d.destino.startswith(("http://", "https://")):
+                d.url = d.destino  # «Ver vacante» abre la página donde se postula
         tj = self._tarjeta(usuario)
         if tj is not None and tj.pid == pid and card.fase not in (tp.CONFIRMADA, tp.INCIERTA):
             d.conexion = tarjeta.lineas(tj, solo=d.plataforma)
@@ -1422,7 +1427,10 @@ class Conversacion:
         async with self._candados[usuario.id]:
             vacante = self.n.indice.resolver(id_corto, self.n.ahora())
             existe = vacante is not None and self.n.cola.de_usuario(usuario.id, id_corto)
-            contar = not usuario.pausado and vacante is not None and not existe
+            contar = (
+                not usuario.pausado and vacante is not None and not existe
+                and not self._pide_riesgo_linkedin(usuario, vacante)
+            )  # fmt: skip
             if contar and clave in self._cuentas:
                 return Toque(Camino.EN_CUENTA, vacante, motivo="ya_contando")
             if contar:
@@ -1589,9 +1597,10 @@ class Conversacion:
 
     async def _encolar_toque(
         self, usuario: Usuario, id_corto: str, *, origen: str = "boton", en_tarjeta: bool = False,
-        mensaje_id: int | None = None,
+        mensaje_id: int | None = None, accion=None,
     ):  # fmt: skip
-        """Encola la vacante y pinta la card; ``mensaje_id`` es el de la cuenta que acaba."""
+        """Encola la vacante y pinta la card; ``mensaje_id`` es el de la cuenta que acaba y
+        ``accion`` reemplaza a ``tocar`` (el «Solo paquete» de LinkedIn)."""
         async with self._candados[usuario.id]:
             if usuario.pausado:
                 await self._decir(
@@ -1600,18 +1609,21 @@ class Conversacion:
                     "Tus postulaciones están en pausa. Usa /pausa para reanudarlas.",
                 )
                 return None
-            toque = self.n.tocar(usuario, id_corto, origen=origen)
+            toque = (accion or self.n.tocar)(usuario, id_corto, origen=origen)
             # Una vacante con el formulario ya leído: la postulación espera (sin esperar a nadie
             # más) mientras se resuelve todo de antemano; no hay await entre tocar y retener
             retenida = (
                 toque.camino == Camino.AUTOMATICA
-                and bool(self.n.esquema_de(toque.vacante))
+                and self.n.requiere_anticipo(toque.postulacion, toque.vacante)
                 and self.n.cola.retener(toque.postulacion.id, self.n.ahora())
             )
         if toque.camino == Camino.NO_DISPONIBLE:
             await self._decir(
                 usuario, mensaje_id, "Esa vacante ya no está disponible en el asistente."
             )
+            return toque
+        if toque.camino == Camino.ACEPTAR_RIESGO:  # nada se abre hasta que el usuario elija
+            await self._ofrecer_riesgo(usuario, toque.vacante, mensaje_id)
             return toque
         pid = toque.postulacion.id
         if toque.camino == Camino.YA_EXISTE:
@@ -1692,6 +1704,11 @@ class Conversacion:
         if toque.camino == Camino.YA_EXISTE:
             estado = t.ESTADOS.get(toque.postulacion.estado, toque.postulacion.estado)
             return RespuestaToque(f"Ya la tienes: {estado}.", alerta=True)
+        if toque.camino == Camino.ACEPTAR_RIESGO:
+            return RespuestaToque(
+                "⚠️ Antes de postular en LinkedIn debes aceptar un aviso: míralo en el bot.",
+                alerta=True,
+            )
         if toque.camino == Camino.RESPALDO:
             return RespuestaToque(
                 "📋 Esta no la puedo enviar sola: mira el motivo en el bot.",
@@ -1727,12 +1744,17 @@ class Conversacion:
         pid = toque.postulacion.id
         try:
             actual = self.n.cola.obtener(pid)
-            resuelto = actual is None or await self.n.anticipar_esquema(actual, toque.vacante)
+            resultado = (
+                "resuelto" if actual is None
+                else await self.n.anticipar_destino(actual, toque.vacante)
+            )  # fmt: skip
         except Exception:  # noqa: BLE001
             log.exception("No se pudo resolver de antemano el formulario de %s", pid)
-            resuelto = True
-        if resuelto:
+            resultado = "resuelto"
+        if resultado == "resuelto":
             self.n.cola.reanudar(pid, self.n.ahora(), (E.ESPERANDO_USUARIO,))
+        elif resultado == "cerrada":  # LinkedIn: la vacante ya no recibe postulaciones
+            await self._cerrar_card(usuario, pid, tp.CERRADA, motivo=str(E.VACANTE_CERRADA))
 
     # --- texto libre ------------------------------------------------------------------
 
@@ -2150,6 +2172,21 @@ class Conversacion:
                 await self._borrar_filas(filas)
             case "res":
                 return await self._ver_resumen(usuario, int(args[0]), args[1])
+            case "liok":  # «Acepto y postular»: se guarda la versión y la fecha y sigue el toque
+                self.n.linkedin.aceptar(usuario.id, self.config.linkedin.riesgo_version, ahora)
+                await self.procesar_toque(usuario, args[0])
+                return "Aceptado ✅"
+            case "lipaq":  # «Solo paquete»: respaldo sin abrir nada (se ofrece de nuevo después)
+                await self._encolar_toque(usuario, args[0], accion=self.n.solo_paquete_linkedin)
+                return None
+            case "liint" if args[0] in ("sencilla", "externas"):
+                estado = self.n.linkedin.estado(usuario.id)
+                if estado is None:
+                    return None
+                encendida = not getattr(estado, args[0])
+                self.n.linkedin.fijar(usuario.id, **{args[0]: encendida})
+                await self._c_linkedin(usuario, [])
+                return "Encendido" if encendida else "Apagado"
             case "cancel":
                 return await self._cancelar_cuenta(usuario, args[0])
             case "post":
@@ -2297,6 +2334,7 @@ class Conversacion:
             "pausa": self._c_pausa,
             "ia": self._c_ia,
             "documentos": self._c_documentos,
+            "linkedin": self._c_linkedin,
             "borrarme": self._c_borrarme,
         }.get(comando)
         if dueno:
@@ -2504,6 +2542,71 @@ class Conversacion:
     async def _c_pausa(self, usuario: Usuario, args) -> None:
         texto = await self.al_boton(usuario.telegram_id, cb("pausa"))
         await self._enviar(usuario, f"⏯ {texto}.")
+
+    # --- LinkedIn: aceptación del riesgo, interruptores y pausa --------------------------------
+
+    def _pide_riesgo_linkedin(self, usuario: Usuario, vacante) -> bool:
+        """Si tocar ⚡ en esta vacante exige antes la aceptación del riesgo de LinkedIn."""
+        return (
+            vacante.plataforma == "linkedin"
+            and self.n.camino_automatico(usuario.id, vacante) == "linkedin_sin_aceptar"
+        )
+
+    async def _ofrecer_riesgo(self, usuario: Usuario, vacante, mensaje_id: int | None) -> None:
+        """El aviso de riesgo con «Acepto y postular» y «Solo paquete»; no se abre ninguna pestaña
+        hasta que el usuario elija."""
+        texto = t.LINKEDIN_RIESGO.format(titulo=t.e(vacante.titulo or "esta vacante"))
+        botones = [
+            [("✅ Acepto y postular", cb("liok", vacante.id_corto))],
+            [("📋 Solo paquete", cb("lipaq", vacante.id_corto))],
+        ]
+        if mensaje_id:
+            try:
+                await self.s.editar(usuario.telegram_id, mensaje_id, texto, botones)
+                return
+            except Exception:  # noqa: BLE001 - mensaje borrado: se envía uno nuevo
+                log.info("No se pudo editar el mensaje del aviso de riesgo de %s", usuario.id)
+        await self._enviar(usuario, texto, botones)
+
+    async def _c_linkedin(self, usuario: Usuario, args) -> None:
+        """`/linkedin [sencilla|externas on|off]`: el riesgo aceptado y los dos interruptores."""
+        estado = self.n.linkedin.estado(usuario.id)
+        if estado is None or estado.version < self.config.linkedin.riesgo_version:
+            await self._enviar(usuario, t.LINKEDIN_SIN_ACEPTAR)
+            return
+        if len(args) == 2 and args[0] in ("sencilla", "externas") and args[1] in ("on", "off"):
+            self.n.linkedin.fijar(usuario.id, **{args[0]: args[1] == "on"})
+            estado = self.n.linkedin.estado(usuario.id)
+        lineas = [t.LINKEDIN_ESTADO.format(
+            fecha=estado.aceptado_en.astimezone(ZONA).strftime("%d/%m/%Y")
+        )]  # fmt: skip
+        if hasta := self.n.linkedin.pausado_hasta(usuario.id, self.n.ahora()):
+            hora = hasta.astimezone(ZONA).strftime("%H:%M")
+            lineas += ["", t.LINKEDIN_PAUSA_ACTIVA.format(hora=hora)]
+        marca = {True: "🟢", False: "⚪"}
+        botones = [
+            [(f"{marca[estado.sencilla]} Solicitud sencilla", cb("liint", "sencilla"))],
+            [(f"{marca[estado.externas]} Páginas externas", cb("liint", "externas"))],
+        ]
+        await self._enviar(usuario, "\n".join(lineas), botones)
+
+    async def _avisar_linkedin_pausado(self, usuario: Usuario, d: dict) -> None:
+        """LinkedIn pidió verificar la cuenta: se avisa al usuario y al dueño."""
+        hora = de_texto(d["hasta"]).astimezone(ZONA).strftime("%H:%M")
+        await self._enviar(usuario, t.LINKEDIN_PAUSADO.format(hora=hora))
+        dueno = self.config.dueno_telegram_id
+        if dueno and dueno != usuario.telegram_id:
+            nombre = t.e(usuario.nombre or usuario.telegram_id)
+            await self._enviar(dueno, t.LINKEDIN_PAUSADO_DUENIO.format(usuario=nombre, hora=hora))
+
+    def _destino_de(self, pid: int) -> str | None:
+        """El destino ya resuelto de la vacante de LinkedIn de esta postulación, si lo hay."""
+        fila = self.n.base.cx.execute(
+            "SELECT d.destino FROM destinos_linkedin d JOIN postulaciones p "
+            "ON p.id_corto = d.id_vacante WHERE p.id = ?",
+            (pid,),
+        ).fetchone()
+        return fila["destino"] if fila else None
 
     # --- documentos extra (certificado de notas, carta, portafolio…) -----------------------
 
@@ -2883,6 +2986,8 @@ class Conversacion:
         nombre = t.NOMBRES_PLATAFORMA.get(d.get("plataforma", ""), d.get("plataforma", ""))
         if tipo == "esperas":
             await self._revisar_esperas(usuario)
+        elif tipo == "linkedin_pausado":
+            await self._avisar_linkedin_pausado(usuario, d)
         elif tipo == "navegador_vinculado":
             if usuario.estado == EstadoUsuario.ALTA and usuario.paso_alta == "navegador":
                 await self._ir_a(usuario, "plataformas")  # falta iniciar sesión en los portales

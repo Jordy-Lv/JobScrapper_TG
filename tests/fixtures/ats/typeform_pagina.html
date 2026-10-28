@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Postulación | Typeform</title></head>
+<body><div id="root"></div>
+<script>window.rendererData = {"form":{"id":"AbC123","title":"Postulación prácticas","language":"es","fields":[
+{"id":"f001","ref":"nombre","type":"short_text","title":"¿Cuál es tu nombre completo?","properties":{},"validations":{"required":true}},
+{"id":"f002","ref":"correo","type":"email","title":"Tu correo electrónico","properties":{},"validations":{"required":true}},
+{"id":"f003","ref":"celular","type":"phone_number","title":"Tu celular","properties":{},"validations":{"required":false}},
+{"id":"f004","ref":"aviso","type":"statement","title":"A continuación, unas preguntas de experiencia","properties":{}},
+{"id":"f005","ref":"anios","type":"multiple_choice","title":"Años de experiencia","properties":{"allow_multiple_selection":false,"choices":[{"id":"c1","label":"Menos de 1"},{"id":"c2","label":"1 a 2"},{"id":"c3","label":"Más de 2"}]},"validations":{"required":true}},
+{"id":"f006","ref":"herramientas","type":"multiple_choice","title":"Herramientas que usas","properties":{"allow_multiple_selection":true,"choices":[{"id":"h1","label":"Git"},{"id":"h2","label":"Docker"}]},"validations":{"required":false}},
+{"id":"f007","ref":"motivo","type":"long_text","title":"¿Por qué quieres esta práctica?","properties":{},"validations":{"required":true}},
+{"id":"f008","ref":"disponible","type":"yes_no","title":"¿Tienes disponibilidad inmediata?","properties":{},"validations":{"required":true}},
+{"id":"f009","ref":"edad","type":"number","title":"Tu edad","properties":{},"validations":{"required":false}},
+{"id":"f010","ref":"inicio","type":"date","title":"¿Desde cuándo puedes empezar?","properties":{},"validations":{"required":false}},
+{"id":"f011","ref":"hoja","type":"file_upload","title":"Sube tu hoja de vida (PDF)","properties":{},"validations":{"required":true}}
+],"welcome_screens":[{"ref":"bienvenida","title":"Bienvenido"}],"thankyou_screens":[{"ref":"gracias","title":"¡Gracias por postularte!"}],
+"logic":[{"type":"field","ref":"anios","actions":[{"action":"jump","details":{"to":{"type":"field","value":"motivo"}},"condition":{"op":"is","vars":[]}}]}]}};</script>
+</body></html>

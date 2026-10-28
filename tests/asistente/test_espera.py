@@ -199,4 +199,4 @@ def test_la_causa_se_guarda_y_se_lee_como_diccionario():
 
 
 def test_todas_las_causas_estan_listadas_una_vez():
-    assert len(e.CAUSAS) == len(set(e.CAUSAS)) == 14
+    assert len(e.CAUSAS) == len(set(e.CAUSAS)) == 17

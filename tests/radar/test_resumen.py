@@ -492,7 +492,7 @@ def test_el_mensaje_del_dueno_trae_el_motor_y_la_ia_solo_los_totales():
     sembrar_motor(base)
     m = calcular_metricas_asistente(base, AHORA, navegador_caido_min=2)
     texto = "\n".join(_lineas_asistente(m))
-    assert "• Linkedin: 18 enviadas · 2 ensayadas · 0 sin reconocer · 0 inciertas · " in texto
+    assert "• LinkedIn: 18 enviadas · 2 ensayadas · 0 sin reconocer · 0 inciertas · " in texto
     assert "3 reparadas · 2 con árbitro · 0 de respaldo" in texto
     assert "• Computrabajo: 1 enviadas · 0 ensayadas · 1 sin reconocer · 1 inciertas" in texto
     assert "🧬 Por familia de ATS:\n• greenhouse: 18 enviadas" in texto

@@ -11,7 +11,7 @@ pytest.importorskip("cryptography", reason="requiere uv sync --group asistente")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from buscador_vacantes.asistente import api as api_modulo  # noqa: E402
-from buscador_vacantes.asistente import vinculos  # noqa: E402
+from buscador_vacantes.asistente import destinos_linkedin, vinculos  # noqa: E402
 from buscador_vacantes.asistente.api import (  # noqa: E402
     LIMITE_PING_POR_MINUTO,
     MAX_CUERPO,
@@ -32,6 +32,7 @@ from buscador_vacantes.asistente.pantalla import (  # noqa: E402
 )
 from buscador_vacantes.asistente.preferencias import Preferencias  # noqa: E402
 from buscador_vacantes.asistente.respuestas import Origen, Pregunta, Respuesta  # noqa: E402
+from buscador_vacantes.asistente.usuarios_linkedin import UsuariosLinkedin  # noqa: E402
 from buscador_vacantes.comun.config import cargar_configuracion  # noqa: E402
 from buscador_vacantes.comun.estado import a_texto  # noqa: E402
 
@@ -60,6 +61,11 @@ class NucleoFalso:
         self.reparaciones: list = []
         self.ensayo = False  # lo que devuelve en_ensayo
         self.resuelto: dict = {}  # lo que devuelve esquema_resuelto
+        self.linkedin = UsuariosLinkedin(self.base)
+        self.permiso = True  # lo que devuelve permiso_externo
+        self.redirecciones: dict[str, str] = {}  # acortador → URL final (resolver_redireccion)
+        self.esquemas_leidos: list = []  # (familia, url) que preparar_esquema recibió
+        self.esquema_completo = True  # False: falta un dato del usuario (esperar_usuario)
         self.paquete_documentos = PaqueteDocumentos()  # lo que devuelve documentos_pantalla
         self.documentos_pedidos: list = []
         self.demora_resolver: timedelta | None = None
@@ -119,6 +125,28 @@ class NucleoFalso:
 
     def esquema_resuelto(self, postulacion):
         return self.resuelto
+
+    async def resolver_redireccion(self, url):
+        return self.redirecciones.get(url, url)
+
+    def permiso_externo(self, usuario_id):
+        return self.permiso
+
+    def destino_guardado(self, postulacion):
+        if postulacion.plataforma != "linkedin" or not postulacion.id_corto:
+            return None
+        return destinos_linkedin.vigente(
+            self.base, postulacion.id_corto, self.momento, self.config.linkedin.destino_dias
+        )
+
+    def pausar_linkedin(self, usuario_id):
+        hasta = self.momento + timedelta(hours=self.config.linkedin.pausa_seguridad_h)
+        self.linkedin.pausar(usuario_id, hasta)
+        return hasta
+
+    async def preparar_esquema(self, postulacion, familia, url):
+        self.esquemas_leidos.append((familia, url))
+        return self.esquema_completo
 
     async def documentos_pantalla(self, postulacion, preguntas):
         self.documentos_pedidos.append(preguntas)
@@ -920,6 +948,24 @@ def test_latido_entrega_la_version_de_las_reglas_del_motor_generico(entorno):
     assert cliente.get("/api/v1/motor_generico").status_code == 401  # sin token
 
 
+def test_latido_entrega_la_version_de_los_datos_de_familias_de_ats(entorno):
+    from buscador_vacantes.asistente.familias_ats import familias
+
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    r = cliente.post("/api/v1/latido", headers=cab, json={"version": "1.0.0"}).json()
+    assert r["familias_ats"] == familias().version
+    completo = cliente.get("/api/v1/familias_ats", headers=cab).json()
+    assert completo["version"] == familias().version
+    assert "Submit application" in completo["familias"]["greenhouse"]["enviar"]["textos"]
+    assert "nota" not in completo
+    assert cliente.get("/api/v1/familias_ats").status_code == 401  # sin token
+    nucleo.config.motor_generico.activo = False
+    r = cliente.post("/api/v1/latido", headers=cab, json={"version": "1.0.0"}).json()
+    assert r["familias_ats"] is None
+    assert cliente.get("/api/v1/familias_ats", headers=cab).status_code == 404
+
+
 def test_motor_generico_apagado_no_entrega_reglas(entorno):
     nucleo, cliente = entorno
     nucleo.config.motor_generico.activo = False
@@ -1012,8 +1058,8 @@ def test_preferencias_con_cuenta_confirmada_muestra_el_detalle(entorno):
 def test_preferencias_plataforma_no_soportada_404(entorno):
     nucleo, cliente = entorno
     cab = vincular(nucleo, cliente)
-    assert cliente.get("/api/v1/preferencias/linkedin", headers=cab).status_code == 404
-    assert cliente.post("/api/v1/preferencias/linkedin", headers=cab, json={}).status_code == 404
+    assert cliente.get("/api/v1/preferencias/getonboard", headers=cab).status_code == 404
+    assert cliente.post("/api/v1/preferencias/getonboard", headers=cab, json={}).status_code == 404
 
 
 def test_preferencias_umbral_fuera_de_rango_422(entorno):
@@ -1141,6 +1187,16 @@ def test_portal_con_selectores_ausente_del_latido_queda_sin_permiso(entorno):
     assert guardado[CT]["estado"] == "listo"
     # Sin selectores cargados no se puede hablar de permiso
     assert "magneto" not in guardado
+
+
+def test_latido_guarda_el_permiso_de_las_paginas_externas_y_lo_borra_al_quitarlo(entorno):
+    """La extensión reporta `externa` solo con el permiso `https://*/*` (postular-linkedin)."""
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    latido_con(cliente, cab, {CT: {"estado": "listo"}, "externa": {"estado": "listo"}})
+    assert portales_guardados(nucleo)["externa"]["estado"] == "listo"
+    latido_con(cliente, cab, {CT: {"estado": "listo"}})
+    assert "externa" not in portales_guardados(nucleo)
 
 
 def test_guardar_el_estado_completo_no_repite_los_avisos(entorno):
@@ -1606,3 +1662,204 @@ def test_un_ensayo_de_usuario_tampoco_va_a_la_extension_vieja(entorno):
     nucleo.ensayo = True
     assert latido(cliente, cab, version="1.1.0")["trabajo"] is None
     assert latido(cliente, cab, version="1.2.0")["trabajo"]["ensayo"] is True
+
+
+# --- destino de LinkedIn (postular-linkedin, 4.1) -----------------------------------------------
+
+
+def en_curso_linkedin(nucleo, cliente):
+    """Postulación de LinkedIn en curso en el navegador del usuario 1."""
+    cab = vincular(nucleo, cliente)
+    nucleo.linkedin.aceptar(1, nucleo.config.linkedin.riesgo_version, T0)
+    p, _ = nucleo.cola.encolar(1, "abc", "linkedin", T0)
+    cliente.post(f"/api/v1/postulaciones/{p.id}/tomar", headers=cab)
+    return p, cab
+
+
+def destino(cliente, p, cab, url=None, **extra):
+    cuerpo = {"url": url, **extra} if url else extra
+    return cliente.post(f"/api/v1/postulaciones/{p.id}/destino", headers=cab, json=cuerpo)
+
+
+def guardados(nucleo):
+    filas = nucleo.base.cx.execute("SELECT * FROM destinos_linkedin").fetchall()
+    return [dict(f) for f in filas]
+
+
+def test_destino_externo_se_limpia_se_guarda_y_se_abre(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    crudo = (
+        "https://www.linkedin.com/safety/go?url=https%3A%2F%2Facme.com%2Fempleo%2F7%3Futm_source"
+        "%3Dlinkedin%26ref%3Dx&trk=flagship"
+    )
+    r = destino(cliente, p, cab, crudo)
+    assert r.status_code == 200
+    assert r.json()["accion"] == "abrir"
+    assert r.json()["url"] == "https://acme.com/empleo/7?ref=x"
+    assert r.json()["familia"] == "propio"
+    fila = guardados(nucleo)
+    assert [(f["id_vacante"], f["destino"], f["familia"]) for f in fila] == [
+        ("abc", "https://acme.com/empleo/7?ref=x", "propio")
+    ]
+    assert fila[0]["resuelto"] and fila[0]["ultima_vez"]
+    assert nucleo.esquemas_leidos == []  # una familia sin lector no lee nada
+
+
+def test_destino_de_greenhouse_por_enlace_corto_se_clasifica_tras_la_redireccion(entorno):
+    nucleo, cliente = entorno
+    final = "https://job-boards.greenhouse.io/prueba/jobs/4100100"
+    nucleo.redirecciones["https://grnh.se/abc123"] = final
+    nucleo.resuelto = {"question_9001": "B2"}
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    r = destino(cliente, p, cab, "https://grnh.se/abc123").json()
+    assert r["accion"] == "abrir"
+    assert (r["familia"], r["url"]) == ("greenhouse", final)
+    assert nucleo.esquemas_leidos == [("greenhouse", final)]
+    assert r["esquema"] == {"respuestas": {"question_9001": "B2"}}
+    assert "Submit application" in r["familia_datos"]["enviar"]["textos"]  # botón de la familia
+    assert guardados(nucleo)[0]["familia"] == "greenhouse"
+
+
+def test_destino_acortador_hacia_whatsapp_va_al_respaldo_con_el_enlace(entorno):
+    nucleo, cliente = entorno
+    nucleo.redirecciones["https://ai-job.link/x1"] = "https://wa.me/573001112233?text=hola"
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    r = destino(cliente, p, cab, "https://ai-job.link/x1").json()
+    assert r["accion"] == "respaldo"
+    assert r["motivo"] == "destino_mensajeria"
+    assert r["url"] == "https://wa.me/573001112233?text=hola"  # el paquete lo lleva
+    assert nucleo.esquemas_leidos == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["mailto:talento@acme.com", "https://t.me/acme_empleo", "https://api.whatsapp.com/send?phone=1"],
+)
+def test_destino_de_mensajeria_va_al_respaldo(entorno, url):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    r = destino(cliente, p, cab, url).json()
+    assert (r["accion"], r["motivo"]) == ("respaldo", "destino_mensajeria")
+
+
+def test_destino_de_workday_va_al_respaldo_sin_abrir(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    r = destino(cliente, p, cab, "https://acme.wd3.myworkdayjobs.com/es/Careers/job/Bogota/X_R1")
+    assert r.json()["accion"] == "respaldo"
+    assert r.json()["motivo"] == "ats_con_cuenta"
+
+
+def test_destino_en_un_dominio_barrera_aprendido_va_al_respaldo(entorno):
+    from buscador_vacantes.asistente import recetas
+
+    nucleo, cliente = entorno
+    recetas.marcar_barrera(nucleo.base, "empleos.acme.com", "ats_con_cuenta", T0)
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    r = destino(cliente, p, cab, "https://empleos.acme.com/vacante/9").json()
+    assert (r["accion"], r["motivo"]) == ("respaldo", "ats_con_cuenta")
+
+
+@pytest.mark.parametrize(
+    "url", ["https://accounts.google.com/o/oauth2/auth?x=1", "https://www.linkedin.com/oauth/v2/a"]
+)
+def test_destino_en_un_inicio_de_sesion_ajeno_va_al_respaldo_como_oauth(entorno, url):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    assert destino(cliente, p, cab, url).json()["motivo"] == "oauth"
+
+
+def test_destino_con_datos_que_faltan_deja_la_postulacion_esperando_al_usuario(entorno):
+    nucleo, cliente = entorno
+    nucleo.esquema_completo = False
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    r = destino(cliente, p, cab, "https://job-boards.greenhouse.io/prueba/jobs/4100100")
+    assert r.json() == {"esperar_usuario": True}
+    assert nucleo.cola.obtener(p.id).estado == E.ESPERANDO_USUARIO
+
+
+def test_destino_repetido_actualiza_la_fila_de_la_vacante(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    destino(cliente, p, cab, "https://acme.com/a")
+    nucleo.momento += timedelta(days=1)
+    destino(cliente, p, cab, "https://acme.com/b")
+    assert [f["destino"] for f in guardados(nucleo)] == ["https://acme.com/b"]
+
+
+def test_destino_pide_una_postulacion_de_linkedin_en_curso_y_el_motor_encendido(entorno):
+    nucleo, cliente = entorno
+    cab = vincular(nucleo, cliente)
+    ct, _ = nucleo.cola.encolar(1, "abc", CT, T0)
+    cliente.post(f"/api/v1/postulaciones/{ct.id}/tomar", headers=cab)
+    assert destino(cliente, ct, cab, "https://acme.com/a").status_code == 409  # no es de LinkedIn
+    ln, _ = nucleo.cola.encolar(1, "abc", "linkedin", T0)
+    assert destino(cliente, ln, cab, "https://acme.com/a").status_code == 409  # sin tomar
+    assert destino(cliente, ln, {}, "https://acme.com/a").status_code == 401
+    cliente.post(f"/api/v1/postulaciones/{ln.id}/tomar", headers=cab)
+    assert destino(cliente, ln, cab, "ftp://acme.com/a").status_code == 422
+    nucleo.config.motor_generico.activo = False
+    assert destino(cliente, ln, cab, "https://acme.com/a").status_code == 404
+
+
+def test_destino_con_las_externas_apagadas_o_sin_permiso_va_al_respaldo(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    nucleo.permiso = False
+    r = destino(cliente, p, cab, "https://acme.com/empleo").json()
+    assert (r["accion"], r["motivo"]) == ("respaldo", "sin_permiso_externo")
+    nucleo.linkedin.fijar(1, externas=False)
+    r = destino(cliente, p, cab, "https://acme.com/empleo").json()
+    assert (r["accion"], r["motivo"], r["url"]) == (
+        "respaldo", "linkedin_apagado", "https://acme.com/empleo",
+    )
+    # Con el destino ya clasificado como mensajería, el motivo es ese, no el interruptor
+    r = destino(cliente, p, cab, "https://wa.me/573001112233").json()
+    assert r["motivo"] == "destino_mensajeria"
+
+
+def test_destino_de_una_sencilla_respeta_su_interruptor(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    assert destino(cliente, p, cab, tipo="sencilla").json() == {"accion": "sencilla"}
+    assert guardados(nucleo) == []  # una sencilla no tiene destino que guardar
+    nucleo.linkedin.fijar(1, sencilla=False)
+    r = destino(cliente, p, cab, tipo="sencilla").json()
+    assert (r["accion"], r["motivo"]) == ("respaldo", "linkedin_apagado")
+
+
+def test_destino_externo_sin_url_es_invalido(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    assert destino(cliente, p, cab).status_code == 422
+    assert destino(cliente, p, cab, tipo="rara", url="https://acme.com/a").status_code == 422
+
+
+def test_el_trabajo_lleva_el_destino_guardado_para_no_abrir_linkedin(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    assert "destino" not in api_modulo._trabajo(nucleo, p)
+    destino(cliente, p, cab, "https://job-boards.greenhouse.io/prueba/jobs/4100100")
+    otra, _ = nucleo.cola.encolar(2, "abc", "linkedin", T0)  # otro usuario, misma vacante
+    guardado = api_modulo._trabajo(nucleo, otra)["destino"]
+    assert (guardado["url"], guardado["familia"]) == (
+        "https://job-boards.greenhouse.io/prueba/jobs/4100100", "greenhouse",
+    )
+    # Los hosts de las familias de ATS van con el destino: la regla de salto de la extensión
+    assert "greenhouse.io" in guardado["familias_hosts"]
+    assert "myworkdayjobs.com" in guardado["familias_hosts"]
+
+
+def test_un_aviso_de_seguridad_pausa_linkedin_veinticuatro_horas_y_avisa(entorno):
+    nucleo, cliente = entorno
+    p, cab = en_curso_linkedin(nucleo, cliente)
+    r = cliente.post(
+        f"/api/v1/postulaciones/{p.id}/resultado", headers=cab,
+        json={"estado": "bloqueada", "motivo": "aviso_seguridad"},
+    )
+    assert r.status_code == 200
+    assert nucleo.linkedin.pausado_hasta(1, T0) == T0 + timedelta(hours=24)
+    pausas = [e for e in nucleo.eventos if isinstance(e, dict) and e["tipo"] == "linkedin_pausado"]
+    [evento] = pausas
+    assert evento["usuario_id"] == 1 and evento["postulacion_id"] == p.id

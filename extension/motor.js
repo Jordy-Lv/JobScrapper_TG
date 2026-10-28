@@ -1029,7 +1029,8 @@
 
   // Lo leído en la última pantalla: los índices del esquema, de los botones y del resumen
   // apuntan a estos elementos
-  const generico = { campos: [], botones: [], clases: [], elementos: [], contenedor: null };
+  const generico = { campos: [], botones: [], clases: [], elementos: [], contenedor: null,
+    fijo: null, familia: null };
 
   function escaparRegex(t) {
     return t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1088,10 +1089,42 @@
     return lista.filter((b) => !lista.some((o) => o !== b && o.contains(b)));
   }
 
+  // Dentro del contenedor fijado (el modal de la Solicitud sencilla) su cabecera y su pie
+  // cuentan: ahí están «Siguiente» y «Enviar solicitud»
   function enZonaExcluida(el, banners) {
     const zona = el.closest(FUERA);
-    if (zona && !zona.closest("[role=dialog], [aria-modal=true], dialog, form")) return true;
+    if (zona && !(generico.fijo && generico.fijo.contains(zona))
+        && !zona.closest("[role=dialog], [aria-modal=true], dialog, form")) return true;
     return banners.some((b) => b.contains(el));
+  }
+
+  // Contenedor declarado por los datos (`reglas.contenedor`): si está en la página, campos y
+  // botones se leen solo ahí dentro
+  function contenedorFijo(reglas) {
+    return buscar((reglas || {}).contenedor || []);
+  }
+
+  // Campos que el motor maneja por su cuenta y nunca manda al servidor (`reglas.excluir`: la
+  // casilla «Sigue a …» y el grupo de CV de LinkedIn)
+  function excluido(el, reglas) {
+    return ((reglas || {}).excluir || []).some((s) => {
+      try {
+        return Boolean(el.closest(s));
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  // Un elemento que coincide con un selector de los datos de la familia de ATS del destino
+  function deFamilia(el, selectores) {
+    return (selectores || []).some((s) => {
+      try {
+        return el.matches(s);
+      } catch {
+        return false;
+      }
+    });
   }
 
   function modalActivo(banners = []) {
@@ -1277,6 +1310,8 @@
   // Controles visibles que el usuario puede llenar, en orden del documento. Los radios y las
   // casillas nativos se agrupan por name; los ARIA, por su radiogroup.
   function buscarControles(reglas) {
+    generico.fijo = contenedorFijo(reglas);
+    generico.familia = (reglas || {}).familia || null;
     const banners = bannersCookies(reglas);
     const usados = new Set();
     const items = [];
@@ -1284,7 +1319,8 @@
     const ambito = modalActivo(banners) || document;
     const gruposSinNombre = new Map();
     for (const el of ambito.querySelectorAll(CONTROLES)) {
-      if (usados.has(el) || enZonaExcluida(el, banners)) continue;
+      if (generico.fijo && !generico.fijo.contains(el)) continue;
+      if (usados.has(el) || enZonaExcluida(el, banners) || excluido(el, reglas)) continue;
       if (esTrampa(el, reglas) || esClave(el) || RESPUESTA_CAPTCHA.test(`${el.name} ${el.id}`)) continue;
       if (el.disabled || el.readOnly || el.getAttribute("aria-disabled") === "true") continue;
       const rol = el.getAttribute("role");
@@ -1390,8 +1426,9 @@
     for (const item of items.filter((i) => i.tipo === "archivo")) {
       const { texto, explicita } = etiquetaGenerica(item.el);
       const t = normalizar(limpiarEtiqueta(texto));
-      datos.set(item, { cv: tipoArchivo(t) === "cv" && explicita, sinEtiqueta: !explicita,
-        autorrelleno: AUTORRELLENO.test(t) });
+      const cvFamilia = deFamilia(item.el, (generico.familia || {}).cv);
+      datos.set(item, { cv: cvFamilia || (tipoArchivo(t) === "cv" && explicita),
+        sinEtiqueta: !explicita && !cvFamilia, autorrelleno: !cvFamilia && AUTORRELLENO.test(t) });
     }
     const hayCv = [...datos.values()].some((d) => d.cv && !d.autorrelleno);
     return items.filter((i) => {
@@ -1455,7 +1492,8 @@
       } else if (item.tipo === "archivo") {
         base.tipo = "archivo";
         base.accept = el.getAttribute("accept") || null;
-        campo.documento = explicita ? tipoArchivo(texto) : null;
+        campo.documento = deFamilia(el, (generico.familia || {}).cv) ? "cv"
+          : explicita ? tipoArchivo(texto) : null;
       } else {
         base.tipo = tipoDe(el);
         base.maximo = maximoDe(el);
@@ -1485,6 +1523,13 @@
     return null;
   }
 
+  // El botón de enviar que declara la familia de ATS gana sobre los textos genéricos
+  function claseDeBoton(el, texto, reglas, sinCampos) {
+    const clase = clasificarBoton(texto, reglas, sinCampos);
+    const enviar = ((generico.familia || {}).enviar || {}).selectores;
+    return clase !== "nunca" && deFamilia(el, enviar) ? "enviar" : clase;
+  }
+
   // Botones del contenedor y los de justo debajo; sin contenedor, los de la página
   function leerBotones(contenedor, reglas, banners, sinCampos) {
     const salida = [];
@@ -1496,6 +1541,7 @@
       if (!visibleGenerico(el) || enZonaExcluida(el, banners)) continue;
       if (el.closest("[role=listbox]") || el.closest("[role=combobox]")) continue;
       if (contenedor && !contenedor.contains(el)) {
+        if (generico.fijo) continue;
         const despues = contenedor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING;
         const margen = ambito === document ? 300 : 2000;
         if (!despues || el.getBoundingClientRect().top - abajo > margen) continue;
@@ -1508,7 +1554,7 @@
       salida.push({
         indice: salida.length,
         texto,
-        clase: clasificarBoton(texto, reglas, sinCampos),
+        clase: claseDeBoton(el, texto, reglas, sinCampos),
         oauth: coincide(texto, frases(reglas, "oauth")),
         tipo,
         en_contenedor: Boolean(contenedor && contenedor.contains(el)),
@@ -1599,7 +1645,10 @@
     const url = location.href.toLowerCase();
     const porUrl = ((reglas || {}).url_exito || []).some((p) => url.includes(p.toLowerCase()));
     const lista = frases(reglas, "exito");
-    const dialogo = [...document.querySelectorAll("[role=dialog], [role=alert], [aria-modal=true]")]
+    const marcas = ((((reglas || {}).familia || {}).exito) || {}).selectores || [];
+    const marca = marcas.flatMap((s) => candidatos(s)).find(visible);
+    if (marca) return { senal: "selector", texto: textoDe(marca).slice(0, 200) };
+    const dialogo = [...document.querySelectorAll("[role=dialog], [role=alert], [aria-modal=true], dialog[open]")]
       .some((d) => visible(d) && coincide(textoDe(d), lista));
     if (dialogo) return { senal: "texto", texto: textoPagina().slice(0, 200) };
     if (!sinCampos) return null;
@@ -1625,7 +1674,7 @@
   // Campos del formulario de la pantalla actual, sin abrir listas
   function camposActuales(reglas) {
     const { items, banners } = buscarControles(reglas);
-    const contenedor = contenedorDe(items);
+    const contenedor = generico.fijo || contenedorDe(items);
     const dentro = contenedor ? sinArchivosDeRelleno(items.filter((i) => contenedor.contains(i.el))) : [];
     return { contenedor, dentro, banners };
   }
@@ -2025,6 +2074,72 @@
     return { ok: true, escritas, adjuntos };
   }
 
+  // Antes de leer cada pantalla de un modal declarado (la Solicitud sencilla de LinkedIn):
+  // desmarca las casillas de `desmarcar` («Sigue a …», que viene marcada) y deja resuelto el
+  // CV: con `subir_cv` pulsa el botón que hace aparecer el campo de archivo; si no, elige el
+  // primer CV guardado. Sin ninguno guardado ni autorización para subir, `sin_cv`.
+  async function prepararModal(def, { subir_cv: subirCv = false } = {}) {
+    const raiz = buscar(def.contenedor || []);
+    if (!raiz) return { sin_modal: true };
+    let desmarcadas = 0;
+    for (const s of def.desmarcar || []) {
+      for (const el of candidatos(s, raiz)) {
+        if (!el.checked && el.getAttribute("aria-checked") !== "true") continue;
+        el.click();
+        desmarcadas += 1;
+      }
+    }
+    const grupo = buscar(def.cv_grupo || [], { raiz, ocultos: true });
+    if (!grupo) return { ok: true, desmarcadas };
+    const archivo = () => raiz.querySelector("input[type=file]");
+    if (subirCv) {
+      if (!archivo()) {
+        const boton = [...raiz.querySelectorAll("button, [role=button]")]
+          .find((b) => visible(b) && normalizar(textoBoton(b)).includes(normalizar(def.cv_subir || "")));
+        if (boton) boton.click();
+        const limite = Date.now() + 3000;
+        while (!archivo() && Date.now() < limite) await dormir(200);
+      }
+      if (archivo()) return { ok: true, desmarcadas, cv: "subir" };
+    }
+    const opciones = [...grupo.querySelectorAll("input[type=radio], [role=radio]")];
+    if (!opciones.length) return { sin_cv: true, desmarcadas };
+    const marcada = (o) => o.checked || o.getAttribute("aria-checked") === "true";
+    if (!opciones.some(marcada)) {
+      opciones[0].click();
+      await dormir(200);
+    }
+    return opciones.some(marcada) ? { ok: true, desmarcadas, cv: "guardado" } : { sin_cv: true, desmarcadas };
+  }
+
+  // Cierra el modal sin enviar ni guardar: la X y, en el aviso «¿Quieres guardar esta
+  // solicitud?», «Descartar» (nunca «Guardar», que deja un borrador en la cuenta)
+  async function descartarModal(def) {
+    const x = buscar(def.cerrar || []);
+    if (!x) return { cerrado: false };
+    x.click();
+    const limite = Date.now() + 3000;
+    while (Date.now() < limite) {
+      const aviso = buscar(def.aviso || []);
+      if (aviso) {
+        // Por su texto visible: la X del aviso también se llama «Descartar» (aria-label), pero
+        // solo cierra el aviso y deja el modal abierto
+        const boton = [...aviso.querySelectorAll("button")]
+          .find((b) => visible(b) && normalizar(b.textContent) === normalizar(def.descartar || "descartar"));
+        if (boton) {
+          boton.click();
+          // Se espera a que LinkedIn cierre el modal: cerrar la pestaña antes cortaría el descarte
+          const fin = Date.now() + 3000;
+          while (buscar(def.contenedor || []) && Date.now() < fin) await dormir(200);
+          return { cerrado: !buscar(def.contenedor || []), descartado: true };
+        }
+      }
+      if (!buscar(def.contenedor || [])) return { cerrado: true };
+      await dormir(200);
+    }
+    return { cerrado: false };
+  }
+
   // Pulsa un botón leído en la última pantalla. Un botón `nunca` no se pulsa. El clic va
   // después de responder, porque puede navegar y terminar este script.
   async function pulsar(indice, { esperar_habilitado: esperarHabilitado = 10000 } = {}) {
@@ -2132,6 +2247,8 @@
       elemento: elementoDe,
       encontrar: primero, // el elemento al que apunta un selector de receta o de parche
       html: htmlGenerico,
+      prepararModal,
+      descartarModal,
     },
     api,
   };

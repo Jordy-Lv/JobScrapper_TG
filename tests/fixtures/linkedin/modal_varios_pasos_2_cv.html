@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- Recorte del reconocimiento con sesión (2026-10-25, tarea 5.1). Página 2/4: el currículum es
+     obligatorio. La cuenta del reconocimiento no tenía ninguno guardado, así que el grupo de
+     opciones (fieldset radiogroup) está vacío y solo queda «Cargar currículum»; el <input
+     type=file> NO existe en el DOM hasta que se pulsa ese botón. Aquí se detuvo el reconocimiento
+     (subir un archivo habría entregado datos del usuario) y se cerró con «Descartar». -->
+<html lang="es"><body>
+<dialog open aria-labelledby="dialog-header" data-testid="dialog">
+  <button type="button" aria-label="Descartar"></button>
+  <header id="dialog-header"><h2>Aplicar a Confidential Startup SaaS Company</h2></header>
+  <div data-testid="dialog-content">
+    <div id="N-ff9f-4c98-866d-fdf8fc90a79d">50 porcentaje completado
+      <div aria-labelledby="N-ff9f-4c98-866d-fdf8fc90a79d"><p>2/4 páginas</p></div>
+    </div>
+    <div data-testid="lazy-column">
+      <p>Resume*</p>
+      <p>Selecciona o carga un currículum en formato DOC, DOCX o PDF con un tamaño inferior a 2 MB.</p>
+      <fieldset role="radiogroup"><div id="easyApplyUploadedResumeRef"></div></fieldset>
+      <button type="button"><span><span>Cargar currículum</span></span></button>
+    </div>
+    <hr role="presentation">
+    <footer>
+      <button type="button"><span><span>Volver</span></span></button>
+      <button type="button"><span><span>Siguiente</span></span></button>
+    </footer>
+  </div>
+  <section><h2 data-testid="toasts-title">0 notificaciones</h2></section>
+</dialog>
+</body></html>
