@@ -249,3 +249,17 @@ def test_migracion_v7_desde_una_base_v6_agrega_documentos_y_esquema_anticipado(t
     columnas = {f["name"] for f in base.cx.execute("PRAGMA table_info(vacantes)")}
     assert "esquema_json" in columnas
     base.cerrar()
+
+
+def test_pragmas_de_resiliencia_y_rendimiento(base, tmp_path):
+    assert base.cx.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
+    assert base.cx.execute("PRAGMA temp_store").fetchone()[0] == 2  # MEMORY
+    assert base.cx.execute("PRAGMA cache_size").fetchone()[0] == -64000
+    vacantes_db = tmp_path / "v.db"
+    Estado.abrir(vacantes_db).cerrar()
+    ro = abrir_vacantes_ro(vacantes_db)
+    try:
+        assert ro.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
+        assert ro.execute("PRAGMA query_only").fetchone()[0] == 1
+    finally:
+        ro.close()

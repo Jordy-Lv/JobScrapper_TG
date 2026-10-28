@@ -2187,6 +2187,8 @@ class Conversacion:
                 plataforma, decision = args
                 if decision == "si":
                     self.n.cuentas.confirmar(usuario.id, plataforma, ahora)
+                    if self.n.marcar_cuenta_ok(usuario.id, plataforma):
+                        await self._revisar_esperas(usuario)  # la card ya no pide confirmar
                     await self._actualizar_tarjeta(
                         usuario,
                         lambda tj: tj.poner_cuenta(plataforma, tarjeta.CONFIRMADA),
