@@ -408,11 +408,11 @@ eran de prueba, dictados por el dueño.
   «Cargar currículum» y adjunta el adaptado; si no, elige el primer CV guardado; sin ninguno, va al
   respaldo con `linkedin_sin_cv`. La casilla y el grupo de CV nunca se mandan al servidor. Sin envío
   (ensayo, respaldo o error) cierra con la X y «Descartar».
-- **Cuenta (supuesto)**: las páginas de empleo no muestran el correo. `linkedin.json` lo lee del
-  enlace `mailto:` de la ventana «Información de contacto» del propio perfil
-  (`/in/me/overlay/contact-info/`). **No se pudo verificar**: el 2026-10-27 la sesión de LinkedIn del
-  Chrome del dueño había caducado. Se verifica en el ensayo (6.2); sin correo, la cuenta no se
-  confirma y la cola no asigna trabajos de LinkedIn.
+- **Cuenta (verificada el 2026-10-28)**: las páginas de empleo no muestran el correo. `linkedin.json`
+  lo lee del enlace `mailto:` de la ventana «Información de contacto» del propio perfil. La URL
+  `/in/me/overlay/contact-info/` NO sirve: LinkedIn redirige al perfil y no abre la ventana (el popup
+  se quedaba en «Buscando correo»). Se abre `/in/me/`, se toma el usuario de la URL en la que cae y se
+  pide `/in/<usuario>/overlay/contact-info/`, que trae un único `mailto:` dentro del `<dialog>`.
 - **Permiso `https://*/*`**: el popup lo pide con un toque y su explicación (bloque «Páginas de las
   empresas», visible cuando el servidor habilita LinkedIn). La extensión lo reporta en el latido
   como `portales.externa` y el servidor lo borra en cuanto deja de llegar.

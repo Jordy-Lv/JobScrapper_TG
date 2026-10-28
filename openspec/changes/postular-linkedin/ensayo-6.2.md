@@ -37,8 +37,8 @@ Vuelta atrás: quitar esas dos claves (o `/plataformas linkedin off`) y reinicia
 ## Qué verificar al empezar (supuestos sin comprobar)
 
 - **Cuenta de LinkedIn en el latido**: `linkedin.json` lee el correo del `mailto:` de
-  `/in/me/overlay/contact-info/`. Nunca se verificó con la sesión activa. Si el latido no trae
-  `cuenta` para LinkedIn, la cola no asigna nada: es lo primero que se ve (`/estado` o el popup).
+  `<perfil>/overlay/contact-info/` (verificado el 2026-10-28; `/in/me/` no servía y dejaba el popup en
+  «Buscando correo»). Si el latido no trae `cuenta`, la cola no asigna nada: es lo primero que se ve.
 - **Señales de éxito** de Greenhouse, Lever, Ashby y Workday: son las esperadas, no vistas.
 - **Lever** trae hCaptcha: debe detenerse como barrera `captcha`, no fallar.
 - **Pandapé** tras el correo: si pide contraseña, su dominio pasa a `familias_con_cuenta`.

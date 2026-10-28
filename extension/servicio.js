@@ -199,6 +199,15 @@ async function estadoPortales(forzar, soloPlataforma = null) {
 // de cuenta conocidas o siguiendo los enlaces "Mi cuenta", "Mi perfil"… del propio portal.
 const MAX_PAGINAS_CORREO = 5;
 
+// Una página de cuenta puede llevar el perfil del usuario (`{perfil}`): LinkedIn no abre el
+// contacto en /in/me/, redirige al perfil real; `cuenta.perfil` es la expresión que lo extrae de
+// la URL en la que terminó la página de inicio
+function conPerfil(url, cuenta, actual) {
+  if (!url.includes("{perfil}")) return url;
+  const m = cuenta.perfil ? actual.match(new RegExp(cuenta.perfil)) : null;
+  return m ? url.replace("{perfil}", m[0]) : null;
+}
+
 async function revisarPortal(plataforma) {
   const sel = await selectores(plataforma);
   const sesion = sel.sesion || {};
@@ -218,7 +227,8 @@ async function revisarPortal(plataforma) {
     if (s.estado === "sin_sesion") return { estado: "sin_sesion", correo: null, motivo: s.motivo };
     let correo = s.correo;
     let origen = correo ? tab.url : null;
-    const pendientes = [...(cuenta.urls || (cuenta.url ? [cuenta.url] : []))];
+    const pendientes = [...(cuenta.urls || (cuenta.url ? [cuenta.url] : []))]
+      .map((u) => conPerfil(u, cuenta, tab.url)).filter(Boolean);
     pendientes.push(...(await enPestana(
       pestana.id, (ss) => globalThis.__asistente.enlacesCuenta(ss), sel,
     )));
