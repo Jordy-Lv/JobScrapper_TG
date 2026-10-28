@@ -21,7 +21,8 @@
     "url": "https://www.linkedin.com/in/me/"
   },
   "cuenta": {
-    "perfil": "^https://www[.]linkedin[.]com/in/[^/?#]+",
+    "perfil": "^https://www[.]linkedin[.]com/in/(?!me(?:[/?#]|$))[^/?#]+",
+    "espera_ms": 10000,
     "urls": ["{perfil}/overlay/contact-info/"],
     "correo": [
       "a[href^='mailto:']"
