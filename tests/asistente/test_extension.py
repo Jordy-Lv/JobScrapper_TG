@@ -986,6 +986,33 @@ def test_el_correo_se_busca_siguiendo_mi_cuenta(tmp_path, api):
     assert ct["pagina_correo"] == "/candidate/micuenta/"
 
 
+def test_linkedin_lee_el_correo_con_el_perfil_real_y_no_con_in_me(tmp_path, api):
+    """`/in/me/` redirige al perfil sin abrir el contacto: la extensión toma el usuario de la URL en
+    la que cae y pide `<perfil>/overlay/contact-info/` (visto con la sesión del dueño)."""
+    perfil = "https://www.linkedin.com/in/ana-perez"
+    portales = portales_listos()
+    portales.redirecciones["https://www.linkedin.com/in/me/"] = f"{perfil}/"
+    portales.paginas[f"{perfil}/"] = "<!doctype html><html><body>Perfil de Ana</body></html>"
+    portales.paginas[f"{perfil}/overlay/contact-info/"] = (
+        "<!doctype html><html><body><dialog open aria-labelledby='t'><h2 id='t'>Información de "
+        "contacto</h2><a href='mailto:ana.linkedin@gmail.com'>ana.linkedin@gmail.com</a>"
+        "</dialog></body></html>"
+    )
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales, externa=True)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    li = api.de("latido")[-1]["portales"]["linkedin"]
+    assert li["estado"] == "listo"
+    assert li["correo"] == "ana.linkedin@gmail.com"
+    assert li["pagina_correo"] == "/in/ana-perez/overlay/contact-info/"
+
+
 # --- "Iniciar sesión": abre, espera, cierra sola y reporta ---------------------------------
 
 
