@@ -455,7 +455,7 @@ def respuestas_ana(campos: list[dict]) -> list[dict]:
 def test_manifiesto_con_permisos_minimos():
     manifiesto = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
     assert manifiesto["manifest_version"] == 3
-    assert manifiesto["version"] == "1.2.1"
+    assert manifiesto["version"] == "1.2.2"
     assert set(manifiesto["permissions"]) == {"storage", "tabs", "alarms", "scripting"}
     for origen in manifiesto["host_permissions"]:
         assert origen.startswith(("https://*.computrabajo.com", "https://*.magneto365.com",
@@ -494,7 +494,7 @@ def test_vinculacion_automatica_desde_la_pagina(tmp_path, api):
     correr(flujo())
     vinculo = api.de("vincular")[0]
     assert vinculo["codigo"] == "ABCD2345"
-    assert vinculo["version"] == "1.2.1"
+    assert vinculo["version"] == "1.2.2"
 
 
 def test_codigo_vencido_lo_dice_en_la_pagina(tmp_path, api):
@@ -2258,13 +2258,62 @@ def test_magneto_proceso_abandonado_termina_bloqueada_sin_pulsar_aplicar(tmp_pat
     assert "aplicar" not in [p["paso"] for p in api.de("paso")]
 
 
-def test_magneto_ya_respondiste_termina_ya_postulada(tmp_path, api):
-    ya = {
-        '<button type="button" class="applyButton_apply-btn__x9p2q">Aplicar</button>': (
-            '<div class="alreadyAnsweredQuestionnaire_modal__z1x2c">'
-            "Ya respondiste este cuestionario</div>"
+def test_magneto_cuestionario_ya_respondido_con_modal_final_termina_enviada(tmp_path, api):
+    reemplazos = {
+        "raiz.innerHTML =": (
+            "document.body.insertAdjacentHTML('beforeend', "
+            '\'<div class="alreadyAnsweredQuestionnaireModal_modal__Hs15t">'
+            "Ya presentaste el cuestionario prefiltro</div>'); "
+            "setTimeout(() => { document.body.insertAdjacentHTML('beforeend', "
+            '\'<div class="mg_application_summary_summary-modal_17gu5">'
+            "<h2>Se ha enviado tu aplicación</h2></div>'); }, 600); "
+            "if (false) raiz.innerHTML ="
         ),
     }
-    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", ya))
-    assert api.de("resultado")[0]["estado"] == "ya_postulada"
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", reemplazos))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "enviada", resultado
+    assert "Se ha enviado tu aplicación" in resultado["confirmacion"]
+
+
+@pytest.mark.parametrize(
+    "extra_html",
+    [
+        "<magneto-spe open></magneto-spe>",
+        '<magneto-sign-up id="sign-up" open="true"></magneto-sign-up>',
+        '<div class="appliedSummaryPending_applied-modal__9mShs">'
+        "Tu aplicación quedará pendiente</div>",
+    ],
+    ids=["spe_shadow", "signup_shadow", "modal_pendiente"],
+)
+def test_magneto_cuestionario_ya_respondido_con_spe_o_sign_up_termina_datos_adicionales(
+    tmp_path, api, extra_html
+):
+    reemplazos = {
+        "raiz.innerHTML =": (
+            "document.body.insertAdjacentHTML('beforeend', "
+            '\'<div class="alreadyAnsweredQuestionnaireModal_modal__Hs15t">'
+            "Ya presentaste el cuestionario prefiltro</div>'); "
+            "setTimeout(() => { document.body.insertAdjacentHTML("
+            f"'beforeend', {extra_html!r}); }}, 300); "
+            "if (false) raiz.innerHTML ="
+        ),
+    }
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", reemplazos))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "bloqueada", resultado
+    assert resultado["motivo"] == "datos_adicionales_portal"
+
+
+def test_magneto_aplicacion_pendiente_en_cabecera_no_se_confunde_con_ya_postulada(tmp_path, api):
+    reemplazos = {
+        '<button type="button" class="applyButton_apply-btn__x9p2q">Aplicar</button>': (
+            '<div data-testid="application-status-alert">Aplicación pendiente</div>'
+            '<div class="renderApplyButton_status-label__x9p2q">¡Ya aplicaste!</div>'
+        ),
+    }
+    postular_magneto(tmp_path, api, portales_magneto("mg_chat_cuestionario.html", reemplazos))
+    resultado = api.de("resultado")[0]
+    assert resultado["estado"] == "bloqueada", resultado
+    assert resultado["motivo"] == "datos_adicionales_portal"
     assert not api.de("envio")

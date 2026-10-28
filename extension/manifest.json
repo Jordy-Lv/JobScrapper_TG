@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_nombre__",
   "short_name": "__MSG_nombre_corto__",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "default_locale": "es",
   "description": "__MSG_descripcion__",
   "minimum_chrome_version": "116",

@@ -54,7 +54,8 @@
 
   function buscar(selectores, { raiz = document, ocultos = false } = {}) {
     for (const selector of [].concat(selectores || [])) {
-      const el = candidatos(selector, raiz).find((x) => ocultos || visible(x));
+      const permitirOculto = ocultos || Boolean(selector && typeof selector === "object" && selector.ocultos);
+      const el = candidatos(selector, raiz).find((x) => permitirOculto || visible(x));
       if (el) return el;
     }
     return null;
@@ -748,13 +749,13 @@
         return { ok: true };
       }
       case "esperar": {
-        const el = await esperar(paso.selector, ms);
+        const el = await esperar(paso.selector, ms, { cortar: paso.cortar_si });
         if (!el && !paso.opcional) return error(paso, "no apareció el elemento");
         return { ok: true, encontrado: Boolean(el) };
       }
       case "clic":
       case "enviar": {
-        const el = await esperar(paso.selector, ms);
+        const el = await esperar(paso.selector, ms, { cortar: paso.cortar_si });
         if (!el) {
           if (paso.opcional) return { ok: true, encontrado: false };
           return error(paso, "no apareció el botón");

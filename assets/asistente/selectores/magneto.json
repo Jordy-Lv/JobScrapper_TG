@@ -1,6 +1,6 @@
 {
-  "version": "2026.10.27-1",
-  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (clase applyButton_apply-btn, módulos CSS con sufijo variable) y enlace a login.magneto365.com. Las páginas con sesión (formulario, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Sin sesión (2026-10-05): la cabecera muestra 'Iniciar sesión' hacia web.magneto365.com/sign-in y el menú 'Ingresa a tu cuenta' hacia login.magneto365.com. Con sesión (2026-10-15): el HTML inicial trae igual el enlace 'Iniciar sesión' a web.magneto365.com/sign-in y el JS lo cambia por el avatar (logoutBlock_avatar, img alt 'User Avatar'); por eso ese enlace ya no cuenta como sin sesión. El correo está en el tooltip oculto del selector de cuenta (mg_account_select), que solo existe en /co/trabajos/buscar después de hacer clic en el avatar de la cabecera (mg_mega_menu_main_header); por eso la revisión de la sesión y del correo se hace en esa página y cuenta.abrir declara el avatar. Postulación (2026-10-17, reconocimiento con sesión; verificada con una postulación real, la 43, que terminó enviada con el modal): todo ocurre en la misma página, sin <form> ni [role=dialog]. «Aplicar» muestra «Para continuar responde las siguientes preguntas:» con preguntas de botones Si/No (input.ant-radio-input sin name dentro de cada botón) y «Cancelar» / «Enviar respuestas»; unos 5 s después de enviar aparece el modal mg_application_summary_summary-modal con «Se ha enviado tu aplicación» y el botón «Cerrar»; la vacante pasa a mostrar «Ya aplicaste a este empleo» y aparece en Procesos activos de web.magneto365.com/profile/processes. Las clases CSS llevan sufijos variables: los selectores usan [class*=]. Una vacante sin encuesta envía al pulsar «Aplicar» y solo muestra el modal. Postulación 51 (2026-10-18): la encuesta también trae preguntas abiertas, un textarea name=\"text\" («Tu respuesta») sin maxlength y con el contador «0 de 140» (limitInputText_input-limit__limit-text), dentro del mismo bloque de pregunta; «Enviar respuestas» queda disabled hasta que todas tienen respuesta. Fallas del 2026-10-18: la 54 (vacante aplicada y retirada por el dueño) dejó a Magneto con el spinner tras «Aplicar», sin encuesta ni modal y con el botón «Aplicar» aún en la vacante (confirmar.sin_efecto: no se envió nada); la 55 (9 preguntas) leyó la encuesta y no llegó a llenarla, con ~3 min sin actividad de la extensión (el llenado tiene tope de 30 s y deja un paso llenado_N por pregunta). Postulaciones 74, 89, 94 y 96 (2026-10-27): Magneto migró la encuesta a un cajón conversacional por turnos (detailChatQuestionnaireChat_container / mg_chat_questionnaire_questionnaire) con animación loading_dots de 2 s por pregunta, cuatro controles (opción única sin name, opción múltiple con botón «Guardar» y texto corto/largo con filtro estricto de caracteres y botón de solo ícono) y «Enviar respuestas» (detailChatQuestionnaireChat_chat__submit) dentro del <footer> del cajón; además muestra «Proceso abandonado» en renderApplyButton_status-label cuando el candidato había abandonado antes ese proceso y alreadyAnsweredQuestionnaire cuando el cuestionario ya fue respondido.",
+  "version": "2026.10.27-2",
+  "notas": "Verificado en páginas públicas el 2026-10-04: botón Aplicar (clase applyButton_apply-btn, módulos CSS con sufijo variable) y enlace a login.magneto365.com. Las páginas con sesión (formulario, cuenta y perfil) quedan por verificar en el reconocimiento con sesión (tarea 3.1). Sin sesión (2026-10-05): la cabecera muestra 'Iniciar sesión' hacia web.magneto365.com/sign-in y el menú 'Ingresa a tu cuenta' hacia login.magneto365.com. Con sesión (2026-10-15): el HTML inicial trae igual el enlace 'Iniciar sesión' a web.magneto365.com/sign-in y el JS lo cambia por el avatar (logoutBlock_avatar, img alt 'User Avatar'); por eso ese enlace ya no cuenta como sin sesión. El correo está en el tooltip oculto del selector de cuenta (mg_account_select), que solo existe en /co/trabajos/buscar después de hacer clic en el avatar de la cabecera (mg_mega_menu_main_header); por eso la revisión de la sesión y del correo se hace en esa página y cuenta.abrir declara el avatar. Postulación (2026-10-17, reconocimiento con sesión; verificada con una postulación real, la 43, que terminó enviada con el modal): todo ocurre en la misma página, sin <form> ni [role=dialog]. «Aplicar» muestra «Para continuar responde las siguientes preguntas:» con preguntas de botones Si/No (input.ant-radio-input sin name dentro de cada botón) y «Cancelar» / «Enviar respuestas»; unos 5 s después de enviar aparece el modal mg_application_summary_summary-modal con «Se ha enviado tu aplicación» y el botón «Cerrar»; la vacante pasa a mostrar «Ya aplicaste a este empleo» y aparece en Procesos activos de web.magneto365.com/profile/processes. Las clases CSS llevan sufijos variables: los selectores usan [class*=]. Una vacante sin encuesta envía al pulsar «Aplicar» y solo muestra el modal. Postulación 51 (2026-10-18): la encuesta también trae preguntas abiertas, un textarea name=\"text\" («Tu respuesta») sin maxlength y con el contador «0 de 140» (limitInputText_input-limit__limit-text), dentro del mismo bloque de pregunta; «Enviar respuestas» queda disabled hasta que todas tienen respuesta. Fallas del 2026-10-18: la 54 (vacante aplicada y retirada por el dueño) dejó a Magneto con el spinner tras «Aplicar», sin encuesta ni modal y con el botón «Aplicar» aún en la vacante (confirmar.sin_efecto: no se envió nada); la 55 (9 preguntas) leyó la encuesta y no llegó a llenarla, con ~3 min sin actividad de la extensión (el llenado tiene tope de 30 s y deja un paso llenado_N por pregunta). Postulaciones 74, 89, 94, 96 y 98 (2026-10-27): Magneto migró la encuesta a un cajón conversacional por turnos (detailChatQuestionnaireChat_container / mg_chat_questionnaire_questionnaire) con animación loading_dots de 2 s por pregunta, cuatro controles (opción única sin name, opción múltiple con botón «Guardar» y texto corto/largo con filtro estricto de caracteres y botón de solo ícono) y «Enviar respuestas» (detailChatQuestionnaireChat_chat__submit) dentro del <footer> del cajón; muestra «Proceso abandonado» en renderApplyButton_status-label cuando el candidato había abandonado antes ese proceso; y cuando el cuestionario prefiltro compartido ya fue respondido abre alreadyAnsweredQuestionnaireModal pero continúa validando sign-up-forms y applyJob, pudiendo abrir <magneto-spe>, <magneto-sign-up open='true'> o appliedSummaryPending_applied-modal («Tu aplicación quedará pendiente» / «Aplicación pendiente») sin haber registrado aún la postulación en Mis procesos.",
   "verificado": {
     "vacante": true,
     "postulacion": true,
@@ -92,15 +92,18 @@
       "ms": 4000,
       "casos": [
         {
-          "texto": "ya_postulado",
-          "resultado": "ya_postulada"
+          "selector": [
+            {
+              "css": "[data-testid='application-status-alert']",
+              "texto": "aplicacion pendiente"
+            }
+          ],
+          "resultado": "bloqueada",
+          "motivo": "datos_adicionales_portal"
         },
         {
-          "selector": [
-            "[class*='alreadyAnsweredQuestionnaire']"
-          ],
-          "resultado": "ya_postulada",
-          "motivo": "ya_postulado"
+          "texto": "ya_postulado",
+          "resultado": "ya_postulada"
         },
         {
           "selector": [
@@ -139,7 +142,16 @@
       "abre_sin_enviar": true,
       "cortar_si": [
         "[class*='mg_application_summary_summary-modal']",
-        "[class*='alreadyAnsweredQuestionnaire']"
+        "[class*='alreadyAnsweredQuestionnaire']",
+        "[class*='appliedSummaryPending_applied-modal']",
+        {
+          "css": "magneto-spe",
+          "ocultos": true
+        },
+        {
+          "css": "magneto-sign-up[open='true']",
+          "ocultos": true
+        }
       ],
       "contenedor": [
         "[class*='detailChatQuestionnaireChat_container']",
@@ -197,6 +209,19 @@
       "ms": 4000,
       "opcional": true,
       "esperar_habilitado": true,
+      "cortar_si": [
+        "[class*='mg_application_summary_summary-modal']",
+        "[class*='alreadyAnsweredQuestionnaire']",
+        "[class*='appliedSummaryPending_applied-modal']",
+        {
+          "css": "magneto-spe",
+          "ocultos": true
+        },
+        {
+          "css": "magneto-sign-up[open='true']",
+          "ocultos": true
+        }
+      ],
       "selector": [
         "button[class*='detailChatQuestionnaireChat_chat__submit']",
         {
@@ -215,10 +240,22 @@
       "casos": [
         {
           "selector": [
-            "[class*='alreadyAnsweredQuestionnaire']"
+            "[class*='appliedSummaryPending_applied-modal']",
+            {
+              "css": "[data-testid='application-status-alert']",
+              "texto": "aplicacion pendiente"
+            },
+            {
+              "css": "magneto-spe",
+              "ocultos": true
+            },
+            {
+              "css": "magneto-sign-up[open='true']",
+              "ocultos": true
+            }
           ],
-          "resultado": "ya_postulada",
-          "motivo": "ya_postulado"
+          "resultado": "bloqueada",
+          "motivo": "datos_adicionales_portal"
         }
       ],
       "texto_de_selector": true,

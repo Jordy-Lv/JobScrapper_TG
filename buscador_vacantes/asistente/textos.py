@@ -140,15 +140,17 @@ MOTIVOS_RESPALDO = {
     "plataforma_en_ensayo": "esta postulación estaba en modo ensayo y no se envió nada",
     "proceso_abandonado": "habías abandonado este proceso en el portal y ya no permite volver a "
     "postular",
+    "datos_adicionales_portal": "el portal pide completar datos adicionales en tu perfil o en el "
+    "Servicio Público de Empleo para terminar esta postulación",
 }
 # Motivos que la extensión reporta con texto libre y que tienen código propio
 MOTIVOS_DE_EXTENSION = {"la página de la vacante no cargó": "pagina_no_cargo"}
 # Motivos tras los que la card ofrece «Reintentar»: el portal no recibió nada
-MOTIVOS_REINTENTABLES = ("fallida", "pagina_no_cargo")
+MOTIVOS_REINTENTABLES = ("fallida", "pagina_no_cargo", "datos_adicionales_portal")
 # Motivos que no son un fallo del asistente: el dueño no necesita revisar su evidencia
 MOTIVOS_SIN_ALERTA = (
     "ats_con_cuenta", "captcha", "oauth", "codigo_verificacion", "sin_ia", "documento_faltante",
-    "nivel_ahorro", "proceso_abandonado",
+    "nivel_ahorro", "proceso_abandonado", "datos_adicionales_portal",
 )  # fmt: skip
 
 # Avisos al dueño del vigía diario (ensayo de cada plataforma en su navegador)
