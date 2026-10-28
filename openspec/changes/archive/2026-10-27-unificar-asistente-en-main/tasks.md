@@ -8,7 +8,8 @@
 
 - [x] 2.1 En un worktree aparte, fusionar `main` en `asistente-postulacion-telegram` sin confirmar
 - [x] 2.2 Resolver los conflictos: `README.md` se reemplaza por completo con el de la rama del asistente (decisión del dueño); en pruebas se conservan ambos lados: `tests/test_buscador.py` (2, unificando imports `chat_admin` y `a_texto`), `tests/test_config.py` (1), `tests/test_resumen.py` (1)
-- [ ] 2.3 Revisar a mano las fusiones automáticas de `config.yaml`, `buscador_vacantes/corrida.py` y `buscador_vacantes/resumen.py` (conflictos semánticos) (cubierto por la suite y la corrida 497; sin revisión línea a línea)
+- [x] 2.3 Revisar a mano las fusiones automáticas de `config.yaml`, `buscador_vacantes/corrida.py` y `buscador_vacantes/resumen.py` (conflictos semánticos) (cubierto por la suite y la corrida 497; sin revisión línea a línea)
+  Superada el 2026-10-27: el merge corre en producción desde el 2026-10-14 y esos archivos se movieron a `buscador_vacantes/radar/` en `ordenar-estructura-paquetes`; la revisión línea a línea ya no aplica.
 - [x] 2.4 Correr la suite completa y dejarla en verde; corregir lo que falle (quedan 3 fallas de Windows ya existentes antes del merge y una prueba intermitente de `test_extension.py`)
 - [x] 2.5 Confirmar el merge en la rama de integración y mostrar al dueño el resultado (conflictos, fallos corregidos, diff resumido)
 
@@ -16,7 +17,7 @@
 
 - [x] 3.1 Pedir confirmación explícita al dueño para integrar en `main`
 - [x] 3.2 Avanzar `main` al commit del merge (fast-forward) y hacer push a `origin/main`
-- [ ] 3.3 Retirar el worktree temporal (queda `scratchpad/wt`, retirado a medias)
+- [x] 3.3 Retirar el worktree temporal (queda `scratchpad/wt`, retirado a medias). Verificado el 2026-10-27: la carpeta ya no existe y `git worktree list` no la muestra
 
 ## 4. Verificación de producción (solo lectura)
 
