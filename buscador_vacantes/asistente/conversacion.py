@@ -3198,9 +3198,10 @@ class Conversacion:
         elif ev.estado == E.ENSAYADA:
             await self._cerrar_card(usuario, p.id, tp.ENSAYADA, motivo=ev.detalle)
         elif ev.estado in CON_RESPALDO:
+            detalle = t.MOTIVOS_DE_EXTENSION.get(ev.detalle or "", ev.detalle)
             motivo = (
-                ev.detalle
-                if ev.tipo == "respaldo" or (ev.detalle or "") in t.MOTIVOS_RESPALDO
+                detalle
+                if ev.tipo == "respaldo" or (detalle or "") in t.MOTIVOS_RESPALDO
                 else str(ev.estado)
             )
             trabado = ev.estado != E.RESPALDO and self.n.datos_ensayo(p.id)["trabado"]

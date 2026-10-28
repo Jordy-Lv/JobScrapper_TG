@@ -249,6 +249,19 @@ async function abrirPestana(url) {
   return pestana;
 }
 
+// Una carga lenta o descartada es transitoria: se vuelve a abrir antes de dar la postulación por
+// fallida, para que salga a la primera sin que el usuario tenga que tocar nada
+async function abrirPestanaConReintentos(url, intentos = 3, pausaMs = 3000) {
+  for (let intento = 1; ; intento++) {
+    try {
+      return await abrirPestana(url);
+    } catch (error) {
+      if (intento >= intentos) throw error;
+      await new Promise((resolver) => setTimeout(resolver, pausaMs * intento));
+    }
+  }
+}
+
 // Una pestaña nueva carga about:blank por su cuenta. Si se navega antes de que esa carga
 // termine, Chrome puede descartar la navegación (la pestaña queda en "unloaded" aunque el
 // portal respondió) y la espera agota su plazo: pasa sobre todo con el navegador ocupado.
@@ -362,7 +375,7 @@ async function ejecutar(trabajo) {
   }
   let pestana;
   try {
-    pestana = await abrirPestana(url);
+    pestana = await abrirPestanaConReintentos(url);
   } catch (error) {
     await terminar(id, "fallida", { motivo: "la página de la vacante no cargó" });
     return;
