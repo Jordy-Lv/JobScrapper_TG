@@ -354,6 +354,37 @@ personales en `tests/fixtures/linkedin/`.
   empresa»), las preguntas adicionales, el mensaje de «Se envió tu solicitud» y el aviso de seguridad
   de LinkedIn (no se provocó). La 5.2 deja esos selectores como supuestos hasta verlos en el ensayo.
 
+#### Modal de varios pasos hasta la revisión (reconocimiento con CV del dueño, 2026-10-27, tarea 5.1)
+
+Se recorrieron dos sencillas de 4 pasos (Resolv Global y RappiPay) y la de RappiPay llegó hasta la
+pantalla de revisión **sin pulsar «Enviar solicitud»**; se cerró con «Descartar». Los datos escritos
+eran de prueba, dictados por el dueño.
+
+- **Pasos**: 1 contacto (ya relleno), 2 «Currículum*» (en Resolv Global el rótulo es «Resume*» y hay una
+  «Cover letter» opcional), 3 «Preguntas adicionales», 4 revisión. Los textos del modal salen en el idioma
+  de la empresa, no en el de la cuenta (Resolv Global en inglés, RappiPay en español).
+- **Preguntas adicionales** (paso 3): `input[type=text]` con `aria-label` igual a la pregunta, todas
+  obligatorias en estos dos casos: años con TensorFlow, Python y PyTorch y aspiración salarial (RappiPay);
+  ubicación, salario, velocidad de internet y WhatsApp (Resolv Global), además de radios Sí/No de
+  residencia y de zona horaria. Sin respuesta el paso no avanza.
+- **El botón del paso 3 se llama «Revisar»**, no «Siguiente»; con él se llega a «Revisa tu solicitud»
+  (`h2`), con secciones «Información de contacto», «Currículum» y «Preguntas adicionales», cada una con
+  `button[aria-label="Editar …"]`.
+- **Revisión**: la casilla «Sigue a {empresa} para enterarte de las novedades de su página» sale
+  **marcada por defecto** y debajo está «Enviar solicitud». El texto avisa de que «tus respuestas y tu CV
+  se guardarán» para solicitudes futuras (enlace `/help/linkedin/answer/a507694/`) y trae el «Aviso de
+  derechos laborales», un enlace `/safety/go` que **no** es un destino externo.
+- **El CV no persiste si se descarta**: el `fieldset[role=radiogroup]` («CV selection») está **vacío** en
+  la solicitud siguiente aunque se haya subido el archivo en la anterior; el aviso del diálogo de cierre
+  lo dice («No se guardarán los archivos importados»). Hay que subir el CV en cada solicitud o enviar
+  una vez para que LinkedIn lo guarde.
+- **Subida**: el `<input type=file>` se crea al pulsar «Cargar currículum» y esa pulsación abre el
+  selector nativo. En el reconocimiento se evitó parcheando `HTMLInputElement.prototype.click` para que no
+  abriera el selector y subiendo con `file_upload` al input capturado. Tras subir, el modal muestra la
+  tarjeta del PDF con el radio marcado y el aviso «Se ha cargado el currículum». Acepta DOC, DOCX o PDF de
+  menos de 2 MB.
+- **Sigue sin verse**: el mensaje de «Se envió tu solicitud» (no se envió ninguna) y el aviso de seguridad.
+
 #### Cómo lo recorre la extensión 1.3.0 (tarea 5.3, 2026-10-27)
 
 - **Vacante**: abre `linkedin.com/jobs/view/{id}` y la clasifica con `linkedin.json`, en este orden:
