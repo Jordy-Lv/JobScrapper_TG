@@ -124,6 +124,7 @@ MOTIVOS_RESPALDO = {
     "bloqueada": "el portal pidió una verificación que no se completó",
     "formulario_desconocido": "el formulario del portal cambió",
     "fallida": "el portal rechazó el envío",
+    "pagina_no_cargo": "la página de la vacante no cargó (no envié nada)",
     # Lo que el motor genérico no resuelve por ti (motor-generico-autorreparable)
     "ats_con_cuenta": "esta empresa pide crear una cuenta en su portal de empleo y yo no creo "
     "cuentas por ti",
@@ -138,6 +139,10 @@ MOTIVOS_RESPALDO = {
     "nivel_ahorro": "tu nivel de IA es Ahorro y para entender este formulario hacía falta usarla",
     "plataforma_en_ensayo": "esta postulación estaba en modo ensayo y no se envió nada",
 }
+# Motivos que la extensión reporta con texto libre y que tienen código propio
+MOTIVOS_DE_EXTENSION = {"la página de la vacante no cargó": "pagina_no_cargo"}
+# Motivos tras los que la card ofrece «Reintentar»: el portal no recibió nada
+MOTIVOS_REINTENTABLES = ("fallida", "pagina_no_cargo")
 # Motivos que no son un fallo del asistente: el dueño no necesita revisar su evidencia
 MOTIVOS_SIN_ALERTA = (
     "ats_con_cuenta", "captcha", "oauth", "codigo_verificacion", "sin_ia", "documento_faltante",

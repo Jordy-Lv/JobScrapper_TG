@@ -443,6 +443,8 @@ def botones(card: Card, d: Datos, cb: Cb) -> Botones | None:
                 acciones.insert(0, ("Vincular navegador", cb("vincular")))
             if card.motivo == "sin_ia":
                 acciones.insert(0, ("Configurar IA", cb("clave", "nueva")))
+            if card.motivo in t.MOTIVOS_REINTENTABLES:
+                acciones.insert(0, ("Reintentar", cb("rei", d.pid)))
             filas += _filas(acciones)
             filas += _seguimiento(d, SEGUIMIENTO_RESPALDO, cb)
         case "ensayada":
