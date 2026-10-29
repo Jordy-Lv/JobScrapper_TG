@@ -14,5 +14,5 @@
 
 ## 3. Despliegue y verificación en vivo
 
-- [ ] 3.1 👤 Unir el PR y desplegar en el Fedora (`git pull` y reiniciar el servicio)
-- [ ] 3.2 👤 Recargar la extensión sin empaquetar en el Chrome del dueño y comprobar que la tarjeta de LinkedIn pasa a «Confírmala» (o leer el motivo en `navegadores.portales_json`)
+- [x] 3.1 👤 Unir el PR y desplegar en el Fedora (`git pull` y reiniciar el servicio) — Hecho el 2026-10-28: PR #24 unido (8da0e8e) y desplegado
+- [x] 3.2 👤 Recargar la extensión sin empaquetar en el Chrome del dueño y comprobar que la tarjeta de LinkedIn pasa a «Confírmala» (o leer el motivo en `navegadores.portales_json`) — Verificado el 2026-10-28 a las 23:22: el servidor registró "Correo de linkedin leído en /in/carlosbechara/overlay/contact-info/" y la cuenta quedó por confirmar
