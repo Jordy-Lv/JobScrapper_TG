@@ -1,7 +1,7 @@
 # extension-navegador Specification
 
 ## Purpose
-TBD - created by archiving change detectar-sesion-magneto. Update Purpose after archive.
+La extensión de Chrome del asistente detecta en cada portal si la sesión del dueño está iniciada y con qué correo, y se lo informa al servidor para que la cuenta quede por confirmar. Cubre las señales de sesión, la lectura del correo de cada portal (Magneto, LinkedIn) y el reintento cuando un portal queda sin correo.
 
 ## Requirements
 
