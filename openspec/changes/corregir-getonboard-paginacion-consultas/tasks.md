@@ -39,4 +39,10 @@
     | cola larga | `analista` | 200 | 50 | 2 | 10 |
     | cola larga | `desarrollador` | 200 | 50 | 4 | 1 |
     Ninguna palabra del núcleo devolvió 0 ofertas crudas; todas respondieron con resultados reales.
-- [ ] 4.3 👤 Desplegar al Fedora y, tras un par de días, revisar en la tabla `intentos` el `items` de GetOnBoard por consulta; verificar que dejó de haber consultas con 0 por frases largas
+- [x] 4.3 👤 Desplegar al Fedora y, tras un par de días, revisar en la tabla `intentos` el `items` de GetOnBoard por consulta; verificar que dejó de haber consultas con 0 por frases largas
+  - Despliegue ejecutado en Fedora (2026-10-29):
+    - `main` sincronizado con commit `40baa75`.
+    - Entorno uv actualizado con `uv sync --group asistente`.
+    - Servicio `buscador-asistente.service` reiniciado y operativo.
+    - Dry-run probado exitosamente en servidor: `uv run --frozen buscador.py --dry-run --fuente getonboard` ejecutó 4 consultas (`practicante`: 5 items, `aprendiz`: 2 items, `ciberseguridad`: 4 items, `analista`: 10 items), 21 crudas sin errores y 0 resultados de 0 por frases largas.
+    - `buscador.timer` activo y ejecutando el radar cada 30 min.
