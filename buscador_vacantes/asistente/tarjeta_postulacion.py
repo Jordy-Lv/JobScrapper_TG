@@ -96,7 +96,8 @@ class Datos:
     segundos_etapa: float = 0.0  # progreso: segundos desde que empezó la etapa en curso
     conexion: list[str] = field(default_factory=list)  # bloque «Conexión» (tarjeta.py)
     botones_conexion: Botones = field(default_factory=list)
-    pendiente: dict | None = None  # {"id", "pregunta", "opciones", "tipo"} de la fase PREGUNTA
+    # {"id", "pregunta", "opciones", "tipo", "ia_no_respondio"} de la fase PREGUNTA
+    pendiente: dict | None = None
     revision: list[dict] = field(default_factory=list)  # {id, pregunta, respuesta, origen}
     resumen: DatosResumen | None = None  # confirmada / incierta
     id_corto: str | None = None  # cuenta / cancelada: aún no hay postulación (pid)
@@ -133,9 +134,11 @@ def _pregunta(card: Card, d: Datos) -> list[str]:
             "déjala en respaldo y la completas tú.",
         ]
     lineas = [titulo, f"<b>{t.e(pendiente.get('pregunta'))}</b>"]
+    if pendiente.get("ia_no_respondio"):
+        lineas.append("La IA no respondió esta vez; te la pregunto yo.")
     if not pendiente.get("opciones") or avance.get("escribir"):
         lineas.append("Escribe tu respuesta.")
-    elif pendiente.get("tipo") == "dato":
+    elif pendiente.get("tipo") in ("dato", "si_no"):
         lineas.append("Elige una opción o escríbela tú.")
     return lineas
 
@@ -364,7 +367,8 @@ def _botones_confirmacion(card: Card, d: Datos, cb: Cb) -> Botones:
 
 def _botones_pregunta(card: Card, d: Datos, cb: Cb) -> Botones:
     """Formulario: una opción del portal por fila. Dato: las sugerencias del redactor, «✍️
-    Escribir yo» (solo si hay sugerencias) y «Prefiero no decirlo»."""
+    Escribir yo» (solo si hay sugerencias) y «Prefiero no decirlo». Sí/No: pregunta del portal
+    de sí o no dada como texto, con «Sí», «No» y «✍️ Escribir yo»."""
     pendiente = d.pendiente or {}
     if pendiente.get("tipo") == "documento":
         return [
@@ -372,14 +376,15 @@ def _botones_pregunta(card: Card, d: Datos, cb: Cb) -> Botones:
             [(BOTON_DOCUMENTO_RESPALDO, cb("docr", pendiente["id"]))],
         ]
     opciones = pendiente.get("opciones", [])[:8]
-    if pendiente.get("tipo") != "dato":
+    if pendiente.get("tipo") not in ("dato", "si_no"):
         return [[(opcion, cb("pend", pendiente["id"], n))] for n, opcion in enumerate(opciones)]
     filas: Botones = []
     if not (card.pregunta or {}).get("escribir"):
         filas += _filas([(o, cb("pend", pendiente["id"], n)) for n, o in enumerate(opciones)])
         if opciones:
             filas.append([(BOTON_ESCRIBIR, cb("pesc", pendiente["id"]))])
-    filas.append([(BOTON_RESERVADO, cb("pres", pendiente["id"]))])
+    if pendiente.get("tipo") == "dato":  # la del portal no se puede dejar sin responder
+        filas.append([(BOTON_RESERVADO, cb("pres", pendiente["id"]))])
     return filas
 
 

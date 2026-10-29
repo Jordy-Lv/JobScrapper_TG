@@ -103,6 +103,12 @@ compartido de preguntas frecuentes; 3) tus respuestas aprendidas de antes; 4) Ge
 preguntas abiertas y siempre con tus datos reales. Si falta un dato obligatorio, el bot te lo
 pregunta una sola vez. El sistema nunca inventa respuestas.
 
+Cuando el bot te pregunta algo que se responde con sí o no (por ejemplo «¿Cuentas con el aval de tu
+institución educativa para iniciar prácticas?»), aunque el portal lo muestre como campo de texto,
+la tarjeta trae los botones **Sí** y **No**, y **✍️ Escribir yo** si prefieres escribir la
+respuesta. El aval de tu institución se guarda la primera vez que lo respondes y se usa en las
+demás vacantes, aunque la pregunta esté redactada distinto.
+
 ## Tu CV adaptado
 
 Se ajusta levemente a cada vacante: el resumen profesional, el orden de hasta 6 habilidades y
@@ -123,6 +129,7 @@ ver la versión más reciente.
 | El portal cambió su página | Se detiene sin enviar, el bot te avisa y el administrador lo corrige |
 | Cerraste el navegador a mitad de camino | Si no se había enviado, se reintenta; si ya se pulsó enviar, el bot te pide verificar en «Mis postulaciones» (nunca se envía dos veces) |
 | No tienes clave de Gemini o se agotó la cuota | Se postula con tu CV base y tus respuestas; lo que requiera redacción se te pregunta |
+| Gemini está saturado o no responde | Antes de preguntarte, el asistente espera y reintenta unos minutos (`asistente.formulario_ia.esperas_s` en `config.yaml`); si sigue sin responder, te hace las preguntas y la tarjeta dice «La IA no respondió esta vez» |
 | Hay otra cuenta abierta en el portal | No se postula; el bot te muestra tu correo asociado y el encontrado (parcialmente oculto) |
 | Sales del grupo de Telegram | Tu acceso se suspende; si vuelves, se reactiva |
 

@@ -337,6 +337,7 @@ def test_asistente_secciones_nuevas_por_defecto_sin_config(tmp_path):
     assert asistente.motor_generico.respaldo_declarado is False
     assert asistente.motor_generico.max_reparaciones == 2
     assert asistente.autorreparacion.clave_duenio is False
+    assert asistente.formulario_ia.esperas_s == [30, 60, 120]
     assert asistente.vigia.activo is False
 
 

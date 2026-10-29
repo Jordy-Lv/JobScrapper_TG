@@ -348,6 +348,40 @@ def test_pregunta_del_formulario_sigue_como_antes():
     assert "Elige una opción" not in tp.texto(card, d)
 
 
+def pendiente_si_no():
+    return {"id": 8, "pregunta": "¿Cuentas con el aval de tu institución educativa?",
+            "opciones": ["Sí", "No"], "tipo": "si_no"}  # fmt: skip
+
+
+def test_pregunta_de_si_o_no_en_texto_muestra_si_no_y_escribir_yo_sin_reservado():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 8, "n": 2, "total": 2})
+    d = datos(pendiente=pendiente_si_no())
+    texto = tp.texto(card, d)
+    assert "Pregunta rápida (2 de 2)" in texto and "Elige una opción o escríbela tú." in texto
+    assert "Escribe tu respuesta." not in texto
+    assert tp.botones(card, d, cb) == [
+        [("Sí", cb("pend", 8, 0)), ("No", cb("pend", 8, 1))],
+        [(tp.BOTON_ESCRIBIR, cb("pesc", 8))],
+    ]
+
+
+def test_pregunta_de_si_o_no_tras_escribir_yo_espera_texto_sin_botones():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 8, "n": 1, "total": 1, "escribir": True})
+    d = datos(pendiente=pendiente_si_no())
+    assert "Escribe tu respuesta." in tp.texto(card, d)
+    assert not tp.botones(card, d, cb)
+
+
+def test_la_card_avisa_cuando_la_pregunta_llega_porque_la_ia_no_respondio():
+    card = tp.Card(fase=tp.PREGUNTA, pregunta={"id": 5, "n": 1, "total": 1})
+    con_aviso = datos(pendiente={"id": 5, "pregunta": "¿Por qué te interesa?", "opciones": [],
+                                 "ia_no_respondio": True})  # fmt: skip
+    sin_aviso = datos(pendiente={"id": 5, "pregunta": "¿Por qué te interesa?", "opciones": []})
+    assert "La IA no respondió esta vez; te la pregunto yo." in tp.texto(card, con_aviso)
+    assert "La IA no respondió" not in tp.texto(card, sin_aviso)
+    assert "Escribe tu respuesta." in tp.texto(card, con_aviso)
+
+
 REVISION = [
     {"id": 31, "pregunta": "¿Por qué te interesa?", "respuesta": "Quiero <aprender>.",
      "origen": "ia"},

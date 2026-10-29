@@ -3033,6 +3033,70 @@ def test_dato_sin_sugerencias_acepta_texto_directo(mundo):
     assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
 
 
+AVAL = "¿Cuentas con el aval por parte de tu institución educativa para iniciar prácticas?"
+
+
+def con_si_no_pendiente(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    esperando_usuario(mundo, pid)
+    with mundo.base.transaccion() as cx:
+        cx.execute(
+            "INSERT INTO pendientes_usuario(usuario_id, postulacion_id, pregunta, pregunta_norm, "
+            "opciones_json, campo, tipo, creada) VALUES (?, ?, ?, ?, '[\"Sí\", \"No\"]', "
+            "'aval_institucion', 'si_no', 'x')",
+            (usuario.id, pid, AVAL, normalizar_pregunta(AVAL)),
+        )
+    preguntar(mundo, usuario)
+    return usuario, pid, mensaje
+
+
+@respx.mock
+def test_pregunta_de_si_o_no_en_texto_se_responde_con_el_boton_y_se_recuerda(mundo):
+    usuario, pid, mensaje = con_si_no_pendiente(mundo)
+    texto, botones = card_de(mundo, mensaje)
+    assert AVAL in texto and "Elige una opción o escríbela tú." in texto
+    assert [b for fila in botones for b, _ in fila] == ["Sí", "No", tp.BOTON_ESCRIBIR]
+    correr(mundo.c.al_texto(ANA, "Sí, claro", 84))  # con botones, el texto espera a «Escribir yo»
+    assert (ANA, 84) in mundo.s.borrados and aprendida(
+        mundo.base, usuario.id, normalizar_pregunta(AVAL)
+    ) is None
+    correr(mundo.c.al_boton(ANA, botones[0][0][1]))
+    assert aprendida(mundo.base, usuario.id, normalizar_pregunta(AVAL)) == "Sí"
+    assert mundo.n.datos_usuario(usuario.id).cuestionario["aval_institucion"] == "Sí"
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+    assert card_guardada(mundo, pid).fase == tp.EN_COLA
+
+
+@respx.mock
+def test_pregunta_de_si_o_no_tras_escribir_yo_acepta_el_texto_y_lo_borra(mundo):
+    usuario, pid, mensaje = con_si_no_pendiente(mundo)
+    pendiente_id = mundo.n.pendientes(usuario.id)[0]["id"]
+    correr(mundo.c.al_boton(ANA, cb("pesc", pendiente_id)))
+    texto, botones = card_de(mundo, mensaje)
+    assert "Escribe tu respuesta." in texto and not botones
+    correr(mundo.c.al_texto(ANA, "Sí, ya tengo la carta", 85))
+    assert (ANA, 85) in mundo.s.borrados
+    assert aprendida(mundo.base, usuario.id, normalizar_pregunta(AVAL)) == "Sí, ya tengo la carta"
+    assert mundo.n.cola.obtener(pid).estado == E.EN_COLA
+
+
+@respx.mock
+def test_la_card_dice_que_la_ia_no_respondio_solo_en_las_preguntas_de_esa_falla(mundo):
+    usuario = preparar_toque(mundo)
+    pid, _ = tocar(mundo, usuario)
+    mensaje = card_guardada(mundo, pid).mensaje_id
+    esperando_usuario(mundo, pid)
+    pendiente(mundo, usuario, pid, "¿Por qué te interesa?", "por que te interesa")
+    preguntar(mundo, usuario)
+    assert "La IA no respondió" not in card_de(mundo, mensaje)[0]
+    with mundo.base.transaccion() as cx:
+        mundo.n.cola.paso(cx, pid, "ia_no_respondio", T0, detalle=["por que te interesa"])
+    correr(mundo.c._pintar_card(usuario, pid))
+    assert "La IA no respondió esta vez; te la pregunto yo." in card_de(mundo, mensaje)[0]
+
+
 @respx.mock
 def test_sin_ia_la_pregunta_del_formulario_no_ofrece_botones_de_dato(mundo):
     usuario = preparar_toque(mundo)

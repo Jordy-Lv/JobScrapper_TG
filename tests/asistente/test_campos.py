@@ -130,3 +130,11 @@ def test_nombre_apellido_y_linkedin_nunca_van_a_la_ia():
     for contacto in ("Ana", "Pérez", "linkedin.com"):
         assert contacto not in texto
     assert para_ia["cuestionario"] == {"pais": "Colombia", "promedio": "4.2"}
+
+
+def test_aval_de_la_institucion_es_un_campo_guardable():
+    assert "aval_institucion" in campos.CAMPOS and es_guardable("aval_institucion")
+    assert campos.es_campo_valido("aval_institucion", None)
+    assert datos(cuestionario={"aval_institucion": "Sí"}).valor("aval_institucion") == "Sí"
+    assert datos().valor("aval_institucion") is None  # nunca se inventa
+    assert datos(cuestionario={"aval_institucion": RESERVADO}).valor("aval_institucion") is None

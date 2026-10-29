@@ -1277,6 +1277,7 @@ class Conversacion:
                     "id": pendiente["id"], "pregunta": pendiente["pregunta"],
                     "opciones": json.loads(pendiente["opciones_json"] or "[]"),
                     "tipo": pendiente["tipo"],
+                    "ia_no_respondio": pendiente["pregunta_norm"] in self.n.preguntas_sin_ia(pid),
                 }  # fmt: skip
         if card.fase == tp.REVISION:
             d.revision = self.n.respuestas_en_revision(pid)
@@ -1986,6 +1987,8 @@ class Conversacion:
         if pid is None:  # sin postulación no hay card: se pregunta en un mensaje
             opciones = json.loads(pendiente["opciones_json"] or "[]")
             botones = [[(o, cb("pend", pendiente["id"], n))] for n, o in enumerate(opciones[:8])]
+            if pendiente["tipo"] == "si_no":  # el texto solo vale tras «Escribir yo»
+                botones.append([(tp.BOTON_ESCRIBIR, cb("pesc", pendiente["id"]))])
             texto = f"❓ Para tu postulación necesito un dato:\n<b>{t.e(pendiente['pregunta'])}</b>"
             if not opciones:
                 texto += "\nEscríbeme la respuesta."

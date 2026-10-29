@@ -28,11 +28,14 @@ from buscador_vacantes.asistente.pantalla import (  # noqa: E402
     ConsultaReparacion,
     Peticion,
     Resumen,
+    Sugerido,
 )
 from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     REDACTAR,
+    DatoFaltante,
     Origen,
     Pregunta,
+    Respuesta,
     guardar_en_banco,
     normalizar_pregunta,
     recordar,
@@ -79,9 +82,19 @@ class Mundo:
         ritmo = Ritmo(0, reloj=lambda: 0, dormir=dormir)
         detalles = Detalles(self.base, self.ro, a.detalle, configuracion.red, ritmo=ritmo)
         ia = crear_clientes(a.ia, self.base, 60, reloj=lambda: T0)
+        self.esperas = []  # lo que el núcleo esperó antes de reintentar con la IA
+
+        async def esperar(segundos):
+            self.esperas.append(segundos)
+
+        async def sin_esperar(_segundos):
+            return None
+
+        for cliente in ia.values():  # los reintentos del propio cliente no esperan ni se cuentan
+            cliente.dormir = sin_esperar
         self.nucleo = Nucleo(
             configuracion, self.base, Indice(self.base, self.ro, 90), detalles, ia,
-            Cifrador(generar_clave()), tmp_path / "archivos", reloj=lambda: T0,
+            Cifrador(generar_clave()), tmp_path / "archivos", reloj=lambda: T0, dormir=esperar,
         )  # fmt: skip
         self.eventos = []
 
@@ -1595,3 +1608,183 @@ def test_un_ensayo_del_vigia_que_se_reparo_no_pone_la_plataforma_en_ensayo(mundo
         nucleo.cola.paso(cx, p.id, "respaldo_generico", T0, detalle="paso 2")
     assert nucleo.cerrar_vigia(p, E.ENSAYADA, "boton:Aplicar") == "reparado"
     assert nucleo.preferencias.plataformas_en_ensayo([]) == {}
+
+
+AVAL = ("¿Cuentas con el aval por parte de tu institución educativa para iniciar proceso de "
+        "prácticas de inmediato?")  # fmt: skip
+
+
+@respx.mock
+def test_pregunta_de_si_o_no_en_texto_queda_pendiente_con_botones_y_recuerda_el_aval(mundo):
+    pid = en_curso(mundo, con_ia=False)
+    p, navegador = tomar(mundo, pid)
+    preguntas = [
+        Pregunta(AVAL),
+        Pregunta("¿Por qué te interesa esta vacante?"),
+        Pregunta("¿Tienes licencia de conducción?", "opciones", ["Sí", "No", "En trámite"]),
+    ]
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, preguntas))
+    assert len(resultado.faltan) == 3
+    pendientes = {x["pregunta"]: x for x in mundo.nucleo.pendientes(mundo.usuario.id)}
+    aval = pendientes[AVAL]
+    assert (aval["tipo"], json.loads(aval["opciones_json"])) == ("si_no", ["Sí", "No"])
+    assert aval["campo"] == "aval_institucion"
+    abierta = pendientes["¿Por qué te interesa esta vacante?"]
+    assert (abierta["tipo"], json.loads(abierta["opciones_json"])) == ("formulario", [])
+    licencia = pendientes["¿Tienes licencia de conducción?"]
+    assert json.loads(licencia["opciones_json"]) == ["Sí", "No", "En trámite"]
+    assert licencia["tipo"] == "formulario"  # con opciones del portal no cambia
+    # Responder el aval lo guarda en el cuestionario y se usa con otra redacción de la pregunta
+    mundo.nucleo.cola.esperar_usuario(pid, navegador, T0)
+    mundo.nucleo.responder_pendiente(mundo.usuario.id, aval["id"], "Sí")
+    assert mundo.nucleo.datos_usuario(mundo.usuario.id).cuestionario["aval_institucion"] == "Sí"
+    otra = Pregunta("¿Tienes aval de tu universidad para hacer prácticas?")
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, [otra]))
+    assert not resultado.faltan and resultado.respuestas[0].texto == "Sí"
+
+
+@respx.mock
+def test_dato_de_si_o_no_sin_sugerencias_recibe_los_botones(mundo):
+    pid = en_curso(mundo)
+    mundo.nucleo._crear_pendientes(
+        mundo.usuario.id, pid,
+        [Respuesta(Pregunta("Motivación"), falta=True,
+                   datos=[DatoFaltante(pregunta="¿Tienes moto propia?", sugerencias=[]),
+                          DatoFaltante(pregunta="¿Dónde vives?", sugerencias=[])])],
+    )  # fmt: skip
+    por_pregunta = {x["pregunta"]: x for x in mundo.nucleo.pendientes(mundo.usuario.id)}
+    moto = por_pregunta["¿Tienes moto propia?"]
+    assert (moto["tipo"], json.loads(moto["opciones_json"])) == ("dato", ["Sí", "No"])
+    assert json.loads(por_pregunta["¿Dónde vives?"]["opciones_json"]) == []
+
+
+@respx.mock
+@pytest.mark.parametrize("plataforma", ["computrabajo", "magneto"])
+def test_motor_generico_y_formulario_clasico_esperan_con_el_pendiente_si_no(mundo, plataforma):
+    from buscador_vacantes.asistente.pantalla import decidir
+
+    pid = en_curso(mundo, con_ia=False)
+    mundo.base.cx.execute("UPDATE postulaciones SET plataforma = ? WHERE id = ?", (plataforma, pid))
+    mundo.base.cx.commit()
+    p, _ = tomar(mundo, pid)
+    peticion = Peticion(
+        "intermedia", None, "es", "https://empresa.co/jobs/1", [Pregunta(AVAL)],
+        [Boton(indice=0, texto="Siguiente")], None, Resumen(encabezados=["Practicante"]), None,
+        False,
+    )  # fmt: skip
+    # Motor genérico (/pantalla): la pregunta de texto de sí o no espera al usuario
+    resolver = lambda q: mundo.nucleo.resolver_formulario(p, q)  # noqa: E731
+    decision = asyncio.run(decidir(peticion, resolver, None))
+    assert decision.esperar_usuario
+    [pendiente] = mundo.nucleo.pendientes(mundo.usuario.id)
+    assert (pendiente["tipo"], json.loads(pendiente["opciones_json"])) == ("si_no", ["Sí", "No"])
+    # Formulario clásico (/formulario): el mismo resultado, sin repetir la pregunta
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, [Pregunta(AVAL)]))
+    assert [r.pregunta.texto for r in resultado.faltan] == [AVAL]
+    assert len(mundo.nucleo.pendientes(mundo.usuario.id)) == 1
+
+
+# --- la IA falla de forma temporal: se reintenta antes de preguntar ---------------------------
+
+
+def con_ia_que_se_recupera(mundo, ok_desde):
+    """Responde 503 hasta la espera número `ok_desde` del núcleo y bien después."""
+    buenas = redactadas(
+        {"indice": 1, "respuesta": "Estudio ADSO en el SENA."},
+        {"indice": 2, "respuesta": "Quiero aplicar Python."},
+        {"indice": 3, "respuesta": "Hice un inventario."},
+    )  # fmt: skip
+
+    def responder(_peticion):
+        return buenas if len(mundo.esperas) >= ok_desde else httpx.Response(503, json={})
+
+    return respx.post(url__startswith="https://generativelanguage").mock(side_effect=responder)
+
+
+@respx.mock
+def test_ia_saturada_que_se_recupera_se_resuelve_sin_preguntar_al_usuario(mundo):
+    mundo.nucleo.config.formulario_ia.esperas_s = [30, 60, 120]
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    con_ia_que_se_recupera(mundo, ok_desde=1)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert not resultado.faltan and len(resultado.respuestas) == 4
+    assert [r.origen for r in resultado.respuestas[:3]] == [Origen.IA] * 3
+    assert 30 in mundo.esperas and 60 not in mundo.esperas  # solo hizo falta el primer reintento
+    assert mundo.nucleo.pendientes(mundo.usuario.id) == []
+    pasos = mundo.base.cx.execute(
+        "SELECT 1 FROM postulacion_pasos WHERE postulacion_id = ? AND paso = 'ia_no_respondio'",
+        (pid,),
+    ).fetchall()
+    assert pasos == []
+
+
+@respx.mock
+def test_ia_saturada_siempre_agota_las_esperas_y_pregunta_al_usuario(mundo):
+    mundo.nucleo.config.formulario_ia.esperas_s = [30, 60]
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    con_ia_que_se_recupera(mundo, ok_desde=10**6)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert len(resultado.faltan) == 3  # las tres abiertas; el salario sí se resolvió
+    assert [e for e in mundo.esperas if e in (30, 60)] == [30, 60]
+    assert len(mundo.nucleo.pendientes(mundo.usuario.id)) == 3
+    paso = mundo.base.cx.execute(
+        "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? "
+        "AND paso = 'ia_no_respondio'", (pid,),
+    ).fetchone()  # fmt: skip
+    assert json.loads(paso["detalle"]) == [normalizar_pregunta(t) for t in ABIERTAS]
+
+
+@respx.mock
+def test_sin_clave_de_ia_no_espera_ni_reintenta(mundo):
+    mundo.nucleo.config.formulario_ia.esperas_s = [30, 60]
+    pid = en_curso(mundo, con_ia=False)
+    p, _ = tomar(mundo, pid)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert len(resultado.faltan) == 3 and mundo.esperas == []
+    assert mundo.base.cx.execute(
+        "SELECT 1 FROM postulacion_pasos WHERE paso = 'ia_no_respondio'"
+    ).fetchall() == []
+
+
+@respx.mock
+def test_cuota_agotada_no_espera_ni_reintenta(mundo):
+    mundo.nucleo.config.formulario_ia.esperas_s = [30, 60]
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    respx.post(url__startswith="https://generativelanguage").mock(
+        return_value=httpx.Response(429, json={})
+    )
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert len(resultado.faltan) == 3 and 30 not in mundo.esperas and 60 not in mundo.esperas
+
+
+@respx.mock
+def test_esperas_vacias_desactivan_el_reintento(mundo):
+    mundo.nucleo.config.formulario_ia.esperas_s = []
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    ruta = con_ia_que_se_recupera(mundo, ok_desde=10**6)
+    resultado = asyncio.run(mundo.nucleo.resolver_formulario(p, formulario()))
+    assert len(resultado.faltan) == 3 and mundo.esperas == []
+    llamadas = ruta.call_count
+    assert llamadas >= 1
+
+
+@respx.mock
+def test_motor_generico_tambien_reintenta_con_la_ia_saturada(mundo):
+    from buscador_vacantes.asistente.pantalla import decidir
+
+    mundo.nucleo.config.formulario_ia.esperas_s = [30, 60]
+    pid = en_curso(mundo)
+    p, _ = tomar(mundo, pid)
+    con_ia_que_se_recupera(mundo, ok_desde=1)
+    peticion = Peticion(
+        "intermedia", None, "es", "https://empresa.co/jobs/1", [Pregunta(ABIERTAS[1])],
+        [Boton(indice=0, texto="Siguiente", clase="avanzar")], Sugerido(indice=0, accion="avanzar"),
+        Resumen(encabezados=["Practicante"]), None, False,
+    )  # fmt: skip
+    resolver = lambda q: mundo.nucleo.resolver_formulario(p, q)  # noqa: E731
+    decision = asyncio.run(decidir(peticion, resolver, None))
+    assert not decision.esperar_usuario and mundo.esperas == [30]
