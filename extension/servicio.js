@@ -4,6 +4,7 @@
 import { ajustes, llamar, version, vincular, ErrorApi } from "./api.js";
 import { ADAPTADORES, INGRESO, motivoExterno, paginaPermitida, plataformaDeUrl, tienePermiso,
   tienePermisoExterno } from "./portales.js";
+import { diagnosticarSesion } from "./sesion.js";
 
 const ALARMA = "latido";
 const REVISION_MAX_MS = 6 * 60 * 60 * 1000; // estado de los portales: se revisa cada 6 h
@@ -188,6 +189,7 @@ async function estadoPortales(forzar, soloPlataforma = null) {
     if (soloPlataforma ? plataforma === soloPlataforma : forzar || vencido) {
       try {
         portales[plataforma] = { ...(await revisarPortal(plataforma)), revisado: Date.now() };
+        await anotarDuracion(portales[plataforma], plataforma);
       } catch (error) {
         if (!previo) portales[plataforma] = { estado: "sin_sesion", revisado: Date.now() };
       }
@@ -195,6 +197,30 @@ async function estadoPortales(forzar, soloPlataforma = null) {
   }
   await chrome.storage.local.set({ portales });
   return portales;
+}
+
+// Duración de la sesión según las cookies del portal (solo metadatos, con el permiso opcional
+// `cookies`): se guarda junto al estado del portal y no viaja al servidor (enviarLatido solo
+// toma estado, correo, página y motivo). Sin sesión o sin permiso no hay duración.
+async function anotarDuracion(portal, plataforma) {
+  delete portal.duracion;
+  if (portal.estado === "sin_sesion") return;
+  try {
+    const sel = await selectores(plataforma);
+    const duracion = await diagnosticarSesion(plataforma, (sel.sesion || {}).cookies || []);
+    if (duracion) portal.duracion = duracion;
+  } catch (error) {
+    // El diagnóstico es informativo: un fallo no cambia el estado del portal
+  }
+}
+
+// Vuelve a medir la duración de un portal sin visitarlo (el popup lo pide al conceder el permiso)
+async function medirDuracion(plataforma) {
+  const { portales = {} } = await chrome.storage.local.get("portales");
+  if (!portales[plataforma]) return false;
+  await anotarDuracion(portales[plataforma], plataforma);
+  await chrome.storage.local.set({ portales });
+  return true;
 }
 
 // Revisa el portal en una ventana minimizada: primero la sesión en la página principal (donde
@@ -1601,9 +1627,9 @@ async function vigilar(plataforma) {
         if (resultado.estado !== "sin_sesion") break;
       }
       const { portales = {} } = await chrome.storage.local.get("portales");
-      await chrome.storage.local.set({
-        portales: { ...portales, [plataforma]: { ...resultado, revisado: Date.now() } },
-      });
+      const nuevo = { ...resultado, revisado: Date.now() };
+      await anotarDuracion(nuevo, plataforma);
+      await chrome.storage.local.set({ portales: { ...portales, [plataforma]: nuevo } });
       await latido({ forzarRevision: false });
       return;
     }
@@ -1628,6 +1654,8 @@ chrome.runtime.onMessage.addListener((mensaje, _remitente, responder) => {
         }
       case "latido":
         return { ok: Boolean(await latido({ forzarRevision: Boolean(mensaje.revisar) })) };
+      case "medirDuracion":
+        return { ok: await medirDuracion(mensaje.plataforma) };
       case "iniciarSesion":
         vigilarInicioSesion(mensaje.plataforma); // se deja corriendo; no bloquea la respuesta
         return { ok: true };
@@ -1676,4 +1704,4 @@ chrome.runtime.onMessage.addListener((mensaje, _remitente, responder) => {
 
 // Acceso para las pruebas automáticas (Playwright evalúa en el service worker)
 globalThis.asistente = { latido, ejecutar, revisarPortal, estadoPortales, vigilarInicioSesion,
-  retomarBucle };
+  retomarBucle, medirDuracion };

@@ -1,5 +1,6 @@
 import { ajustes, ping } from "./api.js";
 import { INICIO, NOMBRES, ORIGEN_EXTERNO, origenes, tienePermiso, tienePermisoExterno } from "./portales.js";
+import { PERMISO_COOKIES, textoDuracion, tienePermisoCookies } from "./sesion.js";
 
 const RESULTADOS = {
   enviada: "✅ Enviada", ya_postulada: "Ya estabas postulado", vacante_cerrada: "Vacante cerrada",
@@ -346,6 +347,7 @@ async function abrirVistaPortal(p) {
   sesion.textContent = info && info.estado !== "sin_sesion" ? "Sesión activa" : "Sin sesión";
   sesion.className = `pill ${info && info.estado !== "sin_sesion" ? "listo" : "pendiente"}`;
   $("vp-abrir").onclick = () => chrome.tabs.create({ url: INICIO[p] });
+  pintarDuracion(p);
 
   const r = await chrome.runtime.sendMessage({ tipo: "preferenciasLeer", plataforma: p });
   if (!r.ok) {
@@ -374,6 +376,50 @@ async function abrirVistaPortal(p) {
     $(id).disabled = false;
   }
 }
+
+// Cuánto dura la sesión del portal, según los metadatos de sus cookies. El permiso `cookies` es
+// opcional: sin él solo se ofrece pedirlo (con el toque del usuario) y no se lee nada.
+async function pintarDuracion(p) {
+  const bloque = $("vp-sesion-bloque");
+  const leer = async () => ((await chrome.storage.local.get("portales")).portales || {})[p];
+  let info = await leer();
+  const activa = Boolean(info) && info.estado !== "sin_sesion";
+  bloque.hidden = !activa;
+  $("vp-cookies").hidden = true;
+  if (!activa) return;
+  const concedido = await tienePermisoCookies();
+  $("vp-duracion-permitir").hidden = concedido;
+  if (!concedido) {
+    $("vp-duracion").textContent = "Permite leer el vencimiento de las cookies (nunca su valor)";
+    return;
+  }
+  if (!info.duracion) {
+    $("vp-duracion").textContent = "Midiendo…";
+    await chrome.runtime.sendMessage({ tipo: "medirDuracion", plataforma: p });
+    info = (await leer()) || info;
+  }
+  if ($("vista-portal").dataset.plataforma !== p) return;
+  $("vp-duracion").textContent = textoDuracion(info.duracion) || "Sin datos";
+  const cookies = (info.duracion || {}).cookies || [];
+  $("vp-cookies").hidden = !cookies.length;
+  $("vp-cookies-cuerpo").textContent = cookies.map((c) => [
+    c.nombre, c.sesion ? "de sesión" : `vence ${fecha(new Date(c.vence).toISOString())}`,
+    c.httpOnly ? "HttpOnly" : null,
+  ].filter(Boolean).join(" · ")).join("\n");
+}
+
+$("vp-duracion-permitir").addEventListener("click", async () => {
+  let concedido = false;
+  try {
+    concedido = await chrome.permissions.request(PERMISO_COOKIES);
+  } catch {
+    concedido = false;
+  }
+  if (concedido) {
+    await chrome.runtime.sendMessage({ tipo: "medirDuracion", plataforma: $("vista-portal").dataset.plataforma });
+  }
+  pintarDuracion($("vista-portal").dataset.plataforma);
+});
 
 function cerrarVistaPortal() {
   $("vista-portal").hidden = true;

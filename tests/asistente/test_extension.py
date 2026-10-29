@@ -267,17 +267,20 @@ def api(servidor):
 
 def copia_extension(destino: Path, permisos: tuple[str, ...] = (),
                     plataformas: dict[str, list[str]] | None = None,
-                    externa: bool = False) -> Path:  # fmt: skip
+                    externa: bool = False, cookies: bool = False) -> Path:  # fmt: skip
     """Copia la extensión y permite el servidor local de prueba (como lo haría Opciones).
 
     `permisos`: dominios opcionales que el usuario ya activó desde el popup (por ejemplo
     elempleo.com). `plataformas`: plataformas de prueba {nombre: dominios} que se suman a
     DOMINIOS, con su permiso. `externa`: el usuario ya concedió el permiso de las páginas de las
-    empresas (`https://*/*`, postular-linkedin)."""
+    empresas (`https://*/*`, postular-linkedin). `cookies`: el usuario ya concedió el permiso
+    opcional `cookies` (en Chromium sin interfaz no se puede pedir, así que se declara fijo)."""
     shutil.copytree(EXTENSION, destino)
     manifiesto = json.loads((destino / "manifest.json").read_text(encoding="utf-8"))
     manifiesto["host_permissions"].append("http://127.0.0.1/*")
     manifiesto["host_permissions"] += [f"https://*.{d}/*" for d in permisos]
+    if cookies:
+        manifiesto["permissions"].append("cookies")
     if externa:
         manifiesto["host_permissions"].append("https://*/*")
     if plataformas:
@@ -403,9 +406,10 @@ def correr(corutina):
 
 
 async def abrir(tmp_path: Path, url_api: str, portales: Portales, *, vinculado=True,
-                permisos: tuple[str, ...] = (), plataformas=None, externa=False):  # fmt: skip
+                permisos: tuple[str, ...] = (), plataformas=None, externa=False,
+                cookies=False):  # fmt: skip
     pw = await playwright_api.async_playwright().start()
-    ruta = copia_extension(tmp_path / "ext", permisos, plataformas, externa)
+    ruta = copia_extension(tmp_path / "ext", permisos, plataformas, externa, cookies)
     try:
         contexto = await pw.chromium.launch_persistent_context(
             str(tmp_path / "perfil"), channel="chromium", headless=True,
@@ -481,10 +485,14 @@ def test_manifiesto_con_permisos_minimos():
     assert manifiesto["manifest_version"] == 3
     assert manifiesto["version"] == "1.3.3"
     assert set(manifiesto["permissions"]) == {"storage", "tabs", "alarms", "scripting"}
+    # `cookies` solo lee metadatos de la sesión y es opcional: se pide desde el popup, nunca al
+    # instalar ni al actualizar la extensión
+    assert "cookies" not in manifiesto["permissions"]
+    assert manifiesto["optional_permissions"] == ["cookies"]
     for origen in manifiesto["host_permissions"]:
         assert origen.startswith(("https://*.computrabajo.com", "https://*.magneto365.com",
                                   "https://postulador."))  # fmt: skip
-    todo = json.dumps(manifiesto)
+    todo = json.dumps({k: v for k, v in manifiesto.items() if k != "optional_permissions"})
     for prohibido in ("<all_urls>", "cookies", "history", "webRequest", "*://*/*"):
         assert prohibido not in todo
     assert "content_security_policy" not in manifiesto  # sin relajar la política por defecto
@@ -2803,3 +2811,141 @@ def test_magneto_aplicacion_pendiente_en_cabecera_no_se_confunde_con_ya_postulad
     assert resultado["estado"] == "bloqueada", resultado
     assert resultado["motivo"] == "datos_adicionales_portal"
     assert not api.de("envio")
+
+
+# --- sesiones de los portales: diagnóstico de la duración (mantener-sesiones-portales, 1) ------
+
+DIA_S = 24 * 3600
+VALOR_SECRETO = "VALOR-SECRETO-DE-LA-COOKIE"
+
+
+def cookie_ee(nombre, *, dias=None, http_only=False):
+    """Cookie de elempleo: de sesión si no trae `dias`; con el valor que nunca debe salir."""
+    cookie = {"name": nombre, "value": VALOR_SECRETO, "domain": ".elempleo.com", "path": "/",
+              "httpOnly": http_only, "secure": True}  # fmt: skip
+    if dias is not None:
+        cookie["expires"] = time.time() + dias * DIA_S
+    return cookie
+
+
+def test_el_diagnostico_clasifica_la_sesion_y_nunca_trae_el_valor(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_elempleo(), permisos=("elempleo.com",),
+                          cookies=True)  # fmt: skip
+        try:
+            await nav.contexto.add_cookies([
+                cookie_ee("auth_sesion", http_only=True), cookie_ee("auth_larga_a", dias=5),
+                cookie_ee("auth_larga_b", dias=9), cookie_ee("_ga"),
+            ])  # fmt: skip
+            pagina = await nav.popup()
+
+            async def diagnostico(nombres):
+                return await pagina.evaluate(
+                    "(n) => import('./sesion.js').then((m) => m.diagnosticarSesion('elempleo', n))",
+                    nombres,
+                )
+
+            return {
+                "mixta": await diagnostico(["auth_sesion", "auth_larga_a"]),
+                "persistentes": await diagnostico(["auth_larga_a", "auth_larga_b"]),
+                "sin_lista": await diagnostico([]),
+                "ausente": await diagnostico(["no_existe"]),
+            }
+        finally:
+            await cerrar(nav)
+
+    r = correr(flujo())
+    assert r["mixta"]["clasificacion"] == "se_pierde"
+    assert r["persistentes"]["clasificacion"] == "dura_hasta"
+    # Vence la primera en vencer: la de 5 días
+    assert abs(r["persistentes"]["hasta"] / 1000 - (time.time() + 5 * DIA_S)) < 60
+    assert r["sin_lista"]["clasificacion"] == r["ausente"]["clasificacion"] == "sin_datos"
+    # La lista completa (para descubrir las cookies de autenticación): solo metadatos
+    cookies = {c["nombre"]: c for c in r["sin_lista"]["cookies"]}
+    assert set(cookies) == {"auth_sesion", "auth_larga_a", "auth_larga_b", "_ga"}
+    assert cookies["auth_sesion"] == {"nombre": "auth_sesion", "sesion": True, "vence": None,
+                                      "httpOnly": True}  # fmt: skip
+    assert cookies["auth_larga_a"]["sesion"] is False and cookies["auth_larga_a"]["vence"]
+    for resultado in r.values():
+        assert VALOR_SECRETO not in json.dumps(resultado)
+        assert all(set(c) == {"nombre", "sesion", "vence", "httpOnly"}
+                   for c in resultado["cookies"])  # fmt: skip
+
+
+def test_sin_el_permiso_de_cookies_no_se_lee_nada_y_el_popup_lo_ofrece(tmp_path, api):
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_elempleo(), permisos=("elempleo.com",))
+        try:
+            await nav.contexto.add_cookies([cookie_ee("auth_ee", dias=5)])
+            await nav.latido()
+            pagina = await abrir_vista_portal(nav, "elempleo")
+            leido = await pagina.evaluate(
+                "import('./sesion.js').then((m) => m.diagnosticarSesion('elempleo', ['auth_ee']))"
+            )
+            return (leido, await nav.almacenamiento("portales"),
+                    await pagina.is_visible("#vp-duracion-permitir"),
+                    await pagina.text_content("#vp-duracion"),
+                    await pagina.is_hidden("#vp-cookies"))  # fmt: skip
+        finally:
+            await cerrar(nav)
+
+    leido, portales, ofrece, texto, sin_lista = correr(flujo())
+    assert leido is None
+    assert portales["elempleo"]["estado"] == "listo" and "duracion" not in portales["elempleo"]
+    assert ofrece and "nunca su valor" in texto and sin_lista
+
+
+@pytest.mark.parametrize(("nombradas", "dias", "clasificacion", "texto"), [
+    (["auth_ee"], None, "se_pierde", "Se pierde al cerrar el navegador"),
+    (["auth_ee"], 5, "dura_hasta", "Dura hasta"),
+    ([], 5, "sin_datos", "Sin datos"),
+], ids=["de_sesion", "persistente", "sin_datos"])  # fmt: skip
+def test_la_duracion_se_guarda_con_el_portal_y_el_popup_la_muestra(
+    tmp_path, api, nombradas, dias, clasificacion, texto
+):
+    def con_cookies(plataforma, selectores):
+        if plataforma == "elempleo":
+            selectores["sesion"]["cookies"] = nombradas
+        return selectores
+
+    api.ajustar = con_cookies
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales_elempleo(), permisos=("elempleo.com",),
+                          cookies=True)  # fmt: skip
+        try:
+            await nav.contexto.add_cookies([cookie_ee("auth_ee", dias=dias), cookie_ee("_ga")])
+            await nav.latido()
+            pagina = await abrir_vista_portal(nav, "elempleo")
+            await pagina.wait_for_selector("#vp-cookies:not([hidden])", state="attached")
+            return (await nav.almacenamiento("portales"),
+                    await pagina.text_content("#vp-duracion"),
+                    await pagina.text_content("#vp-cookies-cuerpo"),
+                    await pagina.is_hidden("#vp-duracion-permitir"))  # fmt: skip
+        finally:
+            await cerrar(nav)
+
+    portales, mostrado, lista, sin_boton = correr(flujo())
+    assert mostrado.startswith(texto) and sin_boton
+    assert portales["elempleo"]["duracion"]["clasificacion"] == clasificacion
+    assert "auth_ee" in lista and "_ga" in lista and VALOR_SECRETO not in lista
+    # Nada de esto viaja al servidor: ni la clasificación, ni los nombres ni los valores
+    enviado = json.dumps(api.de("latido")[-1])
+    assert "duracion" not in enviado and "auth_ee" not in enviado and VALOR_SECRETO not in enviado
+
+
+def test_un_portal_sin_sesion_no_tiene_duracion(tmp_path, api):
+    portales = portales_elempleo()
+    portales.poner(INICIO_EE, "ee_sin_sesion.html")
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales, permisos=("elempleo.com",), cookies=True)
+        try:
+            await nav.contexto.add_cookies([cookie_ee("auth_ee", dias=5)])
+            await nav.latido()
+            return await nav.almacenamiento("portales")
+        finally:
+            await cerrar(nav)
+
+    estado = correr(flujo())["elempleo"]
+    assert estado["estado"] == "sin_sesion" and "duracion" not in estado

@@ -548,6 +548,7 @@ h1 {
 }
 .vp-detalle summary { padding: 9px 0; font-size: 12.5px; font-weight: 700; cursor: pointer; }
 .vp-detalle .nota { margin: 0 0 10px; }
+#vp-cookies-cuerpo { white-space: pre-line; overflow-wrap: anywhere; }
 
 .vp-sub { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tenue); margin: 0 0 8px; }
 
