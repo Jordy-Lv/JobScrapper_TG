@@ -117,3 +117,149 @@ def test_json_invalido_es_cambio_html(fuente):
     )
     resultado = fuente.ejecutar([Consulta("junior TI", "nucleo")])
     assert resultado.intentos[0].tipo_error == TipoError.CAMBIO_HTML
+
+
+@respx.mock
+def test_paginacion_pide_segunda_pagina_si_hay_mas(fuente):
+    def responder(request):
+        pagina = int(request.url.params.get("page", 1))
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": f"j-{pagina}",
+                        "attributes": {
+                            "title": f"Junior Dev {pagina}",
+                            "seniority": {"data": {"attributes": {"locale_key": "junior"}}},
+                        },
+                        "links": {"public_url": f"https://www.getonbrd.com/jobs/j-{pagina}"},
+                    }
+                ],
+                "meta": {"page": pagina, "per_page": 50, "total_pages": 3},
+            },
+        )
+
+    ruta = respx.get(URL_BUSQUEDA).mock(side_effect=responder)
+    resultado = fuente.ejecutar(
+        [
+            Consulta("junior", "nucleo", pagina=1),
+            Consulta("junior", "nucleo", pagina=2),
+        ]
+    )
+    assert ruta.call_count == 2
+    assert [c.request.url.params["page"] for c in ruta.calls] == ["1", "2"]
+    assert [c.pagina for c in resultado.ejecutadas] == [1, 2]
+
+
+@respx.mock
+def test_paginacion_no_pide_segunda_pagina_si_total_pages_es_uno(fuente):
+    def responder(request):
+        pagina = int(request.url.params.get("page", 1))
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": f"p-{pagina}",
+                        "attributes": {
+                            "title": "Practicante TI",
+                            "seniority": {"data": {"attributes": {"locale_key": "no_experience"}}},
+                        },
+                        "links": {"public_url": f"https://www.getonbrd.com/jobs/p-{pagina}"},
+                    }
+                ],
+                "meta": {"page": pagina, "per_page": 50, "total_pages": 1},
+            },
+        )
+
+    ruta = respx.get(URL_BUSQUEDA).mock(side_effect=responder)
+    resultado = fuente.ejecutar(
+        [
+            Consulta("practicante", "nucleo", pagina=1),
+            Consulta("practicante", "nucleo", pagina=2),
+        ]
+    )
+    assert ruta.call_count == 1
+    assert ruta.calls[0].request.url.params["page"] == "1"
+    assert len(resultado.ejecutadas) == 1
+    assert resultado.ejecutadas[0].pagina == 1
+
+
+@respx.mock
+def test_paginacion_pide_siguiente_pagina_aunque_filtro_deje_pocas_ofertas(fuente):
+    def responder(request):
+        pagina = int(request.url.params.get("page", 1))
+        data = [
+            {
+                "id": f"s-{i}",
+                "attributes": {
+                    "title": f"Dev Senior {i}",
+                    "seniority": {"data": {"attributes": {"locale_key": "senior"}}},
+                },
+                "links": {"public_url": f"https://www.getonbrd.com/jobs/s-{i}"},
+            }
+            for i in range(48)
+        ] + [
+            {
+                "id": f"j-{i}",
+                "attributes": {
+                    "title": f"Dev Junior {i}",
+                    "seniority": {"data": {"attributes": {"locale_key": "junior"}}},
+                },
+                "links": {"public_url": f"https://www.getonbrd.com/jobs/j-{i}"},
+            }
+            for i in range(2)
+        ]
+        return httpx.Response(
+            200,
+            json={
+                "data": data,
+                "meta": {"page": pagina, "per_page": 50, "total_pages": 3},
+            },
+        )
+
+    ruta = respx.get(URL_BUSQUEDA).mock(side_effect=responder)
+    resultado = fuente.ejecutar(
+        [
+            Consulta("junior", "nucleo", pagina=1),
+            Consulta("junior", "nucleo", pagina=2),
+        ]
+    )
+    assert ruta.call_count == 2
+    assert [c.request.url.params["page"] for c in ruta.calls] == ["1", "2"]
+    assert len(resultado.vacantes) == 4
+    assert [c.pagina for c in resultado.ejecutadas] == [1, 2]
+
+
+@respx.mock
+def test_paginacion_no_pide_siguiente_pagina_sin_meta(fuente):
+    def responder(request):
+        pagina = int(request.url.params.get("page", 1))
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": f"j-{pagina}",
+                        "attributes": {
+                            "title": "Junior Dev",
+                            "seniority": {"data": {"attributes": {"locale_key": "junior"}}},
+                        },
+                        "links": {"public_url": f"https://www.getonbrd.com/jobs/j-{pagina}"},
+                    }
+                ],
+            },
+        )
+
+    ruta = respx.get(URL_BUSQUEDA).mock(side_effect=responder)
+    resultado = fuente.ejecutar(
+        [
+            Consulta("junior", "nucleo", pagina=1),
+            Consulta("junior", "nucleo", pagina=2),
+        ]
+    )
+    assert ruta.call_count == 1
+    assert ruta.calls[0].request.url.params["page"] == "1"
+    assert len(resultado.ejecutadas) == 1
+    assert resultado.ejecutadas[0].pagina == 1

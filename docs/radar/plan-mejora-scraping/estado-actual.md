@@ -28,7 +28,7 @@
 | Computrabajo | 8 (2 del núcleo × 3 páginas + 2 de la cola larga) | `pubdate=3`; página 1 por relevancia | solo relativa («Ayer») | Sin descripción en el listado. |
 | elempleo | 5 | `hace-1-semana` | solo relativa | Un 404 cuenta como «sin resultados», es decir, como éxito. |
 | Magneto | 4 | `publish_date` descendente, solo página 1 | exacta | |
-| GetOnBoard | 5 | ninguno, página 1 sin orden | exacta (epoch) | `seniorities: [no_experience, junior]` |
+| GetOnBoard | 6 (2 del núcleo × 2 páginas + 2 de la cola larga) | página según `total_pages`, palabras propias de una sola palabra | exacta (epoch) | `seniorities: [no_experience, junior]` |
 | SPE | 2 páginas de 50 | las más recientes | solo día | Publica con días de retraso. |
 
 Entre todas son unas **1.100 peticiones al día**, desde una sola IP, con cadencia fija y encabezados mínimos (`fuentes/base.py:175-183`: solo User-Agent y Accept-Language, HTTP/1.1 y un cliente nuevo sin cookies en cada corrida).

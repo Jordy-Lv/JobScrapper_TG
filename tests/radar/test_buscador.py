@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from buscador_vacantes.comun.config import Fuente as ConfFuente
-from buscador_vacantes.comun.config import Secretos, cargar_configuracion
+from buscador_vacantes.comun.config import PalabrasPropias, Secretos, cargar_configuracion
 from buscador_vacantes.comun.estado import Estado, EstadoNoInicializado, a_texto
 from buscador_vacantes.comun.fechas import ZONA
 from buscador_vacantes.comun.modelo import Categoria, Vacante
@@ -833,3 +833,55 @@ def test_modos_no_productivos_no_escriben_descartes(config, estado):
     for modo in (Modo(dry_run=True), Modo(seed=True), Modo(chat_prueba=True)):
         corrida(config, estado, modo).ejecutar()
     assert estado.cx.execute("SELECT COUNT(*) FROM descartes").fetchone()[0] == 0
+
+
+@respx.mock
+def test_corrida_elige_palabras_clave_propias_por_fuente(config, estado):
+    estado.marcar_inicializada()
+    mock_ofertas()
+    lotes_por_fuente = {}
+
+    class FuenteEspia(FuenteFalsa):
+        def ejecutar(self, lote):
+            lotes_por_fuente.setdefault(self.nombre, []).extend(lote)
+            return super().ejecutar(lote)
+
+    class EspiaGetOnBoard(FuenteEspia):
+        nombre = "getonboard"
+
+    class EspiaComputrabajo(FuenteEspia):
+        nombre = "computrabajo"
+
+    palabras_gob = PalabrasPropias(
+        nucleo=["practicante_gob", "aprendiz_gob"],
+        cola_larga=["junior_gob", "soporte_gob"],
+    )
+    fuentes_conf = {
+        "getonboard": ConfFuente(presupuesto=2, reservado_nucleo=1, palabras_clave=palabras_gob),
+        "computrabajo": ConfFuente(presupuesto=2, reservado_nucleo=1),
+    }
+    conf = config.model_copy(update={"fuentes": fuentes_conf})
+    corrida(
+        conf,
+        estado,
+        fuentes={"getonboard": EspiaGetOnBoard, "computrabajo": EspiaComputrabajo},
+    ).ejecutar()
+
+    keywords_gob = [c.keyword for c in lotes_por_fuente["getonboard"]]
+    keywords_ct = [c.keyword for c in lotes_por_fuente["computrabajo"]]
+
+    # GetOnBoard recibe sus propias palabras clave
+    assert "practicante_gob" in keywords_gob
+    assert "junior_gob" in keywords_gob
+    assert not any(k in keywords_gob for k in config.palabras_clave.nucleo)
+
+    # Computrabajo recibe las palabras globales
+    assert any(k in keywords_ct for k in config.palabras_clave.nucleo)
+    assert any(k in keywords_ct for k in config.palabras_clave.cola_larga_plana)
+    assert "practicante_gob" not in keywords_ct
+
+    # Las rotaciones avanzan de forma independiente
+    assert rotacion.obtener_indice(estado, "getonboard", rotacion.NUCLEO) == 1
+    assert rotacion.obtener_indice(estado, "getonboard", rotacion.COLA_LARGA) == 1
+    assert rotacion.obtener_indice(estado, "computrabajo", rotacion.NUCLEO) == 1
+    assert rotacion.obtener_indice(estado, "computrabajo", rotacion.COLA_LARGA) == 1

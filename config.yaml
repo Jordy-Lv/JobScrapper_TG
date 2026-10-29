@@ -215,9 +215,32 @@ fuentes:
     reservado_nucleo: 2   # ya ordena por fecha de publicación: basta la página 1
   getonboard:
     activa: true
-    presupuesto: 5
-    reservado_nucleo: 1
+    presupuesto: 6
+    reservado_nucleo: 2
+    paginas_nucleo: 2
     filtra_nivel: true   # solo seniorities sin experiencia y junior
+    # GetOnBoard exige todas las palabras y no admite OR: se consulta con una sola palabra.
+    # El núcleo rota cada 3 corridas (6 palabras, 2 por corrida, hasta 2 páginas si existen);
+    # la cola larga rota cada 5 corridas (10 palabras, 2 por corrida, solo página 1)
+    palabras_clave:
+      nucleo:
+        - practicante
+        - aprendiz
+        - pasante
+        - pasantía
+        - trainee
+        - internship
+      cola_larga:
+        - junior
+        - soporte
+        - sistemas
+        - QA
+        - datos
+        - redes
+        - devops
+        - ciberseguridad
+        - analista
+        - desarrollador
     opciones:
       por_pagina: 50
       # Filtro de nivel nativo (la API no filtra en el servidor: se aplica al parsear)
@@ -1203,6 +1226,10 @@ asistente:
     clave_duenio: false              # la clave del dueño paga reparaciones de usuarios sin IA
   ensayo:
     plataformas: []                  # plataformas en ensayo (llenan todo sin enviar) para todos
+  formulario_ia:
+    # Si la IA falla de forma temporal (saturada, sin contacto) al resolver un formulario, se
+    # reintenta tras cada espera (segundos) antes de preguntarle al usuario; [] desactiva
+    esperas_s: [30, 60, 120]
   vigia:
     activo: false                    # ensayo diario de cada plataforma en el navegador del dueño
     hora: "05:30"

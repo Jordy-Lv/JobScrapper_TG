@@ -98,6 +98,26 @@ class PalabrasClave(Modelo):
         return grupos
 
 
+class PalabrasPropias(Modelo):
+    """Palabras clave propias de una fuente (reemplazan a las globales para esa fuente)."""
+
+    nucleo: list[str] = Field(min_length=1)
+    cola_larga: list[str] = Field(default_factory=list)
+
+    @property
+    def cola_larga_plana(self) -> list[str]:
+        """Cola larga propia como lista plana sin repetidos."""
+        return list(dict.fromkeys(self.cola_larga))
+
+    @model_validator(mode="after")
+    def _sin_cadenas_vacias(self) -> PalabrasPropias:
+        if any(not p or not p.strip() for p in self.nucleo):
+            raise ValueError("el núcleo no puede contener palabras vacías")
+        if any(not p or not p.strip() for p in self.cola_larga):
+            raise ValueError("la cola larga no puede contener palabras vacías")
+        return self
+
+
 class Ritmo(Modelo):
     """Ritmo adaptativo de una fuente: intervalo mínimo entre peticiones según los bloqueos."""
 
@@ -156,6 +176,7 @@ class Fuente(Modelo):
     # Sin él, la fuente no pide detalle
     detalle: Detalle | None = None
     opciones: dict[str, Any] = Field(default_factory=dict)
+    palabras_clave: PalabrasPropias | None = None
 
     @property
     def consulta(self) -> ConsultaOpciones | None:
@@ -205,6 +226,14 @@ class Fuente(Modelo):
             raise ValueError(
                 "reservado_nucleo × paginas_nucleo no puede superar el presupuesto "
                 f"({self.reservado_nucleo} × {self.paginas_nucleo} > {self.presupuesto})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _palabras_propias(self) -> Fuente:
+        if self.palabras_clave is not None and self.consulta and self.consulta.modo == "or":
+            raise ValueError(
+                "las palabras clave propias no se pueden combinar con opciones.consulta.modo = 'or'"
             )
         return self
 
@@ -520,6 +549,18 @@ class AsistenteEnsayo(Modelo):
     plataformas: list[str] = Field(default_factory=list)  # en ensayo para todos los usuarios
 
 
+class AsistenteFormularioIA(Modelo):
+    # Segundos de espera antes de cada reintento cuando la IA falla de forma temporal (saturada o
+    # sin contacto) al resolver un formulario; vacía: sin reintentos, las preguntas pasan al usuario
+    esperas_s: list[float] = Field(default_factory=lambda: [30.0, 60.0, 120.0])
+
+    @model_validator(mode="after")
+    def _esperas_no_negativas(self) -> AsistenteFormularioIA:
+        if any(v < 0 for v in self.esperas_s):
+            raise ValueError("formulario_ia.esperas_s no admite valores negativos")
+        return self
+
+
 class AsistenteVigia(Modelo):
     activo: bool = False
     hora: str = Field("05:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -633,6 +674,7 @@ class Asistente(Modelo):
     niveles_ia: AsistenteNivelesIA = Field(default_factory=AsistenteNivelesIA)
     autorreparacion: AsistenteAutorreparacion = Field(default_factory=AsistenteAutorreparacion)
     ensayo: AsistenteEnsayo = Field(default_factory=AsistenteEnsayo)
+    formulario_ia: AsistenteFormularioIA = Field(default_factory=AsistenteFormularioIA)
     vigia: AsistenteVigia = Field(default_factory=AsistenteVigia)
     medicion_linkedin: AsistenteMedicionLinkedin = Field(default_factory=AsistenteMedicionLinkedin)
     linkedin: AsistenteLinkedin = Field(default_factory=AsistenteLinkedin)

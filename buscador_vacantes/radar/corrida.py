@@ -274,10 +274,14 @@ class Corrida:
 
     def _consultar(self, resumen: ResumenCorrida) -> list[Vacante]:
         palabras = self.config.palabras_clave
-        nucleo, cola = palabras.nucleo, palabras.cola_larga_plana
+        nucleo_global, cola_global = palabras.nucleo, palabras.cola_larga_plana
         vacantes: list[Vacante] = []
         for nombre in self._fuentes_a_consultar():
             conf = self.config.fuentes[nombre]
+            if conf.palabras_clave:
+                nucleo, cola = conf.palabras_clave.nucleo, conf.palabras_clave.cola_larga_plana
+            else:
+                nucleo, cola = nucleo_global, cola_global
             fuente = self.fuentes[nombre](
                 conf, self.config.red, self.estado, resumen.corrida_id, dormir=self.dormir,
                 reloj=self.reloj,

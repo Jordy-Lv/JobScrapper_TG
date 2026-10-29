@@ -70,7 +70,13 @@ def _ubicacion(atributos: dict, pais_empresa: str | None) -> str:
 
 class GetOnBoard(Fuente):
     nombre = "getonboard"
+    soporta_paginas = True
     selectores = ["data[].attributes.title", "data[].attributes.seniority", "links.public_url"]
+
+    _hay_mas_paginas = False
+
+    def pagina_completa(self, vacantes: list[Vacante]) -> bool:
+        return self._hay_mas_paginas
 
     def construir_peticion(self, keyword: str, pagina: int = 1) -> Peticion:
         return Peticion(
@@ -78,7 +84,7 @@ class GetOnBoard(Fuente):
             params={
                 "query": keyword,
                 "per_page": self.opciones.get("por_pagina", 50),
-                "page": 1,
+                "page": pagina,
                 "expand": json.dumps(["company", "seniority"]),
             },
         )
@@ -90,6 +96,15 @@ class GetOnBoard(Fuente):
             raise CambioHTML("La respuesta no es JSON") from exc
         if not isinstance(datos, dict) or not isinstance(datos.get("data"), list):
             raise CambioHTML("La respuesta no tiene la lista 'data'")
+
+        meta = datos.get("meta")
+        if isinstance(meta, dict):
+            try:
+                page = int(meta["page"])
+                total_pages = int(meta["total_pages"])
+                self._hay_mas_paginas = page < total_pages
+            except (KeyError, TypeError, ValueError):
+                self._hay_mas_paginas = False
 
         seniorities = set(self.opciones.get("seniorities", ["no_experience", "junior"]))
         excluir_ingles = self.opciones.get("excluir_remoto_en_ingles", True)
