@@ -675,6 +675,10 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
             if portal.pagina_correo:
                 # Solo la ruta, sin el correo: indica qué página fijar en los selectores
                 log.info("Correo de %s leído en %s", plataforma, portal.pagina_correo)
+            # Con sesión y sin correo, la extensión dice por qué (sin_perfil, sin_correo…)
+            motivo = None if portal.correo else portal.motivo
+            if motivo:
+                log.info("%s sin correo en el navegador %s: %s", plataforma, nav.id, motivo)
             verificacion = nucleo.cuentas.verificar(
                 nav.usuario_id, plataforma, portal.correo, ahora
             )
@@ -703,7 +707,7 @@ def crear_app(nucleo: Nucleo) -> FastAPI:
                     nucleo.cola.encolar_completar_perfil(nav.usuario_id, plataforma, ahora)
             # El correo nunca se guarda: solo el resultado de verificarlo
             anteriores[plataforma] = {
-                "estado": portal.estado, "motivo": None, "cuenta": verificacion.estado,
+                "estado": portal.estado, "motivo": motivo, "cuenta": verificacion.estado,
                 "aviso": portal.estado, "visto": visto,
             }  # fmt: skip
         for plataforma in nucleo.config.plataformas:

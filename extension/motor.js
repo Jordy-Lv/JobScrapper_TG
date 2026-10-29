@@ -987,6 +987,55 @@
     while (!correoDeLaCuenta(sel) && Date.now() < limite) await dormir(250);
   }
 
+  // Correo leído del HTML que entrega el portal, sin esperar a que lo pinte (LinkedIn: en la
+  // pestaña de revisión, que está en segundo plano, ni salta de /in/me/ al perfil ni pinta la
+  // ventana de contacto; el correo ya viene en los datos de la página). `cuenta.html` declara
+  // de dónde sale el usuario del perfil, la página de contacto y la expresión del correo. Solo
+  // GET al mismo origen, con la sesión del navegador.
+  async function correoPorHtml(sel) {
+    const cuenta = sel.cuenta || {};
+    const h = cuenta.html;
+    if (!h) return null;
+    async function leer(ruta) {
+      const r = await fetch(new URL(ruta, location.origin), { credentials: "same-origin" });
+      const sinSesion = ((sel.sesion || {}).url_sin_sesion || []).some((p) => r.url.includes(p));
+      return { sinSesion, texto: sinSesion ? "" : await r.text() };
+    }
+    try {
+      let perfil = h.perfil_ruta ? (location.pathname.match(new RegExp(h.perfil_ruta)) || [])[1] : null;
+      if (!perfil && h.inicio && h.perfil_html) {
+        const inicio = await leer(h.inicio);
+        if (inicio.sinSesion) return { correo: null, motivo: "sin_sesion" };
+        // El propio perfil aparece cientos de veces; los sugeridos, pocas
+        const cuentas = {};
+        for (const m of inicio.texto.matchAll(new RegExp(h.perfil_html, "g"))) {
+          if (m[1] && m[1] !== "me") cuentas[m[1]] = (cuentas[m[1]] || 0) + 1;
+        }
+        perfil = Object.keys(cuentas).sort((a, b) => cuentas[b] - cuentas[a])[0] || null;
+      }
+      if (!perfil) return { correo: null, motivo: "sin_perfil" };
+      const ruta = h.url.replace("{perfil}", perfil);
+      const contacto = await leer(ruta);
+      if (contacto.sinSesion) return { correo: null, motivo: "sin_sesion" };
+      const ajenos = cuenta.dominios_ajenos || [];
+      const correos = new Set();
+      for (const m of contacto.texto.matchAll(new RegExp(h.correo, "g"))) {
+        let c = m[1] || "";
+        try {
+          c = decodeURIComponent(c);
+        } catch {
+          // se deja como vino
+        }
+        c = c.trim().toLowerCase();
+        if ((c.match(CORREO) || [])[0] === c && correoValido(c, ajenos)) correos.add(c);
+      }
+      if (correos.size === 1) return { correo: [...correos][0], ruta: new URL(ruta, location.origin).pathname };
+      return { correo: null, motivo: correos.size ? "varios_correos" : "sin_correo" };
+    } catch (error) {
+      return { correo: null, motivo: "sin_correo" };
+    }
+  }
+
   // Enlaces del mismo portal hacia la cuenta o el perfil del usuario
   function enlacesCuenta() {
     const salida = [];
@@ -2242,6 +2291,7 @@
     buscarCorreo,
     abrirCuenta,
     esperarCorreo,
+    correoPorHtml,
     enlacesCuenta,
     sesion: (sel) => ({ sin_sesion: sinSesion(sel), captcha: hayCaptcha(sel) }),
     html: () => htmlSinValores(),

@@ -479,7 +479,7 @@ def respuestas_ana(campos: list[dict]) -> list[dict]:
 def test_manifiesto_con_permisos_minimos():
     manifiesto = json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))
     assert manifiesto["manifest_version"] == 3
-    assert manifiesto["version"] == "1.3.2"
+    assert manifiesto["version"] == "1.3.3"
     assert set(manifiesto["permissions"]) == {"storage", "tabs", "alarms", "scripting"}
     for origen in manifiesto["host_permissions"]:
         assert origen.startswith(("https://*.computrabajo.com", "https://*.magneto365.com",
@@ -522,7 +522,7 @@ def test_vinculacion_automatica_desde_la_pagina(tmp_path, api):
     correr(flujo())
     vinculo = api.de("vincular")[0]
     assert vinculo["codigo"] == "ABCD2345"
-    assert vinculo["version"] == "1.3.2"
+    assert vinculo["version"] == "1.3.3"
 
 
 def test_codigo_vencido_lo_dice_en_la_pagina(tmp_path, api):
@@ -1016,6 +1016,99 @@ def test_linkedin_lee_el_correo_con_el_perfil_real_y_no_con_in_me(tmp_path, api)
     assert li["estado"] == "listo"
     assert li["correo"] == "ana.linkedin@gmail.com"
     assert li["pagina_correo"] == "/in/ana-perez/overlay/contact-info/"
+
+
+# Como entrega LinkedIn la página de contacto (2026-10-28): el correo solo viene en los datos de
+# React Server Components; el <dialog> con el enlace lo crea su JavaScript, que en la pestaña de
+# revisión (en segundo plano) no llega a correr
+CONTACTO_SIN_PINTAR_LI = (
+    '<!doctype html><html><body><script>self.__next_f.push([1,"{\\"urlValue\\":{\\"$case'
+    '\\":\\"url\\",\\"url\\":\\"mailto:{correo}\\"}}"])</script></body></html>'
+)
+
+
+def latido_linkedin(tmp_path, api, portales: Portales) -> dict:
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales, externa=True)
+        try:
+            await nav.latido()
+        finally:
+            await cerrar(nav)
+
+    correr(flujo())
+    return api.de("latido")[-1]["portales"]["linkedin"]
+
+
+def test_linkedin_lee_el_correo_del_html_sin_que_la_pagina_lo_pinte(tmp_path, api):
+    """`/in/me/` no salta al perfil y la página de contacto nunca pinta la ventana: el usuario
+    sale del HTML de `/in/me/` (el más repetido, no un sugerido) y el correo de los datos de
+    la página de contacto."""
+    perfil = "https://www.linkedin.com/in/ana-perez"
+    portales = portales_listos()
+    portales.paginas["https://www.linkedin.com/in/me/"] = (
+        '<!doctype html><html><body>Cargando…<script>self.__next_f.push([1,"'
+        + "linkedin.com/in/ana-perez " * 5
+        + 'linkedin.com/in/otro-sugerido"])</script>'
+        "</body></html>"
+    )
+    portales.paginas[f"{perfil}/overlay/contact-info/"] = CONTACTO_SIN_PINTAR_LI.replace(
+        "{correo}", "ana.linkedin@gmail.com"
+    )
+
+    li = latido_linkedin(tmp_path, api, portales)
+    assert li["estado"] == "listo"
+    assert li["correo"] == "ana.linkedin@gmail.com"
+    assert li["pagina_correo"] == "/in/ana-perez/overlay/contact-info/"
+    assert li["motivo"] is None
+
+
+def test_linkedin_sin_correo_en_el_contacto_informa_el_motivo(tmp_path, api):
+    perfil = "https://www.linkedin.com/in/ana-perez"
+    portales = portales_listos()
+    portales.paginas["https://www.linkedin.com/in/me/"] = (
+        f"<!doctype html><html><body><a href='{perfil}/'>Ana</a></body></html>"
+    )
+    portales.paginas[f"{perfil}/overlay/contact-info/"] = (
+        "<!doctype html><html><body>Información de contacto</body></html>"
+    )
+
+    li = latido_linkedin(tmp_path, api, portales)
+    assert li["estado"] == "listo"
+    assert li["correo"] is None
+    assert li["motivo"] == "sin_correo"
+
+
+def test_un_portal_sin_correo_se_vuelve_a_revisar_a_los_10_minutos(tmp_path, api):
+    """Con sesión y sin correo no se espera el plazo de 6 h: pasados 10 min se revisa otra
+    vez; con correo, el estado guardado se respeta."""
+    portales = portales_listos()
+
+    async def revisado_hace_11_min(nav, correo: str | None) -> list[str]:
+        valor = json.dumps(correo)
+        await nav.evaluar(
+            "chrome.storage.local.get('portales').then(({portales}) => chrome.storage.local.set("
+            f"{{portales: {{...portales, computrabajo: {{estado: 'listo', correo: {valor}, "
+            "revisado: Date.now() - 11 * 60 * 1000}}}))"
+        )
+        antes = len(portales.pedidas)
+        await nav.evaluar("asistente.latido()")
+        return [u for u in portales.pedidas[antes:] if "computrabajo.com" in u]
+
+    async def flujo():
+        nav = await abrir(tmp_path, api.url, portales)
+        try:
+            await nav.latido()
+            con_correo = await revisado_hace_11_min(nav, "ana.perez@gmail.com")
+            sin_correo = await revisado_hace_11_min(nav, None)
+            return con_correo, sin_correo
+        finally:
+            await cerrar(nav)
+
+    con_correo, sin_correo = correr(flujo())
+    assert not con_correo  # con correo se respeta el plazo de 6 h
+    assert sin_correo  # sin correo se revisó otra vez
+    ct = api.de("latido")[-1]["portales"]["computrabajo"]
+    assert ct["correo"] == "ana.perez@gmail.com"
 
 
 # --- "Iniciar sesión": abre, espera, cierra sola y reporta ---------------------------------

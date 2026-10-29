@@ -1167,6 +1167,23 @@ def test_latido_guarda_magneto_sin_sesion_con_su_motivo(entorno):
     assert CORREO not in json.dumps(guardado)
 
 
+def test_latido_guarda_por_que_falta_el_correo_con_sesion(entorno):
+    """Con sesión y sin correo se guarda el motivo que manda la extensión (sin_perfil,
+    sin_correo…), para diagnosticarlo sin abrir el navegador del usuario; con correo, no."""
+    nucleo, cliente = entorno
+    nucleo.con_selectores = {CT, "magneto"}
+    cab = vincular(nucleo, cliente)
+    latido_con(cliente, cab, {
+        CT: {"estado": "listo", "correo": CORREO, "motivo": "sin_correo"},
+        "magneto": {"estado": "listo", "correo": None, "motivo": "sin_perfil"},
+    })  # fmt: skip
+    guardado = portales_guardados(nucleo)
+    assert guardado["magneto"]["estado"] == "listo"
+    assert guardado["magneto"]["cuenta"] == "sin_correo"
+    assert guardado["magneto"]["motivo"] == "sin_perfil"
+    assert guardado[CT]["motivo"] is None
+
+
 def test_sin_sesion_conserva_la_cuenta_previa(entorno):
     nucleo, cliente = entorno
     cab = vincular(nucleo, cliente)
