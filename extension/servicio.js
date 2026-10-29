@@ -7,6 +7,7 @@ import { ADAPTADORES, INGRESO, motivoExterno, paginaPermitida, plataformaDeUrl, 
 
 const ALARMA = "latido";
 const REVISION_MAX_MS = 6 * 60 * 60 * 1000; // estado de los portales: se revisa cada 6 h
+const REVISION_SIN_CORREO_MS = 10 * 60 * 1000; // con sesión y sin correo: se reintenta pronto
 const CARGA_MS = 45000;
 const PREDETERMINADOS = {
   sondeo_captcha_ms: 10000, verificacion_max_ms: 2 * 60 * 60 * 1000,
@@ -181,7 +182,9 @@ async function estadoPortales(forzar, soloPlataforma = null) {
       continue;
     }
     const previo = portales[plataforma];
-    const vencido = !previo || Date.now() - previo.revisado > REVISION_MAX_MS;
+    const edad = previo ? Date.now() - previo.revisado : Infinity;
+    const vencido = edad > REVISION_MAX_MS
+      || (previo.estado !== "sin_sesion" && !previo.correo && edad > REVISION_SIN_CORREO_MS);
     if (soloPlataforma ? plataforma === soloPlataforma : forzar || vencido) {
       try {
         portales[plataforma] = { ...(await revisarPortal(plataforma)), revisado: Date.now() };
@@ -251,7 +254,22 @@ async function revisarPortal(plataforma) {
     if (s.estado === "sin_sesion") return { estado: "sin_sesion", correo: null, motivo: s.motivo };
     let correo = s.correo;
     let origen = correo ? tab.url : null;
-    if ((cuenta.urls || []).some((u) => u.includes("{perfil}"))) {
+    // Primero el correo del HTML del portal (cuenta.html), que no depende de que la pestaña en
+    // segundo plano pinte nada; su motivo es el que se informa si al final no hay correo
+    let motivo = null;
+    if (!correo && cuenta.html) {
+      const h = await (async () => {
+        await inyectar(pestana.id, plataforma);
+        return enPestana(pestana.id, (ss) => globalThis.__asistente.correoPorHtml(ss), sel);
+      })().catch(() => null);
+      if (h && h.correo) {
+        correo = h.correo;
+        origen = new URL(h.ruta, tab.url).href;
+      } else {
+        motivo = (h && h.motivo) || "sin_correo";
+      }
+    }
+    if (!correo && (cuenta.urls || []).some((u) => u.includes("{perfil}"))) {
       tab = await esperarPerfil(pestana.id, cuenta, tab);
     }
     const pendientes = [...(cuenta.urls || (cuenta.url ? [cuenta.url] : []))]
@@ -286,7 +304,7 @@ async function revisarPortal(plataforma) {
     }
     // Dónde se encontró el correo (solo la ruta): sirve para fijar el selector en el servidor
     const pagina_correo = origen ? new URL(origen).pathname : null;
-    return { estado: "listo", correo: correo || null, pagina_correo };
+    return { estado: "listo", correo: correo || null, pagina_correo, motivo: correo ? null : motivo };
   } finally {
     await cerrarPestana(pestana);
   }

@@ -413,6 +413,16 @@ eran de prueba, dictados por el dueño.
   `/in/me/overlay/contact-info/` NO sirve: LinkedIn redirige al perfil y no abre la ventana (el popup
   se quedaba en «Buscando correo»). Se abre `/in/me/`, se toma el usuario de la URL en la que cae y se
   pide `/in/<usuario>/overlay/contact-info/`, que trae un único `mailto:` dentro del `<dialog>`.
+- **Cuenta, corregido el 2026-10-28 (extensión 1.3.3)**: LinkedIn es ahora una app de React Server
+  Components (`/flagship-web/rsc-action/…`). El salto de `/in/me/` al perfil es un
+  `history.replaceState` en el mismo documento (no una navegación), y el `<dialog>` con el `mailto:`
+  lo crea su JavaScript. En la pestaña de revisión, que está en segundo plano, ni el salto ni el
+  pintado llegaban a tiempo y la tarjeta se quedaba en «Buscando correo». El HTML que entrega el
+  servidor ya trae el correo en los datos de la página (`\"url\":\"mailto:…\"`): la extensión lo
+  pide con `fetch` desde la pestaña (`cuenta.html` de `linkedin.json`), toma el usuario de la URL o
+  del HTML de `/in/me/` (gana el más repetido) y acepta solo un correo. La lectura pintada queda de
+  respaldo. Sin correo, el latido trae el motivo (`sin_perfil`, `sin_correo`, `varios_correos`,
+  `sin_sesion`), que el servidor guarda en `navegadores.portales_json`.
 - **Permiso `https://*/*`**: el popup lo pide con un toque y su explicación (bloque «Páginas de las
   empresas», visible cuando el servidor habilita LinkedIn). La extensión lo reporta en el latido
   como `portales.externa` y el servidor lo borra en cuanto deja de llegar.
