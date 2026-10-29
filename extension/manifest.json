@@ -17,6 +17,9 @@
     "https://*.magneto365.com/*",
     "https://postulador.tailf6cdf1.ts.net/*"
   ],
+  "optional_permissions": [
+    "cookies"
+  ],
   "optional_host_permissions": [
     "https://*.elempleo.com/*",
     "https://*.getonbrd.com/*",
