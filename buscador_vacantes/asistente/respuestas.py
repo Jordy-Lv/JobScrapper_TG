@@ -26,6 +26,11 @@ from buscador_vacantes.asistente.campos import CONTACTO, RESERVADO, DatosUsuario
 from buscador_vacantes.asistente.cv_adaptado import tecnologias_del_perfil
 from buscador_vacantes.asistente.datos import BaseAsistente
 from buscador_vacantes.asistente.ia import ClaveInvalida, ClienteIA, ErrorIA, Parte, datos
+from buscador_vacantes.asistente.ia.errores import (
+    CuotaAgotada,
+    ModeloNoDisponible,
+    TopeAlcanzado,
+)
 from buscador_vacantes.asistente.tecnologias import diccionario
 from buscador_vacantes.comun.config import RAIZ
 from buscador_vacantes.comun.estado import a_texto
@@ -44,6 +49,12 @@ MAX_CARACTERES_PEGADOS = 4000
 
 SI = {"si", "s", "yes", "true", "verdadero", "afirmativo", "claro"}
 NO = {"no", "n", "false", "falso", "negativo", "ninguno", "ninguna"}
+
+
+def es_falla_temporal(exc: ErrorIA) -> bool:
+    """El proveedor saturado o sin contacto: a diferencia de la clave inválida, la cuota o el
+    tope diario, puede resolverse en minutos."""
+    return not isinstance(exc, (ClaveInvalida, CuotaAgotada, TopeAlcanzado, ModeloNoDisponible))
 
 
 class Origen(StrEnum):
@@ -107,6 +118,29 @@ def normalizar_pregunta(texto: str) -> str:
     texto = re.sub(r"\((obligatori[oa]|opcional|requerid[oa])\)", "", texto)
     texto = re.sub(r"[¿?¡!:*.,;\"'()]", " ", texto)
     return re.sub(r"\s+", " ", texto).strip()
+
+
+# Verbos con los que empieza una pregunta de sí o no, y palabras que la vuelven una pregunta de
+# dato abierto («¿Tienes cuántos años…?», «¿Cuál…?»). Conservador: ante la duda, se escribe.
+_INICIO_SI_NO = re.compile(
+    r"^(cuentas? con|tienes|tiene|posees|dispones|estas|esta|puedes|puede|has|ha|eres|es|"
+    r"aceptas|acepta|te encuentras|se encuentra|hablas|habla|conoces|manejas|sabes|"
+    r"tendrias|podrias|estarias|vives|resides|cuentas|cumples|dispone|do you|are you|"
+    r"can you|have you|will you|would you)\b"
+)
+_DATO_ABIERTO = re.compile(
+    r"\b(cuanto|cuantos|cuanta|cuantas|cual|cuales|que|quien|quienes|por que|como|donde|"
+    r"cuando|describe|explica|menciona|indica|detalla|escribe|what|which|why|how|where|when|"
+    r"describe|explain)\b"
+)
+SI_NO = ["Sí", "No"]
+
+
+def es_pregunta_si_no(texto: str | None) -> bool:
+    """Si el enunciado es claramente de sí o no, para ofrecer los botones «Sí» y «No» aunque el
+    portal la dé como campo de texto."""
+    norma = normalizar_pregunta(texto or "")
+    return bool(_INICIO_SI_NO.match(norma)) and not _DATO_ABIERTO.search(norma)
 
 
 @lru_cache(maxsize=1)
@@ -407,6 +441,14 @@ class Contexto:
     revisadas: int = 0  # respuestas que el revisor final cambió en esta pasada
     nivel: str = "normal"  # nivel de IA efectivo de la postulación (ahorro | normal | maximo)
     clasificar_preguntas: bool = True  # False (Ahorro): las preguntas nuevas van a la card
+    # La IA falló de forma temporal (saturada o sin contacto) en esta pasada: vale reintentar
+    ia_fallo: bool = False
+
+    def anotar_falla(self, exc: ErrorIA) -> None:
+        """Marca la pasada si la falla es temporal; sin clave, clave inválida, cuota o tope
+        agotados no se reintenta (no se arreglan en minutos)."""
+        if es_falla_temporal(exc):
+            self.ia_fallo = True
 
     @property
     def con_ia(self) -> bool:
@@ -599,7 +641,8 @@ async def resolver(pregunta: Pregunta, ctx: Contexto) -> Respuesta:
             [Parte(datos("pregunta", _pregunta_con_opciones(pregunta)))], Clasificacion,
             nivel=ctx.nivel,
         )  # fmt: skip
-    except ErrorIA:
+    except ErrorIA as exc:
+        ctx.anotar_falla(exc)
         return Respuesta(pregunta, falta=True)
     campo, parametro = clasificacion.campo, clasificacion.parametro
     if clasificacion.formato == "dato" and campo and campos.es_campo_valido(campo, parametro):
@@ -888,7 +931,8 @@ async def redactar_formulario(
         )  # fmt: skip
     except ClaveInvalida:
         raise
-    except ErrorIA:
+    except ErrorIA as exc:
+        ctx.anotar_falla(exc)
         return None
     ajenos = requisitos_ajenos(ctx)
     resultado: dict[int, Redactada] = {}

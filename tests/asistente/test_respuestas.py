@@ -20,6 +20,14 @@ from buscador_vacantes.asistente.cv_lectura import (  # noqa: E402
 )
 from buscador_vacantes.asistente.datos import BaseAsistente  # noqa: E402
 from buscador_vacantes.asistente.ia import ClienteIA  # noqa: E402
+from buscador_vacantes.asistente.ia.errores import (  # noqa: E402
+    ClaveInvalida,
+    CuotaAgotada,
+    ErrorIA,
+    ModeloNoDisponible,
+    Saturado,
+    TopeAlcanzado,
+)
 from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     Contexto,
     DatoFaltante,
@@ -34,7 +42,9 @@ from buscador_vacantes.asistente.respuestas import (  # noqa: E402
     elegir_opcion,
     elegir_opciones,
     es_consentimiento,
+    es_falla_temporal,
     es_larga,
+    es_pregunta_si_no,
     guardar_en_banco,
     normalizar_pregunta,
     recordar,
@@ -627,6 +637,38 @@ def test_banco_reconoce_formulaciones_en_ingles_y_portugues(base, texto, campo, 
     assert r.campo == campo
     assert (r.valor == valor) if valor else r.falta  # sin el dato en el perfil se pregunta
     assert ruta.call_count == 0
+
+
+AVAL = ("¿Cuentas con el aval por parte de tu institución educativa para iniciar proceso de "
+        "prácticas de inmediato?")  # fmt: skip
+
+
+@respx.mock
+def test_aval_conocido_se_resuelve_sin_ia_con_texto_y_con_opciones(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    con_aval = DatosUsuario(PERFIL, {"aval_institucion": "Sí"})
+    r = asyncio.run(resolver(Pregunta(AVAL), contexto(base, datos=con_aval)))
+    assert (r.valor, r.campo) == ("Sí", "aval_institucion")
+    opciones = Pregunta(AVAL, "opciones", ["Sí", "No"])
+    r = asyncio.run(resolver(opciones, contexto(base, datos=con_aval)))
+    assert (r.opcion, r.campo) == (0, "aval_institucion")
+    assert ruta.call_count == 0
+
+
+@respx.mock
+def test_aval_desconocido_se_le_pregunta_al_usuario_con_su_campo(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=gemini({}))
+    r = asyncio.run(resolver(Pregunta(AVAL), contexto(base)))
+    assert r.falta and r.campo == "aval_institucion" and ruta.call_count == 0
+
+
+def test_semilla_del_aval_se_agrega_a_un_banco_ya_sembrado(base):
+    norma = normalizar_pregunta(AVAL)
+    with base.transaccion() as cx:
+        cx.execute("DELETE FROM banco_preguntas WHERE pregunta_norm = ?", (norma,))
+    assert campo_en_banco(base, AVAL) is None
+    assert sembrar_banco(base, AHORA) >= 1
+    assert campo_en_banco(base, AVAL) == ("aval_institucion", None)
 
 
 @respx.mock
@@ -1234,3 +1276,84 @@ def test_pregunta_multiple_aprendida_y_redactor_devuelven_lista_de_opciones(base
     assert serializadas == [
         {"indice": 0, "valor": None, "opcion": 0, "opciones": [0, 2], "origen": Origen.APRENDIDA}
     ]
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "¿Cuentas con el aval por parte de tu institución educativa para iniciar proceso de "
+        "prácticas de inmediato?",
+        "¿Tienes moto?",
+        "¿Puedes viajar?",
+        "¿Aceptas trabajo híbrido?",
+        "¿Estás dispuesto a cambiar de ciudad?",
+        "¿Cuenta con disponibilidad inmediata?",
+        "Do you have a laptop?",
+    ],
+)  # fmt: skip
+def test_pregunta_de_si_o_no(texto):
+    assert es_pregunta_si_no(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "¿Por qué te interesa esta vacante?",
+        "¿Cuántos años de experiencia tienes?",
+        "¿Cuál es tu aspiración salarial?",
+        "Describe tu experiencia con Python",
+        "¿Tienes experiencia? Cuéntanos qué proyectos hiciste",
+        "¿Qué estudias?",
+        "Ciudad de residencia",
+        "Nombre completo",
+        "",
+        None,
+    ],
+)
+def test_pregunta_que_no_es_de_si_o_no(texto):
+    assert not es_pregunta_si_no(texto)
+
+
+@pytest.mark.parametrize(
+    ("error", "temporal"),
+    [
+        (Saturado("saturado"), True),
+        (ErrorIA("No se pudo contactar a Gemini"), True),
+        (ClaveInvalida("clave"), False),
+        (CuotaAgotada("cuota"), False),
+        (TopeAlcanzado("tope"), False),
+        (ModeloNoDisponible("modelo"), False),
+    ],
+)
+def test_solo_la_saturacion_y_la_falta_de_contacto_son_temporales(error, temporal):
+    assert es_falla_temporal(error) is temporal
+
+
+@respx.mock
+def test_clasificar_con_la_ia_saturada_marca_la_pasada_para_reintentar(base):
+    respx.post(url__startswith=BASE_URL).mock(return_value=httpx.Response(503, json={}))
+    ctx = contexto(base)
+    ctx.cliente.dormir = lambda _s: asyncio.sleep(0)
+    r = asyncio.run(resolver(Pregunta("¿Qué te motiva de este reto?"), ctx))
+    assert r.falta and ctx.ia_fallo
+
+
+@respx.mock
+def test_redactar_con_la_ia_saturada_marca_la_pasada_para_reintentar(base):
+    respx.post(url__startswith=BASE_URL).mock(return_value=httpx.Response(500))
+    ctx = contexto(base)
+    ctx.cliente.dormir = lambda _s: asyncio.sleep(0)
+    assert asyncio.run(redactar_formulario([Pregunta("¿Por qué te interesa?")], ctx)) is None
+    assert ctx.ia_fallo
+
+
+@respx.mock
+def test_sin_ia_o_con_la_cuota_agotada_no_se_marca_para_reintentar(base):
+    ruta = respx.post(url__startswith=BASE_URL).mock(return_value=httpx.Response(429, json={}))
+    sin_ia = contexto(base, con_ia=False)
+    assert asyncio.run(redactar_formulario([Pregunta("¿Por qué?")], sin_ia)) is None
+    assert not sin_ia.ia_fallo and ruta.call_count == 0
+    ctx = contexto(base)
+    ctx.cliente.dormir = lambda _s: asyncio.sleep(0)
+    assert asyncio.run(redactar_formulario([Pregunta("¿Por qué te interesa?")], ctx)) is None
+    assert not ctx.ia_fallo

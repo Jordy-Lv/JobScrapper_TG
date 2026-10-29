@@ -37,6 +37,13 @@
 - {pregunta: "¿Estudias actualmente?", campo: estudia_actualmente}
 - {pregunta: "¿Eres estudiante activo?", campo: estudia_actualmente}
 - {pregunta: "¿Te encuentras estudiando?", campo: estudia_actualmente}
+- {pregunta: "¿Cuentas con el aval por parte de tu institución educativa para iniciar proceso de prácticas de inmediato?", campo: aval_institucion}
+- {pregunta: "¿Cuentas con el aval de tu institución educativa para realizar prácticas?", campo: aval_institucion}
+- {pregunta: "¿Cuentas con el aval de tu universidad para iniciar prácticas?", campo: aval_institucion}
+- {pregunta: "¿Tienes el aval de tu institución educativa para realizar la práctica?", campo: aval_institucion}
+- {pregunta: "¿Tienes aval de tu universidad para hacer prácticas?", campo: aval_institucion}
+- {pregunta: "¿Tienes convenio con tu institución educativa para realizar prácticas?", campo: aval_institucion}
+- {pregunta: "¿Tu institución educativa te avala para iniciar la práctica?", campo: aval_institucion}
 - {pregunta: "Institución educativa", campo: institucion}
 - {pregunta: "¿En qué universidad estudias?", campo: institucion}
 - {pregunta: "¿Qué estudias?", campo: programa}

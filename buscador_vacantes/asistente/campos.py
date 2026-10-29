@@ -40,6 +40,8 @@ CAMPOS: dict[str, str] = {
     "salario_usd": "aspiración salarial en dólares (USD)",
     "promedio": "promedio académico (GPA, nota media)",
     "fuente_vacante": "cómo o dónde se enteró de la vacante (la plataforma de la que vino)",
+    "aval_institucion": "si cuenta con el aval de su institución educativa para iniciar prácticas "
+    "(sí/no)",
 }
 CAMPOS_PARAMETRO = {
     "conoce": "si tiene conocimiento de una herramienta o tecnología (parámetro: cuál)",

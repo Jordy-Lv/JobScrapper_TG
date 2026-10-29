@@ -5,6 +5,7 @@ El bot y la API usan esta clase; los avisos al usuario salen por ``notificador``
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -71,6 +72,7 @@ from buscador_vacantes.asistente.recetas import (
     parches_aplicables,
 )
 from buscador_vacantes.asistente.respuestas import (
+    SI_NO,
     Contexto,
     Origen,
     Pregunta,
@@ -79,6 +81,7 @@ from buscador_vacantes.asistente.respuestas import (
     detectar_idioma,
     elegir_opcion,
     elegir_opciones,
+    es_pregunta_si_no,
     normalizar_pregunta,
     recordar,
     recortar_a_limite,
@@ -137,6 +140,7 @@ class Nucleo:
         archivos: Path,
         *,
         reloj: Callable[[], datetime] = ahora_utc,
+        dormir: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         assert configuracion.asistente is not None
         self.configuracion = configuracion
@@ -149,6 +153,7 @@ class Nucleo:
         self.archivos = archivos
         self.enlace_grupo: str | None = None  # lo fija servicio.construir_nucleo
         self.reloj = reloj
+        self.dormir = dormir
         self.cola = Cola(base, self.config)
         self.linkedin = self.cola.linkedin  # aceptación, interruptores, pausa y aperturas
         self.cuentas = CuentasPortal(base, cifrador)
@@ -671,29 +676,24 @@ class Nucleo:
         previas = self._redacciones_previas(postulacion.id)
         estados: dict[str, str] = {}  # pregunta normalizada → estado de la redacción reutilizada
         resueltas: list[Respuesta] = []
-        por_redactar: list[Pregunta] = []
-        # Fase 1: datos, opciones y redacciones ya hechas para esta postulación, sin redactar
-        for pregunta in preguntas:
-            if pregunta.tipo == "archivo":
-                continue  # el CV lo adjunta la extensión
-            try:
-                respuesta = await resolver(pregunta, ctx)
-            except ClaveIAInvalida:
-                self.marcar_clave_invalida(usuario.id)
-                ctx.cliente, ctx.clave = None, None
-                respuesta = await resolver(pregunta, ctx)
-            if respuesta.redactar:
-                norma = normalizar_pregunta(pregunta.texto)
-                previa = previas.get(norma)
-                reutilizada = self._reutilizar(pregunta, previa) if previa else None
-                if reutilizada is None:
-                    por_redactar.append(pregunta)
-                    continue
-                estados[norma] = previa["estado"]
-                respuesta = reutilizada
-            resueltas.append(respuesta)
-        # Fase 2: una sola llamada para todas las preguntas abiertas que faltan
-        resueltas += await self._redactar(por_redactar, ctx)
+        esperas = list(self.config.formulario_ia.esperas_s)
+        ia_agotada = False
+        while True:
+            estados.clear()
+            ctx.ia_fallo, ctx.revisadas = False, 0
+            resueltas = await self._resolver_pasada(preguntas, ctx, previas, estados, usuario.id)
+            pendientes_ia = [r for r in resueltas if r.falta and r.pregunta.obligatoria]
+            if not (ctx.ia_fallo and pendientes_ia):
+                break
+            if not esperas:  # se agotaron los reintentos: las preguntas pasan al usuario
+                ia_agotada = True
+                break
+            # La IA está saturada o sin contacto: se espera y se vuelve a resolver (lo que ya
+            # se clasificó quedó en el banco). El latido del navegador sigue mientras tanto.
+            espera = esperas.pop(0)
+            log.info("IA no disponible al resolver el formulario de %s: reintento en %s s",
+                     postulacion.id, espera)  # fmt: skip
+            await self.dormir(espera)
         if ctx.revisadas:
             with self.base.transaccion() as cx:
                 self.cola.paso(cx, postulacion.id, "respuestas_revisadas", self.ahora(),
@@ -704,6 +704,12 @@ class Nucleo:
                     resultado.faltan.append(respuesta)
             else:
                 resultado.respuestas.append(respuesta)
+        if ia_agotada and resultado.faltan:
+            # Qué preguntas llegan a la card por la IA caída, para decírselo al usuario
+            with self.base.transaccion() as cx:
+                self.cola.paso(cx, postulacion.id, "ia_no_respondio", self.ahora(),
+                               detalle=[normalizar_pregunta(r.pregunta.texto)
+                                        for r in resultado.faltan])  # fmt: skip
         orden = {id(p): i for i, p in enumerate(preguntas)}
         resultado.respuestas.sort(key=lambda r: orden[id(r.pregunta)])
         revisar = not resultado.faltan and self._toca_revisar(postulacion, resultado, estados)
@@ -729,6 +735,38 @@ class Nucleo:
         else:
             resultado.cv = self.cv_base_de(usuario, datos)
         return resultado
+
+    async def _resolver_pasada(
+        self, preguntas: list[Pregunta], ctx: Contexto, previas: dict, estados: dict[str, str],
+        usuario_id: int,
+    ) -> list[Respuesta]:  # fmt: skip
+        """Una pasada de resolución del formulario: lo que no necesita redactarse y, en una sola
+        llamada, las preguntas abiertas."""
+        resueltas: list[Respuesta] = []
+        por_redactar: list[Pregunta] = []
+        # Fase 1: datos, opciones y redacciones ya hechas para esta postulación, sin redactar
+        for pregunta in preguntas:
+            if pregunta.tipo == "archivo":
+                continue  # el CV lo adjunta la extensión
+            try:
+                respuesta = await resolver(pregunta, ctx)
+            except ClaveIAInvalida:
+                self.marcar_clave_invalida(usuario_id)
+                ctx.cliente, ctx.clave = None, None
+                respuesta = await resolver(pregunta, ctx)
+            if respuesta.redactar:
+                norma = normalizar_pregunta(pregunta.texto)
+                previa = previas.get(norma)
+                reutilizada = self._reutilizar(pregunta, previa) if previa else None
+                if reutilizada is None:
+                    por_redactar.append(pregunta)
+                    continue
+                estados[norma] = previa["estado"]
+                respuesta = reutilizada
+            resueltas.append(respuesta)
+        # Fase 2: una sola llamada para todas las preguntas abiertas que faltan
+        resueltas += await self._redactar(por_redactar, ctx)
+        return resueltas
 
     async def arbitrar_pantalla(
         self, postulacion: Postulacion, consulta: Consulta
@@ -1168,7 +1206,16 @@ class Nucleo:
         filas = []
         for r in faltan:
             if r.datos:
-                filas += [(d.pregunta, d.sugerencias, None, "dato") for d in r.datos]
+                # Un dato de sí o no sin sugerencias del redactor ofrece «Sí» y «No»
+                filas += [
+                    (d.pregunta, d.sugerencias or (SI_NO if es_pregunta_si_no(d.pregunta) else []),
+                     None, "dato")
+                    for d in r.datos
+                ]  # fmt: skip
+            elif not r.pregunta.opciones and es_pregunta_si_no(r.pregunta.texto):
+                # El portal la da como texto, pero el enunciado es de sí o no: botones, aunque
+                # el usuario puede escribir
+                filas.append((r.pregunta.texto, SI_NO, r.campo, "si_no"))
             else:
                 filas.append((r.pregunta.texto, r.pregunta.opciones, r.campo, "formulario"))
         with self.base.transaccion() as cx:
@@ -1188,6 +1235,19 @@ class Nucleo:
                     (usuario_id, pid, pregunta, norma, json.dumps(opciones, ensure_ascii=False),
                      campo, tipo, a_texto(self.ahora())),
                 )  # fmt: skip
+
+    def preguntas_sin_ia(self, pid: int) -> set[str]:
+        """Las preguntas (normalizadas) que llegaron al usuario porque la IA no respondió tras los
+        reintentos, según el último paso `ia_no_respondio` de la postulación."""
+        fila = self.base.cx.execute(
+            "SELECT detalle FROM postulacion_pasos WHERE postulacion_id = ? "
+            "AND paso = 'ia_no_respondio' ORDER BY id DESC LIMIT 1",
+            (pid,),
+        ).fetchone()
+        try:
+            return set(json.loads(fila["detalle"])) if fila and fila["detalle"] else set()
+        except ValueError:
+            return set()
 
     def pendientes(self, usuario_id: int) -> list[dict]:
         filas = self.base.cx.execute(
