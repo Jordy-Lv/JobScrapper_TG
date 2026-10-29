@@ -6,6 +6,7 @@ import yaml
 from buscador_vacantes.comun.config import (
     RAIZ,
     ErrorConfiguracion,
+    PalabrasPropias,
     cargar_configuracion,
     cargar_secretos,
 )
@@ -63,7 +64,7 @@ def test_config_inicial_carga(config):
     assert config.fuentes["computrabajo"].paginas_nucleo == 3
     assert config.fuentes["elempleo"].presupuesto == 5
     assert config.fuentes["magneto"].paginas_nucleo == 1
-    assert config.fuentes["getonboard"].presupuesto == 5
+    assert config.fuentes["getonboard"].presupuesto == 6
     assert config.fuentes["sena"].activa is False
     assert config.banner.modo == "diario"
     assert config.ia.presupuesto_dia.clasificador == 300
@@ -323,12 +324,13 @@ def test_asistente_motor_generico_y_secciones_nuevas(config):
     assert (motor.max_minutos, motor.max_arbitro, motor.max_reparaciones) == (10, 6, 2)
     assert asistente.autorreparacion.clave_duenio is False
     assert asistente.ensayo.plataformas == []
+    assert asistente.formulario_ia.esperas_s == [30, 60, 120]
     assert asistente.vigia.hora == "05:30"
 
 
 def test_asistente_secciones_nuevas_por_defecto_sin_config(tmp_path):
     def quitar(d):
-        for clave in ("motor_generico", "autorreparacion", "ensayo", "vigia"):
+        for clave in ("motor_generico", "autorreparacion", "ensayo", "formulario_ia", "vigia"):
             d["asistente"].pop(clave)
 
     asistente = cargar_configuracion(escribir_config(tmp_path, quitar)).asistente
@@ -346,8 +348,10 @@ def test_asistente_secciones_nuevas_por_defecto_sin_config(tmp_path):
          "asistente.motor_generico.max_pantallas"),
         (lambda d: d["asistente"]["ensayo"].update(plataformas=["inventada"]),
          "ensayo.plataformas desconocidas: inventada"),
+        (lambda d: d["asistente"]["formulario_ia"].update(esperas_s=[30, -1]),
+         "formulario_ia.esperas_s no admite valores negativos"),
     ],
-    ids=["hora", "pantallas", "ensayo"],
+    ids=["hora", "pantallas", "ensayo", "esperas"],
 )  # fmt: skip
 def test_asistente_secciones_nuevas_invalidas(tmp_path, cambio, campo):
     with pytest.raises(ErrorConfiguracion, match=campo):
@@ -791,3 +795,105 @@ def test_familia_con_cuenta_desconocida_es_error(tmp_path):
     with pytest.raises(ErrorConfiguracion) as error:
         cargar_configuracion(ruta)
     assert "familias_con_cuenta" in str(error.value)
+
+
+# --- Palabras clave propias por fuente -----------------------------------------------------------
+
+
+def test_getonboard_palabras_propias_sin_espacios_ni_junior(config):
+    gob = config.fuentes["getonboard"]
+    assert gob.presupuesto == 6
+    assert gob.reservado_nucleo == 2
+    assert gob.paginas_nucleo == 2
+    assert gob.reservado_nucleo * gob.paginas_nucleo <= gob.presupuesto
+    propias = gob.palabras_clave
+    assert propias is not None
+    for palabra in propias.nucleo + propias.cola_larga:
+        assert " " not in palabra, f"La palabra {palabra!r} no debe contener espacios"
+    for palabra in propias.nucleo:
+        assert "junior" not in palabra.lower()
+    assert "junior" in propias.cola_larga
+    assert set(propias.nucleo) == {
+        "practicante",
+        "aprendiz",
+        "pasante",
+        "pasantía",
+        "trainee",
+        "internship",
+    }
+
+
+def test_fuente_sin_palabras_clave_propias_carga_igual(config):
+    for nombre, fuente in config.fuentes.items():
+        if nombre != "getonboard":
+            assert fuente.palabras_clave is None, nombre
+        else:
+            assert fuente.palabras_clave is not None
+
+
+def test_fuente_con_palabras_clave_propias_carga_correctamente(tmp_path):
+    ruta = escribir_config(
+        tmp_path,
+        lambda d: d["fuentes"]["getonboard"].update(
+            palabras_clave={
+                "nucleo": ["practicante", "aprendiz"],
+                "cola_larga": ["junior", "soporte"],
+            }
+        ),
+    )
+    conf = cargar_configuracion(ruta)
+    propias = conf.fuentes["getonboard"].palabras_clave
+    assert isinstance(propias, PalabrasPropias)
+    assert propias.nucleo == ["practicante", "aprendiz"]
+    assert propias.cola_larga == ["junior", "soporte"]
+    assert propias.cola_larga_plana == ["junior", "soporte"]
+
+
+def test_fuente_con_palabras_clave_propias_solo_nucleo(tmp_path):
+    ruta = escribir_config(
+        tmp_path,
+        lambda d: d["fuentes"]["getonboard"].update(palabras_clave={"nucleo": ["practicante"]}),
+    )
+    conf = cargar_configuracion(ruta)
+    propias = conf.fuentes["getonboard"].palabras_clave
+    assert isinstance(propias, PalabrasPropias)
+    assert propias.nucleo == ["practicante"]
+    assert propias.cola_larga == []
+    assert propias.cola_larga_plana == []
+
+
+def test_fuente_palabras_propias_nucleo_vacio_rechazado(tmp_path):
+    ruta = escribir_config(
+        tmp_path,
+        lambda d: d["fuentes"]["getonboard"].update(palabras_clave={"nucleo": []}),
+    )
+    with pytest.raises(ErrorConfiguracion, match="nucleo"):
+        cargar_configuracion(ruta)
+
+
+@pytest.mark.parametrize(
+    "palabras",
+    [
+        {"nucleo": [""]},
+        {"nucleo": ["   "]},
+        {"nucleo": ["practicante"], "cola_larga": [""]},
+        {"nucleo": ["practicante"], "cola_larga": ["   "]},
+    ],
+)
+def test_fuente_palabras_propias_palabra_vacia_rechazada(tmp_path, palabras):
+    ruta = escribir_config(
+        tmp_path,
+        lambda d: d["fuentes"]["getonboard"].update(palabras_clave=palabras),
+    )
+    with pytest.raises(ErrorConfiguracion, match="vacía"):
+        cargar_configuracion(ruta)
+
+
+def test_fuente_palabras_propias_combinadas_con_or_rechazadas(tmp_path):
+    # LinkedIn declara opciones.consulta.modo = "or"
+    ruta = escribir_config(
+        tmp_path,
+        lambda d: d["fuentes"]["linkedin"].update(palabras_clave={"nucleo": ["practicante"]}),
+    )
+    with pytest.raises(ErrorConfiguracion, match="modo = 'or'"):
+        cargar_configuracion(ruta)
